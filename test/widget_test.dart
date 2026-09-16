@@ -5,16 +5,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/app/app.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/database/database_providers.dart';
+import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
+
+import 'support/fake_sync.dart';
 
 void main() {
   late AppDatabase database;
+  late MemorySyncCredentialsStore credentialsStore;
 
-  setUp(() => database = AppDatabase(NativeDatabase.memory()));
+  setUp(() {
+    database = AppDatabase(NativeDatabase.memory());
+    credentialsStore = MemorySyncCredentialsStore();
+  });
   tearDown(() => database.close());
 
   Widget buildApp() => ProviderScope(
-    overrides: [appDatabaseProvider.overrideWithValue(database)],
+    overrides: [
+      appDatabaseProvider.overrideWithValue(database),
+      syncCredentialsStoreProvider.overrideWithValue(credentialsStore),
+    ],
     child: const ReviewApp(),
   );
 
@@ -53,6 +63,19 @@ void main() {
     expect(find.text('기간별 정답률'), findsOneWidget);
     expect(find.text('폴더별 정답률'), findsOneWidget);
     expect(find.text('최근 오답'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('설정 화면에 동기화 Outbox 대기 건수를 표시한다', (tester) async {
+    await DriftFolderRepository(database).createFolder(name: '동기화 대기');
+    await tester.pumpWidget(buildApp());
+
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('settings-view')), findsOneWidget);
+    expect(find.text('대기 1건'), findsOneWidget);
+    expect(find.text('수동 동기화'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

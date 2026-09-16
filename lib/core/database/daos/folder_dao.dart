@@ -21,6 +21,16 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         .getSingleOrNull();
   }
 
+  Future<FolderRow?> getFolder(String id) {
+    return (select(
+      folders,
+    )..where((folder) => folder.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<void> upsertFolder(FoldersCompanion folder) {
+    return into(folders).insertOnConflictUpdate(folder);
+  }
+
   Future<void> insertFolder(FoldersCompanion folder) {
     return into(folders).insert(folder);
   }

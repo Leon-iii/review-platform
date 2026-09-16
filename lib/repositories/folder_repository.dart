@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/sync_entity_type.dart';
+import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/folder.dart';
 import 'package:uuid/uuid.dart';
 
@@ -47,6 +49,12 @@ class DriftFolderRepository implements FolderRepository {
             updatedAt: now,
           ),
         );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.folder.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
       });
 
       return id;
@@ -60,10 +68,17 @@ class DriftFolderRepository implements FolderRepository {
 
       await _database.transaction(() async {
         await _requireFolder(id);
+        final now = DateTime.now().toUtc();
         await _database.folderDao.renameFolder(
           id: id,
           name: normalizedName,
-          updatedAt: DateTime.now().toUtc(),
+          updatedAt: now,
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.folder.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
         );
       });
     }, '폴더 이름을 변경하지 못했어요.');
@@ -87,10 +102,17 @@ class DriftFolderRepository implements FolderRepository {
           }
         }
 
+        final now = DateTime.now().toUtc();
         await _database.folderDao.moveFolder(
           id: id,
           parentId: parentId,
-          updatedAt: DateTime.now().toUtc(),
+          updatedAt: now,
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.folder.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
         );
       });
     }, '폴더를 옮기지 못했어요.');
@@ -119,6 +141,8 @@ class DriftFolderRepository implements FolderRepository {
         final descendantIds = await _database.folderDao.getDescendantIds(id);
         final deletedAt = DateTime.now().toUtc();
         final folderIds = [id, ...descendantIds];
+        final questionIds = await _database.questionDao
+            .getActiveQuestionIdsInFolders(folderIds);
 
         await _database.folderDao.softDeleteFolders(
           ids: folderIds,
@@ -128,6 +152,22 @@ class DriftFolderRepository implements FolderRepository {
           folderIds: folderIds,
           deletedAt: deletedAt,
         );
+        for (final folderId in folderIds) {
+          await _database.syncDao.enqueue(
+            entityType: SyncEntityType.folder.name,
+            entityId: folderId,
+            operation: SyncOperation.delete.name,
+            createdAt: deletedAt,
+          );
+        }
+        for (final questionId in questionIds) {
+          await _database.syncDao.enqueue(
+            entityType: SyncEntityType.question.name,
+            entityId: questionId,
+            operation: SyncOperation.delete.name,
+            createdAt: deletedAt,
+          );
+        }
       });
     }, '폴더를 삭제하지 못했어요.');
   }

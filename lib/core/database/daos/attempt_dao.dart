@@ -12,6 +12,16 @@ class AttemptDao extends DatabaseAccessor<AppDatabase> with _$AttemptDaoMixin {
     return into(attempts).insert(attempt);
   }
 
+  Future<AttemptRow?> getAttempt(String id) {
+    return (select(
+      attempts,
+    )..where((attempt) => attempt.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<void> insertAttemptIfMissing(AttemptsCompanion attempt) {
+    return into(attempts).insert(attempt, mode: InsertMode.insertOrIgnore);
+  }
+
   Future<List<AttemptRow>> getAttemptsForSession(String sessionId) {
     return (select(attempts)
           ..where((attempt) => attempt.sessionId.equals(sessionId))

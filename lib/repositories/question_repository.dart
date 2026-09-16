@@ -3,6 +3,8 @@ import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/enums/sync_entity_type.dart';
+import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/services/question_validator.dart';
 import 'package:uuid/uuid.dart';
@@ -53,6 +55,12 @@ class DriftQuestionRepository implements QuestionRepository {
           ),
         );
         await _replaceDetails(id, validated);
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.question.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
       });
 
       return id;
@@ -67,6 +75,7 @@ class DriftQuestionRepository implements QuestionRepository {
       await _database.transaction(() async {
         await _requireQuestion(id);
         await _requireFolder(validated.folderId);
+        final now = DateTime.now().toUtc();
         await _database.questionDao.updateQuestion(
           id,
           QuestionsCompanion(
@@ -76,10 +85,16 @@ class DriftQuestionRepository implements QuestionRepository {
             prompt: Value(validated.prompt),
             explanation: Value(validated.explanation),
             difficulty: Value(validated.difficulty),
-            updatedAt: Value(DateTime.now().toUtc()),
+            updatedAt: Value(now),
           ),
         );
         await _replaceDetails(id, validated);
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.question.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
       });
     }, '문제를 수정하지 못했어요.');
   }
@@ -87,11 +102,17 @@ class DriftQuestionRepository implements QuestionRepository {
   @override
   Future<void> deleteQuestion(String id) {
     return _guard(() async {
-      await _requireQuestion(id);
-      await _database.questionDao.softDeleteQuestion(
-        id,
-        DateTime.now().toUtc(),
-      );
+      await _database.transaction(() async {
+        await _requireQuestion(id);
+        final now = DateTime.now().toUtc();
+        await _database.questionDao.softDeleteQuestion(id, now);
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.question.name,
+          entityId: id,
+          operation: SyncOperation.delete.name,
+          createdAt: now,
+        );
+      });
     }, '문제를 삭제하지 못했어요.');
   }
 

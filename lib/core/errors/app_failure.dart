@@ -15,3 +15,11 @@ final class ValidationFailure extends AppFailure {
 final class DatabaseFailure extends AppFailure {
   const DatabaseFailure(super.message, {super.cause});
 }
+
+final class NetworkFailure extends AppFailure {
+  const NetworkFailure(super.message, {super.cause});
+}
+
+final class SyncFailure extends AppFailure {
+  const SyncFailure(super.message, {super.cause});
+}

@@ -29,6 +29,16 @@ class QuestionDao extends DatabaseAccessor<AppDatabase>
         .getSingleOrNull();
   }
 
+  Future<QuestionRow?> getQuestion(String id) {
+    return (select(
+      questions,
+    )..where((question) => question.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<void> upsertQuestion(QuestionsCompanion question) {
+    return into(questions).insertOnConflictUpdate(question);
+  }
+
   Future<List<QuestionRow>> getEligibleQuestions({
     required List<String> folderIds,
     required List<String> types,
@@ -109,6 +119,21 @@ class QuestionDao extends DatabaseAccessor<AppDatabase>
       ..where(questions.folderId.isIn(ids) & questions.deletedAt.isNull());
     final row = await query.getSingle();
     return row.read(countExpression) ?? 0;
+  }
+
+  Future<List<String>> getActiveQuestionIdsInFolders(
+    Iterable<String> folderIds,
+  ) async {
+    final ids = folderIds.toList(growable: false);
+    if (ids.isEmpty) return const [];
+    final rows =
+        await (selectOnly(questions)
+              ..addColumns([questions.id])
+              ..where(
+                questions.folderId.isIn(ids) & questions.deletedAt.isNull(),
+              ))
+            .get();
+    return [for (final row in rows) row.read(questions.id)!];
   }
 
   Future<void> softDeleteQuestionsInFolders({

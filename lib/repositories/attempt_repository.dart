@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/grading_type.dart';
+import 'package:review_platform/domain/enums/sync_entity_type.dart';
+import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/question_snapshot.dart';
 import 'package:uuid/uuid.dart';
@@ -35,21 +37,29 @@ class DriftAttemptRepository implements AttemptRepository {
       }
       final id = _uuid.v4();
       final now = DateTime.now().toUtc();
-      await _database.attemptDao.insertAttempt(
-        AttemptsCompanion.insert(
-          id: id,
-          questionId: draft.questionId,
-          sessionId: draft.sessionId,
-          answeredAt: now,
-          responseJson: jsonEncode(draft.response),
-          questionSnapshotJson: jsonEncode(draft.questionSnapshot.toJson()),
-          score: draft.score,
-          maxScore: draft.maxScore,
-          gradingType: draft.gradingType.name,
-          durationMs: draft.durationMs,
+      await _database.transaction(() async {
+        await _database.attemptDao.insertAttempt(
+          AttemptsCompanion.insert(
+            id: id,
+            questionId: draft.questionId,
+            sessionId: draft.sessionId,
+            answeredAt: now,
+            responseJson: jsonEncode(draft.response),
+            questionSnapshotJson: jsonEncode(draft.questionSnapshot.toJson()),
+            score: draft.score,
+            maxScore: draft.maxScore,
+            gradingType: draft.gradingType.name,
+            durationMs: draft.durationMs,
+            createdAt: now,
+          ),
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.attempt.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
           createdAt: now,
-        ),
-      );
+        );
+      });
       return id;
     }, '풀이 기록을 저장하지 못했어요.');
   }

@@ -76,7 +76,7 @@ final class StudySetupViewModelProvider
 }
 
 String _$studySetupViewModelHash() =>
-    r'67f42ef2c24e17ea41d9013782cfe4a2979dc8ef';
+    r'0e0bc86eccc4b1954b769132dc556f9594ac9f09';
 
 abstract class _$StudySetupViewModel extends $AsyncNotifier<void> {
   FutureOr<void> build();

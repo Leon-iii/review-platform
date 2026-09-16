@@ -24,11 +24,31 @@ class QuizDao extends DatabaseAccessor<AppDatabase> with _$QuizDaoMixin {
         .getSingleOrNull();
   }
 
+  Future<QuizSessionRow?> getSession(String id) {
+    return (select(
+      quizSessions,
+    )..where((session) => session.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<void> upsertSession(QuizSessionsCompanion session) {
+    return into(quizSessions).insertOnConflictUpdate(session);
+  }
+
   Future<List<QuizSessionItemRow>> getSessionItems(String sessionId) {
     return (select(quizSessionItems)
           ..where((item) => item.sessionId.equals(sessionId))
           ..orderBy([(item) => OrderingTerm.asc(item.position)]))
         .get();
+  }
+
+  Future<void> replaceSessionItems(
+    String sessionId,
+    List<QuizSessionItemsCompanion> items,
+  ) async {
+    await (delete(
+      quizSessionItems,
+    )..where((item) => item.sessionId.equals(sessionId))).go();
+    await batch((batch) => batch.insertAll(quizSessionItems, items));
   }
 
   Future<void> linkAttempt({
@@ -64,6 +84,20 @@ class QuizDao extends DatabaseAccessor<AppDatabase> with _$QuizDaoMixin {
       QuizSessionsCompanion(
         finishedAt: Value(finishedAt),
         updatedAt: Value(finishedAt),
+      ),
+    );
+  }
+
+  Future<void> softDeleteSession({
+    required String sessionId,
+    required DateTime deletedAt,
+  }) {
+    return (update(
+      quizSessions,
+    )..where((session) => session.id.equals(sessionId))).write(
+      QuizSessionsCompanion(
+        updatedAt: Value(deletedAt),
+        deletedAt: Value(deletedAt),
       ),
     );
   }

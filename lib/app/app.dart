@@ -1,13 +1,46 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/app/theme.dart';
+import 'package:review_platform/core/sync/sync_providers.dart';
+import 'package:review_platform/domain/services/automatic_sync_controller.dart';
 
-class ReviewApp extends ConsumerWidget {
+class ReviewApp extends ConsumerStatefulWidget {
   const ReviewApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReviewApp> createState() => _ReviewAppState();
+}
+
+class _ReviewAppState extends ConsumerState<ReviewApp>
+    with WidgetsBindingObserver {
+  late final AutomaticSyncController _automaticSyncController;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _automaticSyncController = ref.read(automaticSyncControllerProvider);
+    unawaited(_automaticSyncController.start());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_automaticSyncController.onForeground());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(

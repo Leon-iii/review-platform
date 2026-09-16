@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/sync_entity_type.dart';
+import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/question_snapshot.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
@@ -71,6 +73,12 @@ class DriftQuizRepository implements QuizRepository {
               ),
             ),
         ]);
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.quizSession.name,
+          entityId: sessionId,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
       });
 
       return sessionId;
@@ -131,19 +139,30 @@ class DriftQuizRepository implements QuizRepository {
             finishedAt: now,
           );
         }
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.quizSession.name,
+          entityId: sessionId,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
       });
     }, '학습 진행 상태를 저장하지 못했어요.');
   }
 
   @override
   Future<void> finishSession(String id) {
-    return _guard(
-      () => _database.quizDao.finishSession(
-        sessionId: id,
-        finishedAt: DateTime.now().toUtc(),
-      ),
-      '학습 세션을 완료하지 못했어요.',
-    );
+    return _guard(() async {
+      final now = DateTime.now().toUtc();
+      await _database.transaction(() async {
+        await _database.quizDao.finishSession(sessionId: id, finishedAt: now);
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.quizSession.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      });
+    }, '학습 세션을 완료하지 못했어요.');
   }
 
   QuizSessionDetails _mapDetails(

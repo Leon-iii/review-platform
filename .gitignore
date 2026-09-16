@@ -29,5 +29,12 @@ app.*.map.json
 /android/app/profile/
 /android/app/release/
 
+# .NET sync server
+**/bin/
+**/obj/
+/server/**/*.db
+/server/**/*.db-shm
+/server/**/*.db-wal
+
 # scripts
 run_phone_test.bat

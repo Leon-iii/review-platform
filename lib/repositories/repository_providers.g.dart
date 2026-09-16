@@ -238,3 +238,44 @@ final class StatisticsRepositoryProvider
 
 String _$statisticsRepositoryHash() =>
     r'232ca74ab54827fa2e66728c837d7f40a4ff18fe';
+
+@ProviderFor(syncRepository)
+final syncRepositoryProvider = SyncRepositoryProvider._();
+
+final class SyncRepositoryProvider
+    extends $FunctionalProvider<SyncRepository, SyncRepository, SyncRepository>
+    with $Provider<SyncRepository> {
+  SyncRepositoryProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'syncRepositoryProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$syncRepositoryHash();
+
+  @$internal
+  @override
+  $ProviderElement<SyncRepository> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  SyncRepository create(Ref ref) {
+    return syncRepository(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(SyncRepository value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<SyncRepository>(value),
+    );
+  }
+}
+
+String _$syncRepositoryHash() => r'e962cbe7d2995a2f211e582f12ea6a5fde247017';
