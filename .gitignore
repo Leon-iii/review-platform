@@ -1,0 +1,30 @@
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+**/doc/api/
+**/flutter/ephemeral/
+**/ios/Flutter/.last_build_id
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS / logs
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+
+# Generated application artifacts
+app.*.symbols
+app.*.map.json
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
