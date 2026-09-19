@@ -41,6 +41,41 @@ void main() {
       );
     });
 
+    test('O/X 문제를 고정된 선택지 순서로 정리한다', () {
+      final result = QuestionValidator.validate(
+        const QuestionDraft(
+          folderId: 'folder',
+          type: QuestionType.trueFalse,
+          prompt: '빛의 속도는 진공에서 일정하다.',
+          choices: [
+            QuestionChoiceDraft(text: ' x ', isCorrect: false),
+            QuestionChoiceDraft(text: ' o ', isCorrect: true),
+          ],
+        ),
+      );
+
+      expect(result.choices.map((choice) => choice.text), ['O', 'X']);
+      expect(result.choices.first.isCorrect, isTrue);
+      expect(result.acceptableAnswers, isEmpty);
+    });
+
+    test('O와 X가 아닌 선택지를 가진 O/X 문제를 거부한다', () {
+      expect(
+        () => QuestionValidator.validate(
+          const QuestionDraft(
+            folderId: 'folder',
+            type: QuestionType.trueFalse,
+            prompt: '문제',
+            choices: [
+              QuestionChoiceDraft(text: '참', isCorrect: true),
+              QuestionChoiceDraft(text: '거짓', isCorrect: false),
+            ],
+          ),
+        ),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
     test('단답형 허용 정답을 trim하고 중복을 제거한다', () {
       final result = QuestionValidator.validate(
         const QuestionDraft(

@@ -6,6 +6,7 @@ import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
 import 'package:review_platform/features/study/setup/study_setup_view_model.dart';
+import 'package:review_platform/shared/widgets/folder_picker.dart';
 
 class StudySetupView extends ConsumerStatefulWidget {
   const StudySetupView({
@@ -25,6 +26,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
   late String? _folderId;
   final Set<QuestionType> _types = {
     QuestionType.multipleChoice,
+    QuestionType.trueFalse,
     QuestionType.shortAnswer,
   };
   int _questionCount = 10;
@@ -72,23 +74,14 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           const SizedBox(height: 16),
-                          DropdownButtonFormField<String>(
+                          FolderPickerField(
                             key: const Key('study-folder-field'),
-                            initialValue: selectedFolderId,
-                            decoration: const InputDecoration(
-                              labelText: '폴더',
-                              helperText: '선택한 폴더의 하위 폴더도 포함합니다.',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: [
-                              for (final option in options)
-                                DropdownMenuItem(
-                                  value: option.folder.id,
-                                  child: Text(
-                                    '${'　' * option.depth}${option.folder.name}',
-                                  ),
-                                ),
+                            folders: [
+                              for (final option in options) option.folder,
                             ],
+                            selectedFolderId: selectedFolderId,
+                            labelText: '폴더',
+                            helperText: '선택한 폴더의 하위 폴더도 포함합니다.',
                             onChanged: (value) =>
                                 setState(() => _folderId = value),
                           ),
@@ -123,6 +116,18 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                                 ),
                                 onSelected: (selected) => _toggleType(
                                   QuestionType.shortAnswer,
+                                  selected,
+                                ),
+                              ),
+                              FilterChip(
+                                key: const Key('true-false-filter'),
+                                label: const Text('O/X'),
+                                avatar: const Icon(Icons.rule_rounded),
+                                selected: _types.contains(
+                                  QuestionType.trueFalse,
+                                ),
+                                onSelected: (selected) => _toggleType(
+                                  QuestionType.trueFalse,
                                   selected,
                                 ),
                               ),

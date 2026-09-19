@@ -1,5 +1,6 @@
 enum QuestionType {
   multipleChoice,
+  trueFalse,
   shortAnswer,
   essay;
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:review_platform/domain/models/folder.dart';
+import 'package:review_platform/shared/widgets/folder_picker.dart';
 
 Future<String?> showFolderNameDialog(
   BuildContext context, {
@@ -99,20 +100,12 @@ Future<FolderMoveSelection?> showFolderMoveDialog(
         title: const Text('폴더 옮기기'),
         content: SizedBox(
           width: 360,
-          child: DropdownButtonFormField<String?>(
-            initialValue: selectedParentId,
-            decoration: const InputDecoration(
-              labelText: '새 상위 폴더',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              const DropdownMenuItem<String?>(value: null, child: Text('최상위')),
-              for (final target in targets)
-                DropdownMenuItem<String?>(
-                  value: target.id,
-                  child: Text(target.name, overflow: TextOverflow.ellipsis),
-                ),
-            ],
+          child: FolderPickerField(
+            key: const Key('move-folder-parent-field'),
+            folders: targets,
+            selectedFolderId: selectedParentId,
+            labelText: '새 상위 폴더',
+            allowRoot: true,
             onChanged: (value) => setState(() => selectedParentId = value),
           ),
         ),

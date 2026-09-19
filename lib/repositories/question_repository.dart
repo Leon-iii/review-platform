@@ -12,9 +12,15 @@ import 'package:uuid/uuid.dart';
 abstract interface class QuestionRepository {
   Future<String> createQuestion(QuestionDraft draft);
 
+  Future<List<String>> createQuestions(List<QuestionDraft> drafts);
+
   Future<void> updateQuestion(String id, QuestionDraft draft);
 
   Future<void> deleteQuestion(String id);
+
+  Future<void> approveQuestion(String id);
+
+  Future<void> approveQuestions(Iterable<String> ids);
 
   Stream<List<Question>> watchQuestions(String folderId);
 
@@ -34,37 +40,51 @@ class DriftQuestionRepository implements QuestionRepository {
 
   @override
   Future<String> createQuestion(QuestionDraft draft) {
+    return createQuestions([draft]).then((ids) => ids.single);
+  }
+
+  @override
+  Future<List<String>> createQuestions(List<QuestionDraft> drafts) {
     return _guard(() async {
-      final validated = QuestionValidator.validate(draft);
-      final id = _uuid.v4();
+      if (drafts.isEmpty) {
+        throw const ValidationFailure('저장할 문제가 없어요.');
+      }
+      final validatedDrafts = drafts
+          .map(QuestionValidator.validate)
+          .toList(growable: false);
+      final ids = [for (final _ in validatedDrafts) _uuid.v4()];
       final now = DateTime.now().toUtc();
 
       await _database.transaction(() async {
-        await _requireFolder(validated.folderId);
-        await _database.questionDao.insertQuestion(
-          QuestionsCompanion.insert(
-            id: id,
-            folderId: validated.folderId,
-            type: validated.type.name,
-            status: validated.status.name,
-            prompt: validated.prompt,
-            explanation: Value(validated.explanation),
-            difficulty: Value(validated.difficulty),
+        for (var index = 0; index < validatedDrafts.length; index++) {
+          final draft = validatedDrafts[index];
+          final id = ids[index];
+          await _requireFolder(draft.folderId);
+          await _database.questionDao.insertQuestion(
+            QuestionsCompanion.insert(
+              id: id,
+              folderId: draft.folderId,
+              type: draft.type.name,
+              status: draft.status.name,
+              prompt: draft.prompt,
+              explanation: Value(draft.explanation),
+              difficulty: Value(draft.difficulty),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+          await _replaceDetails(id, draft);
+          await _database.syncDao.enqueue(
+            entityType: SyncEntityType.question.name,
+            entityId: id,
+            operation: SyncOperation.upsert.name,
             createdAt: now,
-            updatedAt: now,
-          ),
-        );
-        await _replaceDetails(id, validated);
-        await _database.syncDao.enqueue(
-          entityType: SyncEntityType.question.name,
-          entityId: id,
-          operation: SyncOperation.upsert.name,
-          createdAt: now,
-        );
+          );
+        }
       });
 
-      return id;
-    }, '문제를 저장하지 못했어요.');
+      return ids;
+    }, '문제들을 저장하지 못했어요.');
   }
 
   @override
@@ -114,6 +134,36 @@ class DriftQuestionRepository implements QuestionRepository {
         );
       });
     }, '문제를 삭제하지 못했어요.');
+  }
+
+  @override
+  Future<void> approveQuestion(String id) => approveQuestions([id]);
+
+  @override
+  Future<void> approveQuestions(Iterable<String> ids) {
+    return _guard(() async {
+      final values = ids.toSet().toList(growable: false);
+      if (values.isEmpty) return;
+      await _database.transaction(() async {
+        final now = DateTime.now().toUtc();
+        for (final id in values) {
+          await _requireQuestion(id);
+          await _database.questionDao.updateQuestion(
+            id,
+            QuestionsCompanion(
+              status: Value(QuestionStatus.approved.name),
+              updatedAt: Value(now),
+            ),
+          );
+          await _database.syncDao.enqueue(
+            entityType: SyncEntityType.question.name,
+            entityId: id,
+            operation: SyncOperation.upsert.name,
+            createdAt: now,
+          );
+        }
+      });
+    }, '문제를 승인하지 못했어요.');
   }
 
   @override

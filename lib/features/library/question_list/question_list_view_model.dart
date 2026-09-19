@@ -14,4 +14,8 @@ class QuestionListViewModel extends _$QuestionListViewModel {
   Future<void> deleteQuestion(String id) {
     return ref.read(questionRepositoryProvider).deleteQuestion(id);
   }
+
+  Future<void> approveQuestion(String id) {
+    return ref.read(questionRepositoryProvider).approveQuestion(id);
+  }
 }

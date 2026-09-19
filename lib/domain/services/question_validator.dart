@@ -24,6 +24,7 @@ abstract final class QuestionValidator {
         prompt,
         explanation,
       ),
+      QuestionType.trueFalse => _validateTrueFalse(draft, prompt, explanation),
       QuestionType.shortAnswer => _validateShortAnswer(
         draft,
         prompt,
@@ -33,6 +34,46 @@ abstract final class QuestionValidator {
         '서술형 문제는 현재 단계에서 지원하지 않아요.',
       ),
     };
+  }
+
+  static QuestionDraft _validateTrueFalse(
+    QuestionDraft draft,
+    String prompt,
+    String? explanation,
+  ) {
+    final choices = [
+      for (final choice in draft.choices)
+        QuestionChoiceDraft(
+          text: choice.text.trim().toUpperCase(),
+          isCorrect: choice.isCorrect,
+        ),
+    ];
+    final choiceTexts = choices.map((choice) => choice.text).toSet();
+
+    if (choices.length != 2 ||
+        choiceTexts.length != 2 ||
+        !choiceTexts.containsAll(const {'O', 'X'})) {
+      throw const ValidationFailure('O/X 문제의 선택지는 O와 X여야 해요.');
+    }
+    if (choices.where((choice) => choice.isCorrect).length != 1) {
+      throw const ValidationFailure('O/X 문제의 정답을 하나만 선택해 주세요.');
+    }
+
+    final correctAnswer = choices
+        .singleWhere((choice) => choice.isCorrect)
+        .text;
+    return QuestionDraft(
+      folderId: draft.folderId,
+      type: draft.type,
+      status: draft.status,
+      prompt: prompt,
+      choices: [
+        QuestionChoiceDraft(text: 'O', isCorrect: correctAnswer == 'O'),
+        QuestionChoiceDraft(text: 'X', isCorrect: correctAnswer == 'X'),
+      ],
+      explanation: _nullIfEmpty(explanation),
+      difficulty: draft.difficulty,
+    );
   }
 
   static QuestionDraft _validateMultipleChoice(

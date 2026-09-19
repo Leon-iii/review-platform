@@ -25,6 +25,19 @@ abstract final class AnswerGrader {
     return GradeResult(score: isCorrect ? 1 : 0, maxScore: 1);
   }
 
+  static GradeResult gradeTrueFalse(
+    QuestionSnapshot question,
+    String selectedChoiceId,
+  ) {
+    if (question.type != QuestionType.trueFalse) {
+      throw const ValidationFailure('O/X 문제가 아닙니다.');
+    }
+    final isCorrect = question.choices.any(
+      (choice) => choice.id == selectedChoiceId && choice.isCorrect,
+    );
+    return GradeResult(score: isCorrect ? 1 : 0, maxScore: 1);
+  }
+
   static GradeResult gradeShortAnswer(
     QuestionSnapshot question,
     String answer,

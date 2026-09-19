@@ -111,6 +111,13 @@ class QuizViewModel extends _$QuizViewModel {
         }
         grade = AnswerGrader.gradeMultipleChoice(question, choiceId);
         response = {'selectedChoiceId': choiceId};
+      case QuestionType.trueFalse:
+        final choiceId = current.selectedChoiceId;
+        if (choiceId == null) {
+          throw const ValidationFailure('O 또는 X를 선택해 주세요.');
+        }
+        grade = AnswerGrader.gradeTrueFalse(question, choiceId);
+        response = {'selectedChoiceId': choiceId};
       case QuestionType.shortAnswer:
         if (current.textAnswer.trim().isEmpty) {
           throw const ValidationFailure('답을 입력해 주세요.');

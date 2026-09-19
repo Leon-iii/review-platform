@@ -39,5 +39,21 @@ void main() {
       expect(result.score, 1);
       expect(result.maxScore, 1);
     });
+
+    test('O/X 선택지를 로컬 채점한다', () {
+      const question = QuestionSnapshot(
+        questionId: 'question-3',
+        type: QuestionType.trueFalse,
+        prompt: '지구는 태양 주위를 돈다.',
+        choices: [
+          SnapshotChoice(id: 'o', text: 'O', isCorrect: true),
+          SnapshotChoice(id: 'x', text: 'X', isCorrect: false),
+        ],
+        acceptableAnswers: [],
+      );
+
+      expect(AnswerGrader.gradeTrueFalse(question, 'o').isCorrect, isTrue);
+      expect(AnswerGrader.gradeTrueFalse(question, 'x').isCorrect, isFalse);
+    });
   });
 }

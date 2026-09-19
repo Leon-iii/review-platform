@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:go_router/go_router.dart';
+import 'package:review_platform/app/router.dart';
+import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/domain/models/sync_status.dart';
 import 'package:review_platform/features/settings/settings_view_model.dart';
@@ -12,6 +15,7 @@ class SettingsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final syncStatus = ref.watch(syncStatusProvider);
     final settings = ref.watch(syncSettingsProvider);
+    final isWindows = ref.watch(isWindowsPlatformProvider);
 
     return Scaffold(
       key: const Key('settings-view'),
@@ -50,6 +54,26 @@ class SettingsView extends ConsumerWidget {
                       ),
                     ),
                   ),
+                  if (isWindows) ...[
+                    const SizedBox(height: 28),
+                    Text(
+                      '로컬 서버',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: ListTile(
+                        key: const Key('local-server-settings-tile'),
+                        leading: const Icon(Icons.dns_rounded),
+                        title: const Text('Local Server'),
+                        subtitle: const Text(
+                          '이 Windows PC에서 개인 서버를 시작하고 관리합니다.',
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => context.go(AppRoutes.localServer),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   Text('화면', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 12),

@@ -76,9 +76,7 @@ class QuizView extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text(
-                                question.type == QuestionType.multipleChoice
-                                    ? '객관식'
-                                    : '단답형',
+                                _questionTypeLabel(question.type),
                                 style: Theme.of(context).textTheme.labelLarge
                                     ?.copyWith(
                                       color: Theme.of(context)
@@ -94,7 +92,9 @@ class QuizView extends ConsumerWidget {
                                     .headlineSmall,
                               ),
                               const SizedBox(height: 28),
-                              if (question.type == QuestionType.multipleChoice)
+                              if (question.type ==
+                                      QuestionType.multipleChoice ||
+                                  question.type == QuestionType.trueFalse)
                                 RadioGroup<String>(
                                   groupValue: state.selectedChoiceId,
                                   onChanged: (value) {
@@ -169,6 +169,13 @@ class QuizView extends ConsumerWidget {
       ),
     );
   }
+
+  String _questionTypeLabel(QuestionType type) => switch (type) {
+    QuestionType.multipleChoice => '객관식',
+    QuestionType.trueFalse => 'O/X',
+    QuestionType.shortAnswer => '단답형',
+    QuestionType.essay => '서술형',
+  };
 
   Future<void> _submit(BuildContext context, WidgetRef ref) async {
     try {

@@ -135,6 +135,11 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         label: Text('객관식'),
                       ),
                       ButtonSegment(
+                        value: QuestionType.trueFalse,
+                        icon: Icon(Icons.rule_rounded),
+                        label: Text('O/X'),
+                      ),
+                      ButtonSegment(
                         value: QuestionType.shortAnswer,
                         icon: Icon(Icons.short_text_rounded),
                         label: Text('단답형'),
@@ -142,7 +147,13 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                     ],
                     selected: {_type},
                     onSelectionChanged: (selection) {
-                      setState(() => _type = selection.single);
+                      setState(() {
+                        _type = selection.single;
+                        if (_type == QuestionType.trueFalse &&
+                            _correctChoiceIndex > 1) {
+                          _correctChoiceIndex = 0;
+                        }
+                      });
                     },
                   ),
                   const SizedBox(height: 24),
@@ -161,10 +172,12 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         : null,
                   ),
                   const SizedBox(height: 24),
-                  if (_type == QuestionType.multipleChoice)
-                    _buildMultipleChoiceFields()
-                  else
-                    _buildShortAnswerFields(),
+                  switch (_type) {
+                    QuestionType.multipleChoice => _buildMultipleChoiceFields(),
+                    QuestionType.trueFalse => _buildTrueFalseFields(),
+                    QuestionType.shortAnswer => _buildShortAnswerFields(),
+                    QuestionType.essay => const Text('서술형 문제는 아직 지원하지 않아요.'),
+                  },
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _explanationController,
@@ -302,6 +315,39 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
     );
   }
 
+  Widget _buildTrueFalseFields() {
+    return RadioGroup<int>(
+      groupValue: _correctChoiceIndex,
+      onChanged: (value) {
+        if (value != null) setState(() => _correctChoiceIndex = value);
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('정답', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            'O 또는 X를 선택해 주세요.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          const RadioListTile<int>(
+            key: Key('true-false-answer-o'),
+            value: 0,
+            title: Text('O'),
+            contentPadding: EdgeInsets.zero,
+          ),
+          const RadioListTile<int>(
+            key: Key('true-false-answer-x'),
+            value: 1,
+            title: Text('X'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ],
+      ),
+    );
+  }
+
   void _removeChoice(int index) {
     setState(() {
       final controller = _choiceControllers.removeAt(index);
@@ -330,15 +376,20 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       type: _type,
       prompt: _promptController.text,
       explanation: _explanationController.text,
-      choices: _type == QuestionType.multipleChoice
-          ? [
-              for (var index = 0; index < _choiceControllers.length; index++)
-                QuestionChoiceDraft(
-                  text: _choiceControllers[index].text,
-                  isCorrect: index == _correctChoiceIndex,
-                ),
-            ]
-          : const [],
+      choices: switch (_type) {
+        QuestionType.multipleChoice => [
+          for (var index = 0; index < _choiceControllers.length; index++)
+            QuestionChoiceDraft(
+              text: _choiceControllers[index].text,
+              isCorrect: index == _correctChoiceIndex,
+            ),
+        ],
+        QuestionType.trueFalse => [
+          QuestionChoiceDraft(text: 'O', isCorrect: _correctChoiceIndex == 0),
+          QuestionChoiceDraft(text: 'X', isCorrect: _correctChoiceIndex == 1),
+        ],
+        QuestionType.shortAnswer || QuestionType.essay => const [],
+      },
       acceptableAnswers: _type == QuestionType.shortAnswer
           ? [for (final controller in _answerControllers) controller.text]
           : const [],

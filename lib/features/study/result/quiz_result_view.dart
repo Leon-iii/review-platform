@@ -145,7 +145,7 @@ class _WrongAnswerCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final question = attempt.questionSnapshot;
     final submittedAnswer = switch (question.type) {
-      QuestionType.multipleChoice =>
+      QuestionType.multipleChoice || QuestionType.trueFalse =>
         question.choices
                 .where(
                   (choice) => choice.id == attempt.response['selectedChoiceId'],
@@ -158,7 +158,7 @@ class _WrongAnswerCard extends StatelessWidget {
       QuestionType.essay => '서술형 답안',
     };
     final correctAnswer = switch (question.type) {
-      QuestionType.multipleChoice =>
+      QuestionType.multipleChoice || QuestionType.trueFalse =>
         question.choices
             .where((choice) => choice.isCorrect)
             .map((choice) => choice.text)

@@ -23,3 +23,7 @@ final class NetworkFailure extends AppFailure {
 final class SyncFailure extends AppFailure {
   const SyncFailure(super.message, {super.cause});
 }
+
+final class LocalServerFailure extends AppFailure {
+  const LocalServerFailure(super.message, {super.cause});
+}

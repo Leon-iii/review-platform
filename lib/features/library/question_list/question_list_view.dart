@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
@@ -31,6 +32,14 @@ class QuestionListView extends ConsumerWidget {
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
+              IconButton(
+                key: const Key('generate-ai-questions-nav-button'),
+                tooltip: 'AI 문제 생성',
+                onPressed: () =>
+                    context.push(AppRoutes.aiGenerateForFolder(folderId)),
+                icon: const Icon(Icons.auto_awesome_rounded),
+              ),
+              const SizedBox(width: 4),
               FilledButton.tonalIcon(
                 key: const Key('add-question-button'),
                 onPressed: () => context.push(
@@ -73,6 +82,8 @@ class QuestionListView extends ConsumerWidget {
                   for (final question in items) ...[
                     _QuestionCard(
                       question: question,
+                      onApprove: () =>
+                          _approveQuestion(context, ref, provider, question),
                       onEdit: () =>
                           context.push(AppRoutes.editQuestion(question.id)),
                       onDelete: () =>
@@ -123,16 +134,37 @@ class QuestionListView extends ConsumerWidget {
           .showSnackBar(SnackBar(content: Text(message)));
     }
   }
+
+  Future<void> _approveQuestion(
+    BuildContext context,
+    WidgetRef ref,
+    QuestionListViewModelProvider provider,
+    Question question,
+  ) async {
+    try {
+      await ref.read(provider.notifier).approveQuestion(question.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Draft 문제를 승인했어요.')));
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error is AppFailure ? error.message : '문제를 승인하지 못했어요.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
 }
 
 class _QuestionCard extends StatelessWidget {
   const _QuestionCard({
     required this.question,
+    required this.onApprove,
     required this.onEdit,
     required this.onDelete,
   });
 
   final Question question;
+  final VoidCallback onApprove;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -140,32 +172,49 @@ class _QuestionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
-        leading: Icon(
-          question.type == QuestionType.multipleChoice
-              ? Icons.format_list_numbered_rounded
-              : Icons.short_text_rounded,
-        ),
+        leading: Icon(switch (question.type) {
+          QuestionType.multipleChoice => Icons.format_list_numbered_rounded,
+          QuestionType.trueFalse => Icons.rule_rounded,
+          QuestionType.shortAnswer => Icons.short_text_rounded,
+          QuestionType.essay => Icons.notes_rounded,
+        }),
         title: Text(
           question.prompt,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
         subtitle: Text(
-          question.type == QuestionType.multipleChoice ? '객관식' : '단답형',
+          '${switch (question.type) {
+            QuestionType.multipleChoice => '객관식',
+            QuestionType.trueFalse => 'O/X',
+            QuestionType.shortAnswer => '단답형',
+            QuestionType.essay => '서술형',
+          }}'
+          '${question.status.name == 'draft' ? ' · Draft' : ''}',
         ),
         trailing: PopupMenuButton<_QuestionAction>(
           tooltip: '문제 메뉴',
           onSelected: (action) {
             switch (action) {
+              case _QuestionAction.approve:
+                onApprove();
               case _QuestionAction.edit:
                 onEdit();
               case _QuestionAction.delete:
                 onDelete();
             }
           },
-          itemBuilder: (context) => const [
-            PopupMenuItem(value: _QuestionAction.edit, child: Text('수정')),
-            PopupMenuItem(value: _QuestionAction.delete, child: Text('삭제')),
+          itemBuilder: (context) => [
+            if (question.status == QuestionStatus.draft)
+              const PopupMenuItem(
+                value: _QuestionAction.approve,
+                child: Text('Draft 승인'),
+              ),
+            const PopupMenuItem(value: _QuestionAction.edit, child: Text('수정')),
+            const PopupMenuItem(
+              value: _QuestionAction.delete,
+              child: Text('삭제'),
+            ),
           ],
         ),
       ),
@@ -196,4 +245,4 @@ class _QuestionError extends StatelessWidget {
   }
 }
 
-enum _QuestionAction { edit, delete }
+enum _QuestionAction { approve, edit, delete }

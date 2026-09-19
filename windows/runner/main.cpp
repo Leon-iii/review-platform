@@ -7,6 +7,23 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Keep child processes, including the local ASP.NET server, tied to the
+  // ReviewPlatform process. Windows closes the job handle when this app exits.
+  HANDLE child_process_job = ::CreateJobObject(nullptr, nullptr);
+  if (child_process_job != nullptr) {
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_info{};
+    job_info.BasicLimitInformation.LimitFlags =
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!::SetInformationJobObject(
+            child_process_job, JobObjectExtendedLimitInformation, &job_info,
+            sizeof(job_info)) ||
+        !::AssignProcessToJobObject(child_process_job,
+                                    ::GetCurrentProcess())) {
+      ::CloseHandle(child_process_job);
+      child_process_job = nullptr;
+    }
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -39,5 +56,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  // Intentionally keep the job handle open until Windows tears down this
+  // process. JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE then cleans up child servers.
   return EXIT_SUCCESS;
 }
