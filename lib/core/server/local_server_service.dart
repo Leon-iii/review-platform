@@ -6,7 +6,14 @@ import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/core/server/local_server_config.dart';
 import 'package:review_platform/core/server/local_server_settings_store.dart';
 
-enum LocalServerStatus { stopped, starting, running, stopping, error }
+enum LocalServerStatus {
+  stopped,
+  starting,
+  running,
+  externalRunning,
+  stopping,
+  error,
+}
 
 class LocalServerRuntimeState {
   const LocalServerRuntimeState({
@@ -106,6 +113,33 @@ class LocalServerService {
 
   LocalServerRuntimeState get currentState => _snapshot();
 
+  Future<bool> refreshStatus(LocalServerConfig config) async {
+    if (!_isWindows) return false;
+    _validate(config);
+    if (_process != null) {
+      return _status == LocalServerStatus.running ||
+          _status == LocalServerStatus.starting;
+    }
+    if (_status == LocalServerStatus.starting ||
+        _status == LocalServerStatus.stopping) {
+      return false;
+    }
+
+    final reachable = await _healthCheck(_healthUri(config));
+    if (reachable) {
+      _activePort = config.port;
+      _lastError = null;
+      _processExitCode = null;
+      _setStatus(LocalServerStatus.externalRunning);
+      return true;
+    }
+    if (_status == LocalServerStatus.externalRunning) {
+      _activePort = null;
+      _setStatus(LocalServerStatus.stopped);
+    }
+    return false;
+  }
+
   Future<void> start(LocalServerConfig config) async {
     if (!_isWindows) {
       throw const ValidationFailure('로컬 서버는 Windows에서만 실행할 수 있어요.');
@@ -117,9 +151,16 @@ class LocalServerService {
     }
     _validate(config);
 
-    final apiKey = (await secretStore.read(config.provider))?.trim() ?? '';
-    if (config.provider.requiresApiKey && apiKey.isEmpty) {
-      throw const ValidationFailure('선택한 Provider의 API Key를 입력해 주세요.');
+    if (await refreshStatus(config)) return;
+
+    final apiKey =
+        (await secretStore.read(LocalLlmProvider.openAi))?.trim() ?? '';
+    final accessToken = (await accessTokenReader?.call())?.trim();
+    if (accessTokenReader != null &&
+        (accessToken == null || accessToken.isEmpty)) {
+      const message = '먼저 동기화 설정에서 서버 접근 토큰을 저장해 주세요.';
+      _setError(message);
+      throw const ValidationFailure(message);
     }
     if (!await _portAvailabilityCheck(config.port)) {
       final message =
@@ -139,14 +180,11 @@ class LocalServerService {
       final serverDirectory = await _directoryResolver();
       final environment = <String, String>{
         ...Platform.environment,
-        'Llm__Provider': config.provider.id,
-        'Llm__Model': config.model.trim(),
         'ASPNETCORE_URLS': 'http://0.0.0.0:${config.port}',
       };
-      if (config.provider.requiresApiKey) {
-        environment[config.provider.secretEnvironmentKey] = apiKey;
+      if (apiKey.isNotEmpty) {
+        environment[LocalLlmProvider.openAi.secretEnvironmentKey] = apiKey;
       }
-      final accessToken = (await accessTokenReader?.call())?.trim();
       if (accessToken != null && accessToken.isNotEmpty) {
         environment['Sync__AccessToken'] = accessToken;
       }
@@ -166,7 +204,7 @@ class LocalServerService {
       _listenToOutput(process.stderr, isError: true);
       unawaited(_watchExit(process));
 
-      final healthUri = Uri.parse('${config.localAddress}/health');
+      final healthUri = _healthUri(config);
       final deadline = DateTime.now().add(healthTimeout);
       while (identical(_process, process) &&
           runGeneration == _runGeneration &&
@@ -211,6 +249,7 @@ class LocalServerService {
     _stopRequested = true;
     final process = _process;
     if (process == null) {
+      if (_status == LocalServerStatus.externalRunning) return;
       if (_status != LocalServerStatus.error) {
         _setStatus(LocalServerStatus.stopped);
       }
@@ -317,16 +356,13 @@ class LocalServerService {
   }
 
   static void _validate(LocalServerConfig config) {
-    if (config.provider.id.trim().isEmpty) {
-      throw const ValidationFailure('LLM Provider를 선택해 주세요.');
-    }
-    if (config.model.trim().isEmpty) {
-      throw const ValidationFailure('LLM Model을 입력해 주세요.');
-    }
     if (config.port < 1 || config.port > 65535) {
       throw const ValidationFailure('Port는 1~65535 사이여야 해요.');
     }
   }
+
+  static Uri _healthUri(LocalServerConfig config) =>
+      Uri.parse('${config.localAddress}/health');
 
   static Future<ManagedServerProcess> _startIoProcess(
     String executable,
@@ -351,8 +387,10 @@ class LocalServerService {
       final response = await request.close().timeout(
         const Duration(seconds: 2),
       );
-      await response.drain<void>();
-      return response.statusCode == HttpStatus.ok;
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) return false;
+      final decoded = jsonDecode(body);
+      return decoded is Map && decoded['status'] == 'ok';
     } catch (_) {
       return false;
     } finally {

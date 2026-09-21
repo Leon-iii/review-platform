@@ -5,16 +5,20 @@ import 'package:review_platform/core/database/daos/folder_dao.dart';
 import 'package:review_platform/core/database/daos/question_dao.dart';
 import 'package:review_platform/core/database/daos/quiz_dao.dart';
 import 'package:review_platform/core/database/daos/statistics_dao.dart';
+import 'package:review_platform/core/database/daos/source_dao.dart';
 import 'package:review_platform/core/database/daos/sync_dao.dart';
 import 'package:review_platform/core/database/tables/acceptable_answers.dart';
 import 'package:review_platform/core/database/tables/attempts.dart';
+import 'package:review_platform/core/database/tables/concepts.dart';
 import 'package:review_platform/core/database/tables/folders.dart';
 import 'package:review_platform/core/database/tables/question_choices.dart';
+import 'package:review_platform/core/database/tables/question_sources.dart';
 import 'package:review_platform/core/database/tables/questions.dart';
 import 'package:review_platform/core/database/tables/quiz_session_items.dart';
 import 'package:review_platform/core/database/tables/quiz_sessions.dart';
 import 'package:review_platform/core/database/tables/sync_outbox.dart';
 import 'package:review_platform/core/database/tables/sync_states.dart';
+import 'package:review_platform/core/database/tables/study_sources.dart';
 import 'package:uuid/uuid.dart';
 
 part 'app_database.g.dart';
@@ -30,8 +34,19 @@ part 'app_database.g.dart';
     QuizSessionItems,
     SyncOutbox,
     SyncStates,
+    StudySources,
+    Concepts,
+    QuestionSources,
   ],
-  daos: [FolderDao, QuestionDao, QuizDao, AttemptDao, StatisticsDao, SyncDao],
+  daos: [
+    FolderDao,
+    QuestionDao,
+    QuizDao,
+    AttemptDao,
+    StatisticsDao,
+    SyncDao,
+    SourceDao,
+  ],
 )
 final class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
@@ -39,7 +54,7 @@ final class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'review_platform'));
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -64,6 +79,11 @@ final class AppDatabase extends _$AppDatabase {
       }
       if (from < 6) {
         await _seedExistingEntitiesForSync();
+      }
+      if (from < 7) {
+        await migrator.createTable(studySources);
+        await migrator.createTable(concepts);
+        await migrator.createTable(questionSources);
       }
     },
     beforeOpen: (details) async {

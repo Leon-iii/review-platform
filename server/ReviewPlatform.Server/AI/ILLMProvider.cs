@@ -11,6 +11,22 @@ public interface ILLMProvider
     Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
+        ConceptExtractionInput input,
+        CancellationToken cancellationToken = default)
+    {
+        throw new LlmProviderUnavailableException(
+            "선택한 LLM Provider는 개념 추출을 지원하지 않습니다.");
+    }
+
+    Task<DocumentVisionResult> ExtractPageContentAsync(
+        DocumentVisionInput input,
+        CancellationToken cancellationToken = default)
+    {
+        throw new LlmProviderUnavailableException(
+            "선택한 LLM Provider는 문서 이미지 분석을 지원하지 않습니다.");
+    }
 }
 
 public sealed record QuestionGenerationInput(

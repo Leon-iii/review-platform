@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ReviewPlatform.Server.AI;
+using ReviewPlatform.Server.Contracts;
 using Xunit;
 
 namespace ReviewPlatform.Server.Tests;
@@ -80,6 +81,442 @@ public sealed class OllamaLlmProviderTests
         Assert.Contains("가우스 법칙", root.GetProperty("messages")[1]
             .GetProperty("content").GetString());
         Assert.DoesNotContain("추론", JsonSerializer.Serialize(questions));
+    }
+
+    [Fact]
+    public async Task ExtractConcepts_ReturnsPageGroundedDrafts()
+    {
+        var generatedJson = JsonSerializer.Serialize(new
+        {
+            concepts = new[]
+            {
+                new
+                {
+                    title = "가우스 법칙",
+                    summary = "전기선속과 내부 전하의 관계",
+                    details = "폐곡면을 기준으로 관계를 설명한다.",
+                    pageNumbers = new[] { 2, 3 }
+                }
+            }
+        });
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new
+                    {
+                        content = generatedJson,
+                        thinking = "노출하지 않을 추론"
+                    },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var concepts = await provider.ExtractConceptsAsync(
+            new ConceptExtractionInput(
+                "source-1",
+                "전자기학.pdf",
+                [
+                    new ExtractedDocumentPage(2, "가우스 법칙 설명"),
+                    new ExtractedDocumentPage(3, "전기선속과 전하")
+                ],
+                ConceptExtractionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        var concept = Assert.Single(concepts);
+        Assert.Equal("가우스 법칙", concept.Title);
+        Assert.Equal([2, 3], concept.PageNumbers);
+        var chatRequest = Assert.Single(handler.Requests,
+            request => request.Path == "/api/chat");
+        using var body = JsonDocument.Parse(chatRequest.Body!);
+        var systemPrompt = body.RootElement.GetProperty("messages")[0]
+            .GetProperty("content").GetString();
+        Assert.Contains("natural Korean", systemPrompt);
+        Assert.Contains("original technical terms", body.RootElement
+            .GetProperty("messages")[1]
+            .GetProperty("content").GetString());
+        Assert.Contains("[PAGE 2]", body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content").GetString());
+        Assert.DoesNotContain("추론", JsonSerializer.Serialize(concepts));
+    }
+
+    [Fact]
+    public async Task ExtractConcepts_TruncatedOutputSplitsPagesAndRetries()
+    {
+        var chatRequestCount = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/tags")
+            {
+                return JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                });
+            }
+
+            chatRequestCount++;
+            if (chatRequestCount == 1)
+            {
+                return JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new { content = "{\"concepts\":[" },
+                    done = true,
+                    done_reason = "length"
+                });
+            }
+
+            var pageNumber = chatRequestCount == 2 ? 1 : 3;
+            return JsonResponse(HttpStatusCode.OK, new
+            {
+                message = new
+                {
+                    content = JsonSerializer.Serialize(new
+                    {
+                        concepts = new[]
+                        {
+                            new
+                            {
+                                title = $"개념 {pageNumber}",
+                                summary = "요약",
+                                details = "세부 설명",
+                                pageNumbers = new[] { pageNumber }
+                            }
+                        }
+                    })
+                },
+                done = true,
+                done_reason = "stop"
+            });
+        });
+        var provider = CreateProvider(handler);
+
+        var concepts = await provider.ExtractConceptsAsync(
+            new ConceptExtractionInput(
+                "source-1",
+                "자료.pdf",
+                [
+                    new ExtractedDocumentPage(1, "첫 페이지"),
+                    new ExtractedDocumentPage(2, "둘째 페이지"),
+                    new ExtractedDocumentPage(3, "셋째 페이지"),
+                    new ExtractedDocumentPage(4, "넷째 페이지")
+                ],
+                ConceptExtractionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, concepts.Count);
+        var chatRequests = handler.Requests
+            .Where(request => request.Path == "/api/chat")
+            .ToArray();
+        Assert.Equal(3, chatRequests.Length);
+        using var retryBody = JsonDocument.Parse(chatRequests[1].Body!);
+        var retryRoot = retryBody.RootElement;
+        Assert.Equal(0, retryRoot.GetProperty("keep_alive").GetInt32());
+        Assert.Equal(8192,
+            retryRoot.GetProperty("options").GetProperty("num_ctx").GetInt32());
+        Assert.Equal(3500,
+            retryRoot.GetProperty("options").GetProperty("num_predict").GetInt32());
+        Assert.Equal(ConceptExtractionPrompt.MaximumConceptsPerRequest,
+            retryRoot.GetProperty("format")
+                .GetProperty("properties")
+                .GetProperty("concepts")
+                .GetProperty("maxItems")
+                .GetInt32());
+        Assert.Contains("[PAGE 1]", retryRoot.GetProperty("messages")[1]
+            .GetProperty("content").GetString());
+        Assert.DoesNotContain("[PAGE 3]", retryRoot.GetProperty("messages")[1]
+            .GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_SendsImageAndDisablesThinking()
+    {
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new
+                    {
+                        content = "사칙연산은 네 가지 기본 연산이다.",
+                        thinking = "노출하지 않을 추론"
+                    },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var result = await provider.ExtractPageContentAsync(
+            new DocumentVisionInput(
+                "수학.pdf",
+                3,
+                "image/jpeg",
+                [1, 2, 3, 4],
+                new string('a', 64),
+                DocumentVisionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("사칙연산은 네 가지 기본 연산이다.", result.Text);
+        var chatRequest = Assert.Single(handler.Requests,
+            request => request.Path == "/api/chat");
+        using var body = JsonDocument.Parse(chatRequest.Body!);
+        var root = body.RootElement;
+        Assert.False(root.GetProperty("think").GetBoolean());
+        Assert.Equal(0, root.GetProperty("keep_alive").GetInt32());
+        var userMessage = root.GetProperty("messages")[1];
+        Assert.Equal(
+            Convert.ToBase64String([1, 2, 3, 4]),
+            userMessage.GetProperty("images")[0].GetString());
+        Assert.Contains("PAGE: 3", userMessage.GetProperty("content").GetString());
+        Assert.False(root.TryGetProperty("format", out _));
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_InternalServerErrorRetriesPlainTextRequest()
+    {
+        var chatRequestCount = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/tags")
+            {
+                return JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                });
+            }
+
+            if (request.RequestUri.AbsolutePath != "/api/chat")
+            {
+                throw new InvalidOperationException();
+            }
+
+            chatRequestCount++;
+            return chatRequestCount == 1
+                ? JsonResponse(
+                    HttpStatusCode.InternalServerError,
+                    new { error = "failed to constrain output" })
+                : JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new
+                    {
+                        content = "재시도 성공"
+                    },
+                    done = true
+                });
+        });
+        var provider = CreateProvider(handler);
+
+        var result = await provider.ExtractPageContentAsync(
+            new DocumentVisionInput(
+                "자료.pdf",
+                4,
+                "image/jpeg",
+                [1, 2, 3],
+                new string('a', 64),
+                DocumentVisionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("재시도 성공", result.Text);
+        var chatRequests = handler.Requests
+            .Where(request => request.Path == "/api/chat")
+            .ToArray();
+        Assert.Equal(2, chatRequests.Length);
+        using var strictBody = JsonDocument.Parse(chatRequests[0].Body!);
+        using var fallbackBody = JsonDocument.Parse(chatRequests[1].Body!);
+        Assert.False(strictBody.RootElement.TryGetProperty("format", out _));
+        Assert.False(fallbackBody.RootElement.TryGetProperty("format", out _));
+        Assert.Equal(0,
+            fallbackBody.RootElement.GetProperty("keep_alive").GetInt32());
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_MemoryFailureReturnsActionableError()
+    {
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(
+                    HttpStatusCode.InternalServerError,
+                    new { error = "CUDA out of memory: PRIVATE_DETAIL" }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var exception = await Assert.ThrowsAsync<LlmProviderRequestException>(
+            () => provider.ExtractPageContentAsync(
+                new DocumentVisionInput(
+                    "자료.pdf",
+                    1,
+                    "image/jpeg",
+                    [1, 2, 3],
+                    new string('a', 64),
+                    DocumentVisionPrompt.Version),
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains("메모리", exception.Message);
+        Assert.DoesNotContain("PRIVATE_DETAIL", exception.Message);
+        Assert.Equal(2, handler.Requests.Count(
+            request => request.Path == "/api/chat"));
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_AcceptsFencedJsonWithLiteralLineBreaks()
+    {
+        const string content = """
+            ```json
+            {"text":"첫 줄
+            둘째 줄"}
+            ```
+            """;
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new { content },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var result = await provider.ExtractPageContentAsync(
+            new DocumentVisionInput(
+                "자료.pdf",
+                1,
+                "image/jpeg",
+                [1, 2, 3],
+                new string('a', 64),
+                DocumentVisionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("첫 줄\n둘째 줄", result.Text);
+        Assert.Single(handler.Requests,
+            request => request.Path == "/api/chat");
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_AcceptsJsonLikePlainText()
+    {
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new { content = "{\"unexpected\":true}" },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var result = await provider.ExtractPageContentAsync(
+            new DocumentVisionInput(
+                "자료.pdf",
+                2,
+                "image/jpeg",
+                [1, 2, 3],
+                new string('a', 64),
+                DocumentVisionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("{\"unexpected\":true}", result.Text);
+        Assert.Single(handler.Requests,
+            request => request.Path == "/api/chat");
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_AcceptsEmptyContentForBlankPage()
+    {
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new { content = string.Empty },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var result = await provider.ExtractPageContentAsync(
+            new DocumentVisionInput(
+                "빈 페이지.pdf",
+                1,
+                "image/jpeg",
+                [1, 2, 3],
+                new string('a', 64),
+                DocumentVisionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Text);
+    }
+
+    [Fact]
+    public async Task ExtractPageContent_ThinkingOnlyResponseRecommendsInstructModel()
+    {
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new
+                    {
+                        content = string.Empty,
+                        thinking = "{\"text\":\"PRIVATE_RESULT_TEXT\"}"
+                    },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+
+        var exception = await Assert.ThrowsAsync<LlmProviderRequestException>(
+            () => provider.ExtractPageContentAsync(
+                new DocumentVisionInput(
+                    "자료.pdf",
+                    1,
+                    "image/jpeg",
+                    [1, 2, 3],
+                    new string('a', 64),
+                    DocumentVisionPrompt.Version),
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains("thinking 필드", exception.Message);
+        Assert.Contains("qwen3-vl:8b-instruct", exception.Message);
+        Assert.DoesNotContain("PRIVATE_RESULT_TEXT", exception.Message);
     }
 
     [Fact]

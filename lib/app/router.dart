@@ -3,9 +3,11 @@ import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/app_shell.dart';
 import 'package:review_platform/features/home/home_view.dart';
 import 'package:review_platform/features/ai_generation/ai_question_generation_view.dart';
+import 'package:review_platform/features/documents/document_import_view.dart';
 import 'package:review_platform/features/library/folder_browser/folder_browser_view.dart';
 import 'package:review_platform/features/library/question_editor/question_editor_view.dart';
 import 'package:review_platform/features/settings/settings_view.dart';
+import 'package:review_platform/features/settings/llm_profiles/llm_profiles_view.dart';
 import 'package:review_platform/features/settings/local_server/local_server_view.dart';
 import 'package:review_platform/features/statistics/statistics_view.dart';
 import 'package:review_platform/features/study/quiz/quiz_view.dart';
@@ -21,14 +23,22 @@ abstract final class AppRoutes {
   static const statistics = '/statistics';
   static const settings = '/settings';
   static const localServer = '/settings/local-server';
+  static const llmProfiles = '/settings/llm-profiles';
   static const newQuestion = '/question/new';
   static const aiGenerate = '/ai/generate';
+  static const documents = '/documents';
   static const studySetup = '/study/setup';
 
   static String folder(String folderId) => '/library/folder/$folderId';
   static String editQuestion(String questionId) => '/question/$questionId/edit';
   static String aiGenerateForFolder(String folderId) =>
       Uri(path: aiGenerate, queryParameters: {'folderId': folderId}).toString();
+  static String aiGenerateForConcept(String folderId, String conceptId) => Uri(
+    path: aiGenerate,
+    queryParameters: {'folderId': folderId, 'conceptId': conceptId},
+  ).toString();
+  static String documentsForFolder(String folderId) =>
+      Uri(path: documents, queryParameters: {'folderId': folderId}).toString();
   static String studySession(String sessionId) => '/study/session/$sessionId';
   static String studyResult(String sessionId) => '/study/result/$sessionId';
   static String studySetupForWrong(String folderId) => Uri(
@@ -77,6 +87,10 @@ GoRouter router(Ref ref) {
                 path: 'local-server',
                 builder: (context, state) => const LocalServerView(),
               ),
+              GoRoute(
+                path: 'llm-profiles',
+                builder: (context, state) => const LlmProfilesView(),
+              ),
             ],
           ),
         ],
@@ -92,6 +106,18 @@ GoRouter router(Ref ref) {
         path: AppRoutes.aiGenerate,
         builder: (context, state) => AiQuestionGenerationView(
           initialFolderId: state.uri.queryParameters['folderId'],
+          initialConceptId: state.uri.queryParameters['conceptId'],
+        ),
+      ),
+      GoRoute(
+        parentNavigatorKey: rootNavigatorKey,
+        path: AppRoutes.documents,
+        redirect: (context, state) =>
+            state.uri.queryParameters['folderId'] == null
+            ? AppRoutes.library
+            : null,
+        builder: (context, state) => DocumentImportView(
+          folderId: state.uri.queryParameters['folderId']!,
         ),
       ),
       GoRoute(

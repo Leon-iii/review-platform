@@ -3,6 +3,7 @@ import 'package:review_platform/repositories/attempt_repository.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/question_repository.dart';
 import 'package:review_platform/repositories/quiz_repository.dart';
+import 'package:review_platform/repositories/source_repository.dart';
 import 'package:review_platform/repositories/statistics_repository.dart';
 import 'package:review_platform/repositories/sync_repository.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -37,4 +38,9 @@ StatisticsRepository statisticsRepository(Ref ref) {
 @Riverpod(keepAlive: true)
 SyncRepository syncRepository(Ref ref) {
   return DriftSyncRepository(ref.watch(appDatabaseProvider));
+}
+
+@Riverpod(keepAlive: true)
+SourceRepository sourceRepository(Ref ref) {
+  return DriftSourceRepository(ref.watch(appDatabaseProvider));
 }

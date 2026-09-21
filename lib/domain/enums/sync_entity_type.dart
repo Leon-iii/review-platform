@@ -1,6 +1,8 @@
 enum SyncEntityType {
   folder,
   question,
+  source,
+  concept,
   quizSession,
   attempt;
 

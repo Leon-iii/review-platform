@@ -11,6 +11,9 @@ public sealed class SyncDbContext(DbContextOptions<SyncDbContext> options)
         Set<ProcessedSyncOperation>();
     public DbSet<AiGenerationRecord> AiGenerationRecords =>
         Set<AiGenerationRecord>();
+    public DbSet<LlmProfileRecord> LlmProfiles => Set<LlmProfileRecord>();
+    public DbSet<LlmPurposeAssignmentRecord> LlmPurposeAssignments =>
+        Set<LlmPurposeAssignmentRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -44,6 +47,23 @@ public sealed class SyncDbContext(DbContextOptions<SyncDbContext> options)
             entity.Property(record => record.SourceLabel).HasMaxLength(200);
             entity.Property(record => record.Status).HasMaxLength(32);
             entity.HasIndex(record => record.RequestedAt);
+        });
+
+        modelBuilder.Entity<LlmProfileRecord>(entity =>
+        {
+            entity.HasKey(profile => profile.Id);
+            entity.Property(profile => profile.Id).HasMaxLength(64);
+            entity.Property(profile => profile.Name).HasMaxLength(80);
+            entity.Property(profile => profile.Provider).HasMaxLength(32);
+            entity.Property(profile => profile.Model).HasMaxLength(128);
+            entity.Property(profile => profile.BaseUrl).HasMaxLength(512);
+        });
+
+        modelBuilder.Entity<LlmPurposeAssignmentRecord>(entity =>
+        {
+            entity.HasKey(assignment => assignment.Purpose);
+            entity.Property(assignment => assignment.Purpose).HasMaxLength(64);
+            entity.Property(assignment => assignment.ProfileId).HasMaxLength(64);
         });
     }
 }
@@ -86,4 +106,20 @@ public sealed class AiGenerationRecord
     public required string Status { get; set; }
     public string? OutputJson { get; set; }
     public string? Error { get; set; }
+}
+
+public sealed class LlmProfileRecord
+{
+    public required string Id { get; set; }
+    public required string Name { get; set; }
+    public required string Provider { get; set; }
+    public required string Model { get; set; }
+    public required string BaseUrl { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class LlmPurposeAssignmentRecord
+{
+    public required string Purpose { get; set; }
+    public required string ProfileId { get; set; }
 }

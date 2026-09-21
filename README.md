@@ -33,13 +33,20 @@ flutter test
 
 ## 동기화 서버
 
-Windows 앱에서는 `설정 → Local Server`에서 Provider, Model, API Key, Port를
+Windows 앱에서는 `설정 → Local Server`에서 Port와 필요한 경우 OpenAI API Key를
 입력하고 `Start Server`를 누르면 됩니다. 앱은 개발 단계에서 서버 프로젝트를
 찾아 `dotnet run`을 실행하고, `/health` 응답을 확인한 뒤에만 Running으로
 표시합니다. 서버 로그 확인과 중지도 같은 화면에서 할 수 있습니다. API Key는
 Windows 보안 저장소에만 저장되며 일반 설정 파일이나 로그에는 기록되지 않습니다.
-기본 Provider는 `Ollama`, 기본 모델은 `qwen3:8b`이며 이 조합에는 API Key가
-필요하지 않습니다.
+`앱 실행 시 서버 자동 시작`을 켜면 다음 Windows 앱 실행부터 서버를 자동으로
+시작합니다. 설정 화면 맨 위의 상태 표시등으로 실행 상태를 확인할 수 있으며,
+이미 외부에서 실행 중인 ReviewPlatform 서버는 별도로 표시하고 앱에서 종료하지
+않습니다. 자동 시작의 기본값은 꺼짐입니다.
+
+LLM 설정은 서버 프로세스 설정과 분리되어 있습니다. Android와 Windows 모두
+`설정 → LLM 프로필`에서 여러 프로필을 만들고 문제 생성, PDF 개념 추출, PDF 이미지
+OCR에 서로 다른 프로필을 지정할 수 있습니다. 저장한 변경은 서버 재시작 없이 이후 새 요청부터
+적용됩니다. API Key는 프로필 API로 전송하거나 클라이언트에 노출하지 않습니다.
 
 로컬 서버를 처음 사용할 때는 `설정 → 동기화`에
 `http://127.0.0.1:5080`과 임의의 접근 토큰을 먼저 저장하세요. Local Server는
@@ -65,12 +72,16 @@ dotnet test server/ReviewPlatform.Server.Tests
 
 ## AI 문제 생성 서버
 
-기본 설정은 로컬 Ollama와 Qwen3 8B를 사용합니다. Ollama가 실행 중이고 모델이
+기본 설정은 로컬 Ollama와 Qwen3-VL 8B를 사용합니다. Ollama가 실행 중이고 모델이
 설치되어 있으면 별도 API Key 없이 사용할 수 있습니다.
+
+구조화 응답은 `qwen3-vl:8b-instruct`를 사용합니다. `qwen3-vl:8b` reasoning
+variant는 일부 Ollama 버전에서 `think: false`에도 결과를 `thinking` 필드에만
+반환할 수 있어 기본 OCR 프로필로 사용하지 않습니다.
 
 ```powershell
 $env:Llm__Provider = 'ollama'
-$env:Llm__Model = 'qwen3:8b'
+$env:Llm__Model = 'qwen3-vl:8b-instruct'
 $env:Llm__BaseUrl = 'http://127.0.0.1:11434'
 dotnet run --project server/ReviewPlatform.Server
 ```
@@ -87,6 +98,21 @@ $env:Llm__Model = 'gpt-4o-mini'
 $env:OPENAI_API_KEY = '<openai-api-key>'
 ```
 
-서버를 재시작한 뒤 `POST /api/ai/questions/generate`를 사용할 수 있습니다. OpenAI 응답은 strict JSON Schema로 제한되며, 서버의 독립적인 문제 규칙 검증을 한 번 더 통과해야 저장됩니다.
+`설정 → LLM 프로필`에서 OpenAI 프로필을 용도에 할당한 뒤
+`POST /api/ai/questions/generate`를 사용할 수 있습니다. OpenAI 응답은 strict JSON Schema로 제한되며, 서버의 독립적인 문제 규칙 검증을 한 번 더 통과해야 저장됩니다.
 
 앱에서는 `문제 관리 → 폴더 → AI 문제 생성` 순서로 사용합니다. 문제 수는 학습자료의 개념별 생성량을 정하는 자동 모드(적음 1~2개, 보통 3~4개, 많음 5~6개) 또는 총 문제 수를 직접 입력하는 수동 모드로 설정합니다. 생성된 문제는 모두 Draft로 저장되며 개별 승인, 수정 후 승인, 거절, 일괄 승인을 지원합니다. Draft는 승인되기 전에는 퀴즈에 출제되지 않습니다.
+
+## PDF 학습자료
+
+`문제 관리 → 폴더 → PDF 학습자료`에서 PDF를 가져올 수 있습니다. 서버는 원본을
+`server/ReviewPlatform.Server/App_Data/sources`에 보관하고, 페이지별 텍스트
+레이어를 우선 추출하고, 텍스트가 부족한 페이지만 Qwen3-VL 이미지 분석으로 보완한 뒤
+LLM으로 Draft Concept을 만듭니다. Concept은 승인, 수정 후
+승인, 보류, 삭제할 수 있으며 승인된 Concept에서 문제 생성을 시작하면 생성된
+문제에 원본 PDF, 페이지, Concept 출처가 연결됩니다.
+
+스캔 PDF도 지원하며 문서의 추출 방식은 `textLayer`, `visionOcr`, `hybrid` 중 하나로
+기록됩니다. 같은 페이지의 OCR 결과는 이미지 해시와 모델 기준으로 캐시됩니다. 현재 한 요청에서
+이미지 분석이 필요한 페이지는 최대 50페이지입니다. PDF는 25MB, 300페이지,
+추출 텍스트 300,000자까지 처리합니다.

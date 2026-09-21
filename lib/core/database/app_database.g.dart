@@ -4233,6 +4233,1430 @@ class SyncStatesCompanion extends UpdateCompanion<SyncStateRow> {
   }
 }
 
+class $StudySourcesTable extends StudySources
+    with TableInfo<$StudySourcesTable, StudySourceRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $StudySourcesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _folderIdMeta = const VerificationMeta(
+    'folderId',
+  );
+  @override
+  late final GeneratedColumn<String> folderId = GeneratedColumn<String>(
+    'folder_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES folders (id)',
+    ),
+  );
+  static const VerificationMeta _fileNameMeta = const VerificationMeta(
+    'fileName',
+  );
+  @override
+  late final GeneratedColumn<String> fileName = GeneratedColumn<String>(
+    'file_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentHashMeta = const VerificationMeta(
+    'contentHash',
+  );
+  @override
+  late final GeneratedColumn<String> contentHash = GeneratedColumn<String>(
+    'content_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pageCountMeta = const VerificationMeta(
+    'pageCount',
+  );
+  @override
+  late final GeneratedColumn<int> pageCount = GeneratedColumn<int>(
+    'page_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _extractionMethodMeta = const VerificationMeta(
+    'extractionMethod',
+  );
+  @override
+  late final GeneratedColumn<String> extractionMethod = GeneratedColumn<String>(
+    'extraction_method',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _importedAtMeta = const VerificationMeta(
+    'importedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> importedAt = GeneratedColumn<DateTime>(
+    'imported_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    folderId,
+    fileName,
+    contentHash,
+    pageCount,
+    extractionMethod,
+    importedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sources';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<StudySourceRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('folder_id')) {
+      context.handle(
+        _folderIdMeta,
+        folderId.isAcceptableOrUnknown(data['folder_id']!, _folderIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_folderIdMeta);
+    }
+    if (data.containsKey('file_name')) {
+      context.handle(
+        _fileNameMeta,
+        fileName.isAcceptableOrUnknown(data['file_name']!, _fileNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fileNameMeta);
+    }
+    if (data.containsKey('content_hash')) {
+      context.handle(
+        _contentHashMeta,
+        contentHash.isAcceptableOrUnknown(
+          data['content_hash']!,
+          _contentHashMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_contentHashMeta);
+    }
+    if (data.containsKey('page_count')) {
+      context.handle(
+        _pageCountMeta,
+        pageCount.isAcceptableOrUnknown(data['page_count']!, _pageCountMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pageCountMeta);
+    }
+    if (data.containsKey('extraction_method')) {
+      context.handle(
+        _extractionMethodMeta,
+        extractionMethod.isAcceptableOrUnknown(
+          data['extraction_method']!,
+          _extractionMethodMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_extractionMethodMeta);
+    }
+    if (data.containsKey('imported_at')) {
+      context.handle(
+        _importedAtMeta,
+        importedAt.isAcceptableOrUnknown(data['imported_at']!, _importedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_importedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  StudySourceRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return StudySourceRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      folderId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}folder_id'],
+      )!,
+      fileName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}file_name'],
+      )!,
+      contentHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_hash'],
+      )!,
+      pageCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}page_count'],
+      )!,
+      extractionMethod: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}extraction_method'],
+      )!,
+      importedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}imported_at'],
+      )!,
+    );
+  }
+
+  @override
+  $StudySourcesTable createAlias(String alias) {
+    return $StudySourcesTable(attachedDatabase, alias);
+  }
+}
+
+class StudySourceRow extends DataClass implements Insertable<StudySourceRow> {
+  final String id;
+  final String folderId;
+  final String fileName;
+  final String contentHash;
+  final int pageCount;
+  final String extractionMethod;
+  final DateTime importedAt;
+  const StudySourceRow({
+    required this.id,
+    required this.folderId,
+    required this.fileName,
+    required this.contentHash,
+    required this.pageCount,
+    required this.extractionMethod,
+    required this.importedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['folder_id'] = Variable<String>(folderId);
+    map['file_name'] = Variable<String>(fileName);
+    map['content_hash'] = Variable<String>(contentHash);
+    map['page_count'] = Variable<int>(pageCount);
+    map['extraction_method'] = Variable<String>(extractionMethod);
+    map['imported_at'] = Variable<DateTime>(importedAt);
+    return map;
+  }
+
+  StudySourcesCompanion toCompanion(bool nullToAbsent) {
+    return StudySourcesCompanion(
+      id: Value(id),
+      folderId: Value(folderId),
+      fileName: Value(fileName),
+      contentHash: Value(contentHash),
+      pageCount: Value(pageCount),
+      extractionMethod: Value(extractionMethod),
+      importedAt: Value(importedAt),
+    );
+  }
+
+  factory StudySourceRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return StudySourceRow(
+      id: serializer.fromJson<String>(json['id']),
+      folderId: serializer.fromJson<String>(json['folderId']),
+      fileName: serializer.fromJson<String>(json['fileName']),
+      contentHash: serializer.fromJson<String>(json['contentHash']),
+      pageCount: serializer.fromJson<int>(json['pageCount']),
+      extractionMethod: serializer.fromJson<String>(json['extractionMethod']),
+      importedAt: serializer.fromJson<DateTime>(json['importedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'folderId': serializer.toJson<String>(folderId),
+      'fileName': serializer.toJson<String>(fileName),
+      'contentHash': serializer.toJson<String>(contentHash),
+      'pageCount': serializer.toJson<int>(pageCount),
+      'extractionMethod': serializer.toJson<String>(extractionMethod),
+      'importedAt': serializer.toJson<DateTime>(importedAt),
+    };
+  }
+
+  StudySourceRow copyWith({
+    String? id,
+    String? folderId,
+    String? fileName,
+    String? contentHash,
+    int? pageCount,
+    String? extractionMethod,
+    DateTime? importedAt,
+  }) => StudySourceRow(
+    id: id ?? this.id,
+    folderId: folderId ?? this.folderId,
+    fileName: fileName ?? this.fileName,
+    contentHash: contentHash ?? this.contentHash,
+    pageCount: pageCount ?? this.pageCount,
+    extractionMethod: extractionMethod ?? this.extractionMethod,
+    importedAt: importedAt ?? this.importedAt,
+  );
+  StudySourceRow copyWithCompanion(StudySourcesCompanion data) {
+    return StudySourceRow(
+      id: data.id.present ? data.id.value : this.id,
+      folderId: data.folderId.present ? data.folderId.value : this.folderId,
+      fileName: data.fileName.present ? data.fileName.value : this.fileName,
+      contentHash: data.contentHash.present
+          ? data.contentHash.value
+          : this.contentHash,
+      pageCount: data.pageCount.present ? data.pageCount.value : this.pageCount,
+      extractionMethod: data.extractionMethod.present
+          ? data.extractionMethod.value
+          : this.extractionMethod,
+      importedAt: data.importedAt.present
+          ? data.importedAt.value
+          : this.importedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StudySourceRow(')
+          ..write('id: $id, ')
+          ..write('folderId: $folderId, ')
+          ..write('fileName: $fileName, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('pageCount: $pageCount, ')
+          ..write('extractionMethod: $extractionMethod, ')
+          ..write('importedAt: $importedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    folderId,
+    fileName,
+    contentHash,
+    pageCount,
+    extractionMethod,
+    importedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is StudySourceRow &&
+          other.id == this.id &&
+          other.folderId == this.folderId &&
+          other.fileName == this.fileName &&
+          other.contentHash == this.contentHash &&
+          other.pageCount == this.pageCount &&
+          other.extractionMethod == this.extractionMethod &&
+          other.importedAt == this.importedAt);
+}
+
+class StudySourcesCompanion extends UpdateCompanion<StudySourceRow> {
+  final Value<String> id;
+  final Value<String> folderId;
+  final Value<String> fileName;
+  final Value<String> contentHash;
+  final Value<int> pageCount;
+  final Value<String> extractionMethod;
+  final Value<DateTime> importedAt;
+  final Value<int> rowid;
+  const StudySourcesCompanion({
+    this.id = const Value.absent(),
+    this.folderId = const Value.absent(),
+    this.fileName = const Value.absent(),
+    this.contentHash = const Value.absent(),
+    this.pageCount = const Value.absent(),
+    this.extractionMethod = const Value.absent(),
+    this.importedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  StudySourcesCompanion.insert({
+    required String id,
+    required String folderId,
+    required String fileName,
+    required String contentHash,
+    required int pageCount,
+    required String extractionMethod,
+    required DateTime importedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       folderId = Value(folderId),
+       fileName = Value(fileName),
+       contentHash = Value(contentHash),
+       pageCount = Value(pageCount),
+       extractionMethod = Value(extractionMethod),
+       importedAt = Value(importedAt);
+  static Insertable<StudySourceRow> custom({
+    Expression<String>? id,
+    Expression<String>? folderId,
+    Expression<String>? fileName,
+    Expression<String>? contentHash,
+    Expression<int>? pageCount,
+    Expression<String>? extractionMethod,
+    Expression<DateTime>? importedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (folderId != null) 'folder_id': folderId,
+      if (fileName != null) 'file_name': fileName,
+      if (contentHash != null) 'content_hash': contentHash,
+      if (pageCount != null) 'page_count': pageCount,
+      if (extractionMethod != null) 'extraction_method': extractionMethod,
+      if (importedAt != null) 'imported_at': importedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  StudySourcesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? folderId,
+    Value<String>? fileName,
+    Value<String>? contentHash,
+    Value<int>? pageCount,
+    Value<String>? extractionMethod,
+    Value<DateTime>? importedAt,
+    Value<int>? rowid,
+  }) {
+    return StudySourcesCompanion(
+      id: id ?? this.id,
+      folderId: folderId ?? this.folderId,
+      fileName: fileName ?? this.fileName,
+      contentHash: contentHash ?? this.contentHash,
+      pageCount: pageCount ?? this.pageCount,
+      extractionMethod: extractionMethod ?? this.extractionMethod,
+      importedAt: importedAt ?? this.importedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (folderId.present) {
+      map['folder_id'] = Variable<String>(folderId.value);
+    }
+    if (fileName.present) {
+      map['file_name'] = Variable<String>(fileName.value);
+    }
+    if (contentHash.present) {
+      map['content_hash'] = Variable<String>(contentHash.value);
+    }
+    if (pageCount.present) {
+      map['page_count'] = Variable<int>(pageCount.value);
+    }
+    if (extractionMethod.present) {
+      map['extraction_method'] = Variable<String>(extractionMethod.value);
+    }
+    if (importedAt.present) {
+      map['imported_at'] = Variable<DateTime>(importedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StudySourcesCompanion(')
+          ..write('id: $id, ')
+          ..write('folderId: $folderId, ')
+          ..write('fileName: $fileName, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('pageCount: $pageCount, ')
+          ..write('extractionMethod: $extractionMethod, ')
+          ..write('importedAt: $importedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ConceptsTable extends Concepts
+    with TableInfo<$ConceptsTable, ConceptRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ConceptsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
+    'source_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES sources (id)',
+    ),
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _summaryMeta = const VerificationMeta(
+    'summary',
+  );
+  @override
+  late final GeneratedColumn<String> summary = GeneratedColumn<String>(
+    'summary',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _detailsMeta = const VerificationMeta(
+    'details',
+  );
+  @override
+  late final GeneratedColumn<String> details = GeneratedColumn<String>(
+    'details',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pageNumbersJsonMeta = const VerificationMeta(
+    'pageNumbersJson',
+  );
+  @override
+  late final GeneratedColumn<String> pageNumbersJson = GeneratedColumn<String>(
+    'page_numbers_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    sourceId,
+    title,
+    summary,
+    details,
+    pageNumbersJson,
+    status,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'concepts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ConceptRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('summary')) {
+      context.handle(
+        _summaryMeta,
+        summary.isAcceptableOrUnknown(data['summary']!, _summaryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_summaryMeta);
+    }
+    if (data.containsKey('details')) {
+      context.handle(
+        _detailsMeta,
+        details.isAcceptableOrUnknown(data['details']!, _detailsMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_detailsMeta);
+    }
+    if (data.containsKey('page_numbers_json')) {
+      context.handle(
+        _pageNumbersJsonMeta,
+        pageNumbersJson.isAcceptableOrUnknown(
+          data['page_numbers_json']!,
+          _pageNumbersJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_pageNumbersJsonMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ConceptRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ConceptRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      summary: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}summary'],
+      )!,
+      details: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}details'],
+      )!,
+      pageNumbersJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_numbers_json'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ConceptsTable createAlias(String alias) {
+    return $ConceptsTable(attachedDatabase, alias);
+  }
+}
+
+class ConceptRow extends DataClass implements Insertable<ConceptRow> {
+  final String id;
+  final String sourceId;
+  final String title;
+  final String summary;
+  final String details;
+  final String pageNumbersJson;
+  final String status;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const ConceptRow({
+    required this.id,
+    required this.sourceId,
+    required this.title,
+    required this.summary,
+    required this.details,
+    required this.pageNumbersJson,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['source_id'] = Variable<String>(sourceId);
+    map['title'] = Variable<String>(title);
+    map['summary'] = Variable<String>(summary);
+    map['details'] = Variable<String>(details);
+    map['page_numbers_json'] = Variable<String>(pageNumbersJson);
+    map['status'] = Variable<String>(status);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ConceptsCompanion toCompanion(bool nullToAbsent) {
+    return ConceptsCompanion(
+      id: Value(id),
+      sourceId: Value(sourceId),
+      title: Value(title),
+      summary: Value(summary),
+      details: Value(details),
+      pageNumbersJson: Value(pageNumbersJson),
+      status: Value(status),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ConceptRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ConceptRow(
+      id: serializer.fromJson<String>(json['id']),
+      sourceId: serializer.fromJson<String>(json['sourceId']),
+      title: serializer.fromJson<String>(json['title']),
+      summary: serializer.fromJson<String>(json['summary']),
+      details: serializer.fromJson<String>(json['details']),
+      pageNumbersJson: serializer.fromJson<String>(json['pageNumbersJson']),
+      status: serializer.fromJson<String>(json['status']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'sourceId': serializer.toJson<String>(sourceId),
+      'title': serializer.toJson<String>(title),
+      'summary': serializer.toJson<String>(summary),
+      'details': serializer.toJson<String>(details),
+      'pageNumbersJson': serializer.toJson<String>(pageNumbersJson),
+      'status': serializer.toJson<String>(status),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  ConceptRow copyWith({
+    String? id,
+    String? sourceId,
+    String? title,
+    String? summary,
+    String? details,
+    String? pageNumbersJson,
+    String? status,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => ConceptRow(
+    id: id ?? this.id,
+    sourceId: sourceId ?? this.sourceId,
+    title: title ?? this.title,
+    summary: summary ?? this.summary,
+    details: details ?? this.details,
+    pageNumbersJson: pageNumbersJson ?? this.pageNumbersJson,
+    status: status ?? this.status,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  ConceptRow copyWithCompanion(ConceptsCompanion data) {
+    return ConceptRow(
+      id: data.id.present ? data.id.value : this.id,
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      title: data.title.present ? data.title.value : this.title,
+      summary: data.summary.present ? data.summary.value : this.summary,
+      details: data.details.present ? data.details.value : this.details,
+      pageNumbersJson: data.pageNumbersJson.present
+          ? data.pageNumbersJson.value
+          : this.pageNumbersJson,
+      status: data.status.present ? data.status.value : this.status,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ConceptRow(')
+          ..write('id: $id, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('title: $title, ')
+          ..write('summary: $summary, ')
+          ..write('details: $details, ')
+          ..write('pageNumbersJson: $pageNumbersJson, ')
+          ..write('status: $status, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    sourceId,
+    title,
+    summary,
+    details,
+    pageNumbersJson,
+    status,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ConceptRow &&
+          other.id == this.id &&
+          other.sourceId == this.sourceId &&
+          other.title == this.title &&
+          other.summary == this.summary &&
+          other.details == this.details &&
+          other.pageNumbersJson == this.pageNumbersJson &&
+          other.status == this.status &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
+  final Value<String> id;
+  final Value<String> sourceId;
+  final Value<String> title;
+  final Value<String> summary;
+  final Value<String> details;
+  final Value<String> pageNumbersJson;
+  final Value<String> status;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const ConceptsCompanion({
+    this.id = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.summary = const Value.absent(),
+    this.details = const Value.absent(),
+    this.pageNumbersJson = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ConceptsCompanion.insert({
+    required String id,
+    required String sourceId,
+    required String title,
+    required String summary,
+    required String details,
+    required String pageNumbersJson,
+    required String status,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       sourceId = Value(sourceId),
+       title = Value(title),
+       summary = Value(summary),
+       details = Value(details),
+       pageNumbersJson = Value(pageNumbersJson),
+       status = Value(status),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<ConceptRow> custom({
+    Expression<String>? id,
+    Expression<String>? sourceId,
+    Expression<String>? title,
+    Expression<String>? summary,
+    Expression<String>? details,
+    Expression<String>? pageNumbersJson,
+    Expression<String>? status,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sourceId != null) 'source_id': sourceId,
+      if (title != null) 'title': title,
+      if (summary != null) 'summary': summary,
+      if (details != null) 'details': details,
+      if (pageNumbersJson != null) 'page_numbers_json': pageNumbersJson,
+      if (status != null) 'status': status,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ConceptsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? sourceId,
+    Value<String>? title,
+    Value<String>? summary,
+    Value<String>? details,
+    Value<String>? pageNumbersJson,
+    Value<String>? status,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return ConceptsCompanion(
+      id: id ?? this.id,
+      sourceId: sourceId ?? this.sourceId,
+      title: title ?? this.title,
+      summary: summary ?? this.summary,
+      details: details ?? this.details,
+      pageNumbersJson: pageNumbersJson ?? this.pageNumbersJson,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (sourceId.present) {
+      map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (summary.present) {
+      map['summary'] = Variable<String>(summary.value);
+    }
+    if (details.present) {
+      map['details'] = Variable<String>(details.value);
+    }
+    if (pageNumbersJson.present) {
+      map['page_numbers_json'] = Variable<String>(pageNumbersJson.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ConceptsCompanion(')
+          ..write('id: $id, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('title: $title, ')
+          ..write('summary: $summary, ')
+          ..write('details: $details, ')
+          ..write('pageNumbersJson: $pageNumbersJson, ')
+          ..write('status: $status, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $QuestionSourcesTable extends QuestionSources
+    with TableInfo<$QuestionSourcesTable, QuestionSourceRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $QuestionSourcesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _questionIdMeta = const VerificationMeta(
+    'questionId',
+  );
+  @override
+  late final GeneratedColumn<String> questionId = GeneratedColumn<String>(
+    'question_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES questions (id)',
+    ),
+  );
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
+    'source_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES sources (id)',
+    ),
+  );
+  static const VerificationMeta _conceptIdMeta = const VerificationMeta(
+    'conceptId',
+  );
+  @override
+  late final GeneratedColumn<String> conceptId = GeneratedColumn<String>(
+    'concept_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES concepts (id)',
+    ),
+  );
+  static const VerificationMeta _pageNumbersJsonMeta = const VerificationMeta(
+    'pageNumbersJson',
+  );
+  @override
+  late final GeneratedColumn<String> pageNumbersJson = GeneratedColumn<String>(
+    'page_numbers_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    questionId,
+    sourceId,
+    conceptId,
+    pageNumbersJson,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'question_sources';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<QuestionSourceRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('question_id')) {
+      context.handle(
+        _questionIdMeta,
+        questionId.isAcceptableOrUnknown(data['question_id']!, _questionIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_questionIdMeta);
+    }
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceIdMeta);
+    }
+    if (data.containsKey('concept_id')) {
+      context.handle(
+        _conceptIdMeta,
+        conceptId.isAcceptableOrUnknown(data['concept_id']!, _conceptIdMeta),
+      );
+    }
+    if (data.containsKey('page_numbers_json')) {
+      context.handle(
+        _pageNumbersJsonMeta,
+        pageNumbersJson.isAcceptableOrUnknown(
+          data['page_numbers_json']!,
+          _pageNumbersJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_pageNumbersJsonMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  QuestionSourceRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return QuestionSourceRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      questionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}question_id'],
+      )!,
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_id'],
+      )!,
+      conceptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}concept_id'],
+      ),
+      pageNumbersJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_numbers_json'],
+      )!,
+    );
+  }
+
+  @override
+  $QuestionSourcesTable createAlias(String alias) {
+    return $QuestionSourcesTable(attachedDatabase, alias);
+  }
+}
+
+class QuestionSourceRow extends DataClass
+    implements Insertable<QuestionSourceRow> {
+  final String id;
+  final String questionId;
+  final String sourceId;
+  final String? conceptId;
+  final String pageNumbersJson;
+  const QuestionSourceRow({
+    required this.id,
+    required this.questionId,
+    required this.sourceId,
+    this.conceptId,
+    required this.pageNumbersJson,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['question_id'] = Variable<String>(questionId);
+    map['source_id'] = Variable<String>(sourceId);
+    if (!nullToAbsent || conceptId != null) {
+      map['concept_id'] = Variable<String>(conceptId);
+    }
+    map['page_numbers_json'] = Variable<String>(pageNumbersJson);
+    return map;
+  }
+
+  QuestionSourcesCompanion toCompanion(bool nullToAbsent) {
+    return QuestionSourcesCompanion(
+      id: Value(id),
+      questionId: Value(questionId),
+      sourceId: Value(sourceId),
+      conceptId: conceptId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(conceptId),
+      pageNumbersJson: Value(pageNumbersJson),
+    );
+  }
+
+  factory QuestionSourceRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return QuestionSourceRow(
+      id: serializer.fromJson<String>(json['id']),
+      questionId: serializer.fromJson<String>(json['questionId']),
+      sourceId: serializer.fromJson<String>(json['sourceId']),
+      conceptId: serializer.fromJson<String?>(json['conceptId']),
+      pageNumbersJson: serializer.fromJson<String>(json['pageNumbersJson']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'questionId': serializer.toJson<String>(questionId),
+      'sourceId': serializer.toJson<String>(sourceId),
+      'conceptId': serializer.toJson<String?>(conceptId),
+      'pageNumbersJson': serializer.toJson<String>(pageNumbersJson),
+    };
+  }
+
+  QuestionSourceRow copyWith({
+    String? id,
+    String? questionId,
+    String? sourceId,
+    Value<String?> conceptId = const Value.absent(),
+    String? pageNumbersJson,
+  }) => QuestionSourceRow(
+    id: id ?? this.id,
+    questionId: questionId ?? this.questionId,
+    sourceId: sourceId ?? this.sourceId,
+    conceptId: conceptId.present ? conceptId.value : this.conceptId,
+    pageNumbersJson: pageNumbersJson ?? this.pageNumbersJson,
+  );
+  QuestionSourceRow copyWithCompanion(QuestionSourcesCompanion data) {
+    return QuestionSourceRow(
+      id: data.id.present ? data.id.value : this.id,
+      questionId: data.questionId.present
+          ? data.questionId.value
+          : this.questionId,
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      conceptId: data.conceptId.present ? data.conceptId.value : this.conceptId,
+      pageNumbersJson: data.pageNumbersJson.present
+          ? data.pageNumbersJson.value
+          : this.pageNumbersJson,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('QuestionSourceRow(')
+          ..write('id: $id, ')
+          ..write('questionId: $questionId, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('conceptId: $conceptId, ')
+          ..write('pageNumbersJson: $pageNumbersJson')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, questionId, sourceId, conceptId, pageNumbersJson);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is QuestionSourceRow &&
+          other.id == this.id &&
+          other.questionId == this.questionId &&
+          other.sourceId == this.sourceId &&
+          other.conceptId == this.conceptId &&
+          other.pageNumbersJson == this.pageNumbersJson);
+}
+
+class QuestionSourcesCompanion extends UpdateCompanion<QuestionSourceRow> {
+  final Value<String> id;
+  final Value<String> questionId;
+  final Value<String> sourceId;
+  final Value<String?> conceptId;
+  final Value<String> pageNumbersJson;
+  final Value<int> rowid;
+  const QuestionSourcesCompanion({
+    this.id = const Value.absent(),
+    this.questionId = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.conceptId = const Value.absent(),
+    this.pageNumbersJson = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  QuestionSourcesCompanion.insert({
+    required String id,
+    required String questionId,
+    required String sourceId,
+    this.conceptId = const Value.absent(),
+    required String pageNumbersJson,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       questionId = Value(questionId),
+       sourceId = Value(sourceId),
+       pageNumbersJson = Value(pageNumbersJson);
+  static Insertable<QuestionSourceRow> custom({
+    Expression<String>? id,
+    Expression<String>? questionId,
+    Expression<String>? sourceId,
+    Expression<String>? conceptId,
+    Expression<String>? pageNumbersJson,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (questionId != null) 'question_id': questionId,
+      if (sourceId != null) 'source_id': sourceId,
+      if (conceptId != null) 'concept_id': conceptId,
+      if (pageNumbersJson != null) 'page_numbers_json': pageNumbersJson,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  QuestionSourcesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? questionId,
+    Value<String>? sourceId,
+    Value<String?>? conceptId,
+    Value<String>? pageNumbersJson,
+    Value<int>? rowid,
+  }) {
+    return QuestionSourcesCompanion(
+      id: id ?? this.id,
+      questionId: questionId ?? this.questionId,
+      sourceId: sourceId ?? this.sourceId,
+      conceptId: conceptId ?? this.conceptId,
+      pageNumbersJson: pageNumbersJson ?? this.pageNumbersJson,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (questionId.present) {
+      map['question_id'] = Variable<String>(questionId.value);
+    }
+    if (sourceId.present) {
+      map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (conceptId.present) {
+      map['concept_id'] = Variable<String>(conceptId.value);
+    }
+    if (pageNumbersJson.present) {
+      map['page_numbers_json'] = Variable<String>(pageNumbersJson.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('QuestionSourcesCompanion(')
+          ..write('id: $id, ')
+          ..write('questionId: $questionId, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('conceptId: $conceptId, ')
+          ..write('pageNumbersJson: $pageNumbersJson, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4250,12 +5674,18 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $SyncOutboxTable syncOutbox = $SyncOutboxTable(this);
   late final $SyncStatesTable syncStates = $SyncStatesTable(this);
+  late final $StudySourcesTable studySources = $StudySourcesTable(this);
+  late final $ConceptsTable concepts = $ConceptsTable(this);
+  late final $QuestionSourcesTable questionSources = $QuestionSourcesTable(
+    this,
+  );
   late final FolderDao folderDao = FolderDao(this as AppDatabase);
   late final QuestionDao questionDao = QuestionDao(this as AppDatabase);
   late final QuizDao quizDao = QuizDao(this as AppDatabase);
   late final AttemptDao attemptDao = AttemptDao(this as AppDatabase);
   late final StatisticsDao statisticsDao = StatisticsDao(this as AppDatabase);
   late final SyncDao syncDao = SyncDao(this as AppDatabase);
+  late final SourceDao sourceDao = SourceDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4270,6 +5700,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     quizSessionItems,
     syncOutbox,
     syncStates,
+    studySources,
+    concepts,
+    questionSources,
   ];
 }
 
@@ -4344,6 +5777,24 @@ final class $$FoldersTableReferences
     ).filter((f) => f.sourceFolderId.id.sqlEquals($_itemColumn<String>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_quizSessionsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$StudySourcesTable, List<StudySourceRow>>
+  _studySourcesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.studySources,
+    aliasName: 'folders__id__sources__folder_id',
+  );
+
+  $$StudySourcesTableProcessedTableManager get studySourcesRefs {
+    final manager = $$StudySourcesTableTableManager(
+      $_db,
+      $_db.studySources,
+    ).filter((f) => f.folderId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_studySourcesRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -4448,6 +5899,31 @@ class $$FoldersTableFilterComposer
           }) => $$QuizSessionsTableFilterComposer(
             $db: $db,
             $table: $db.quizSessions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> studySourcesRefs(
+    Expression<bool> Function($$StudySourcesTableFilterComposer f) f,
+  ) {
+    final $$StudySourcesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.folderId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableFilterComposer(
+            $db: $db,
+            $table: $db.studySources,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -4612,6 +6088,31 @@ class $$FoldersTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> studySourcesRefs<T extends Object>(
+    Expression<T> Function($$StudySourcesTableAnnotationComposer a) f,
+  ) {
+    final $$StudySourcesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.folderId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$FoldersTableTableManager
@@ -4631,6 +6132,7 @@ class $$FoldersTableTableManager
             bool parentId,
             bool questionsRefs,
             bool quizSessionsRefs,
+            bool studySourcesRefs,
           })
         > {
   $$FoldersTableTableManager(_$AppDatabase db, $FoldersTable table)
@@ -4693,12 +6195,14 @@ class $$FoldersTableTableManager
                 parentId = false,
                 questionsRefs = false,
                 quizSessionsRefs = false,
+                studySourcesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
                   explicitlyWatchedTables: [
                     if (questionsRefs) db.questions,
                     if (quizSessionsRefs) db.quizSessions,
+                    if (studySourcesRefs) db.studySources,
                   ],
                   addJoins:
                       <
@@ -4774,6 +6278,27 @@ class $$FoldersTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (studySourcesRefs)
+                        await $_getPrefetchedData<
+                          FolderRow,
+                          $FoldersTable,
+                          StudySourceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$FoldersTableReferences
+                              ._studySourcesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$FoldersTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).studySourcesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.folderId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -4798,6 +6323,7 @@ typedef $$FoldersTableProcessedTableManager =
         bool parentId,
         bool questionsRefs,
         bool quizSessionsRefs,
+        bool studySourcesRefs,
       })
     >;
 typedef $$QuestionsTableCreateCompanionBuilder = QuestionsCompanion Function({
@@ -4921,6 +6447,26 @@ final class $$QuestionsTableReferences
 
     final cache = $_typedResult.readTableOrNull(
       _quizSessionItemsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$QuestionSourcesTable, List<QuestionSourceRow>>
+  _questionSourcesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.questionSources,
+    aliasName: 'questions__id__question_sources__question_id',
+  );
+
+  $$QuestionSourcesTableProcessedTableManager get questionSourcesRefs {
+    final manager = $$QuestionSourcesTableTableManager(
+      $_db,
+      $_db.questionSources,
+    ).filter((f) => f.questionId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _questionSourcesRefsTable($_db),
     );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
@@ -5096,6 +6642,31 @@ class $$QuestionsTableFilterComposer
           }) => $$QuizSessionItemsTableFilterComposer(
             $db: $db,
             $table: $db.quizSessionItems,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> questionSourcesRefs(
+    Expression<bool> Function($$QuestionSourcesTableFilterComposer f) f,
+  ) {
+    final $$QuestionSourcesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.questionSources,
+      getReferencedColumn: (t) => t.questionId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionSourcesTableFilterComposer(
+            $db: $db,
+            $table: $db.questionSources,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -5347,6 +6918,31 @@ class $$QuestionsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> questionSourcesRefs<T extends Object>(
+    Expression<T> Function($$QuestionSourcesTableAnnotationComposer a) f,
+  ) {
+    final $$QuestionSourcesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.questionSources,
+      getReferencedColumn: (t) => t.questionId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionSourcesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.questionSources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$QuestionsTableTableManager
@@ -5368,6 +6964,7 @@ class $$QuestionsTableTableManager
             bool acceptableAnswersRefs,
             bool attemptsRefs,
             bool quizSessionItemsRefs,
+            bool questionSourcesRefs,
           })
         > {
   $$QuestionsTableTableManager(_$AppDatabase db, $QuestionsTable table)
@@ -5448,6 +7045,7 @@ class $$QuestionsTableTableManager
                 acceptableAnswersRefs = false,
                 attemptsRefs = false,
                 quizSessionItemsRefs = false,
+                questionSourcesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -5456,6 +7054,7 @@ class $$QuestionsTableTableManager
                     if (acceptableAnswersRefs) db.acceptableAnswers,
                     if (attemptsRefs) db.attempts,
                     if (quizSessionItemsRefs) db.quizSessionItems,
+                    if (questionSourcesRefs) db.questionSources,
                   ],
                   addJoins:
                       <
@@ -5573,6 +7172,27 @@ class $$QuestionsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (questionSourcesRefs)
+                        await $_getPrefetchedData<
+                          QuestionRow,
+                          $QuestionsTable,
+                          QuestionSourceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$QuestionsTableReferences
+                              ._questionSourcesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$QuestionsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).questionSourcesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.questionId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -5599,6 +7219,7 @@ typedef $$QuestionsTableProcessedTableManager =
         bool acceptableAnswersRefs,
         bool attemptsRefs,
         bool quizSessionItemsRefs,
+        bool questionSourcesRefs,
       })
     >;
 typedef $$QuestionChoicesTableCreateCompanionBuilder =
@@ -8234,6 +9855,1549 @@ typedef $$SyncStatesTableProcessedTableManager =
       SyncStateRow,
       PrefetchHooks Function()
     >;
+typedef $$StudySourcesTableCreateCompanionBuilder =
+    StudySourcesCompanion Function({
+      required String id,
+      required String folderId,
+      required String fileName,
+      required String contentHash,
+      required int pageCount,
+      required String extractionMethod,
+      required DateTime importedAt,
+      Value<int> rowid,
+    });
+typedef $$StudySourcesTableUpdateCompanionBuilder =
+    StudySourcesCompanion Function({
+      Value<String> id,
+      Value<String> folderId,
+      Value<String> fileName,
+      Value<String> contentHash,
+      Value<int> pageCount,
+      Value<String> extractionMethod,
+      Value<DateTime> importedAt,
+      Value<int> rowid,
+    });
+
+final class $$StudySourcesTableReferences
+    extends BaseReferences<_$AppDatabase, $StudySourcesTable, StudySourceRow> {
+  $$StudySourcesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $FoldersTable _folderIdTable(_$AppDatabase db) =>
+      db.folders.createAlias('sources__folder_id__folders__id');
+
+  $$FoldersTableProcessedTableManager get folderId {
+    final $_column = $_itemColumn<String>('folder_id')!;
+
+    final manager = $$FoldersTableTableManager(
+      $_db,
+      $_db.folders,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_folderIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$ConceptsTable, List<ConceptRow>>
+  _conceptsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.concepts,
+    aliasName: 'sources__id__concepts__source_id',
+  );
+
+  $$ConceptsTableProcessedTableManager get conceptsRefs {
+    final manager = $$ConceptsTableTableManager(
+      $_db,
+      $_db.concepts,
+    ).filter((f) => f.sourceId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_conceptsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$QuestionSourcesTable, List<QuestionSourceRow>>
+  _questionSourcesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.questionSources,
+    aliasName: 'sources__id__question_sources__source_id',
+  );
+
+  $$QuestionSourcesTableProcessedTableManager get questionSourcesRefs {
+    final manager = $$QuestionSourcesTableTableManager(
+      $_db,
+      $_db.questionSources,
+    ).filter((f) => f.sourceId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _questionSourcesRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$StudySourcesTableFilterComposer
+    extends Composer<_$AppDatabase, $StudySourcesTable> {
+  $$StudySourcesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fileName => $composableBuilder(
+    column: $table.fileName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get pageCount => $composableBuilder(
+    column: $table.pageCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get extractionMethod => $composableBuilder(
+    column: $table.extractionMethod,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get importedAt => $composableBuilder(
+    column: $table.importedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$FoldersTableFilterComposer get folderId {
+    final $$FoldersTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.folders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$FoldersTableFilterComposer(
+            $db: $db,
+            $table: $db.folders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> conceptsRefs(
+    Expression<bool> Function($$ConceptsTableFilterComposer f) f,
+  ) {
+    final $$ConceptsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.concepts,
+      getReferencedColumn: (t) => t.sourceId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ConceptsTableFilterComposer(
+            $db: $db,
+            $table: $db.concepts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> questionSourcesRefs(
+    Expression<bool> Function($$QuestionSourcesTableFilterComposer f) f,
+  ) {
+    final $$QuestionSourcesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.questionSources,
+      getReferencedColumn: (t) => t.sourceId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionSourcesTableFilterComposer(
+            $db: $db,
+            $table: $db.questionSources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$StudySourcesTableOrderingComposer
+    extends Composer<_$AppDatabase, $StudySourcesTable> {
+  $$StudySourcesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get fileName => $composableBuilder(
+    column: $table.fileName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get pageCount => $composableBuilder(
+    column: $table.pageCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get extractionMethod => $composableBuilder(
+    column: $table.extractionMethod,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get importedAt => $composableBuilder(
+    column: $table.importedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$FoldersTableOrderingComposer get folderId {
+    final $$FoldersTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.folders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$FoldersTableOrderingComposer(
+            $db: $db,
+            $table: $db.folders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$StudySourcesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $StudySourcesTable> {
+  $$StudySourcesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get fileName =>
+      $composableBuilder(column: $table.fileName, builder: (column) => column);
+
+  GeneratedColumn<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get pageCount =>
+      $composableBuilder(column: $table.pageCount, builder: (column) => column);
+
+  GeneratedColumn<String> get extractionMethod => $composableBuilder(
+    column: $table.extractionMethod,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get importedAt => $composableBuilder(
+    column: $table.importedAt,
+    builder: (column) => column,
+  );
+
+  $$FoldersTableAnnotationComposer get folderId {
+    final $$FoldersTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.folders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$FoldersTableAnnotationComposer(
+            $db: $db,
+            $table: $db.folders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> conceptsRefs<T extends Object>(
+    Expression<T> Function($$ConceptsTableAnnotationComposer a) f,
+  ) {
+    final $$ConceptsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.concepts,
+      getReferencedColumn: (t) => t.sourceId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ConceptsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.concepts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> questionSourcesRefs<T extends Object>(
+    Expression<T> Function($$QuestionSourcesTableAnnotationComposer a) f,
+  ) {
+    final $$QuestionSourcesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.questionSources,
+      getReferencedColumn: (t) => t.sourceId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionSourcesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.questionSources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$StudySourcesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $StudySourcesTable,
+          StudySourceRow,
+          $$StudySourcesTableFilterComposer,
+          $$StudySourcesTableOrderingComposer,
+          $$StudySourcesTableAnnotationComposer,
+          $$StudySourcesTableCreateCompanionBuilder,
+          $$StudySourcesTableUpdateCompanionBuilder,
+          (StudySourceRow, $$StudySourcesTableReferences),
+          StudySourceRow,
+          PrefetchHooks Function({
+            bool folderId,
+            bool conceptsRefs,
+            bool questionSourcesRefs,
+          })
+        > {
+  $$StudySourcesTableTableManager(_$AppDatabase db, $StudySourcesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$StudySourcesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$StudySourcesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$StudySourcesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> folderId = const Value.absent(),
+                Value<String> fileName = const Value.absent(),
+                Value<String> contentHash = const Value.absent(),
+                Value<int> pageCount = const Value.absent(),
+                Value<String> extractionMethod = const Value.absent(),
+                Value<DateTime> importedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => StudySourcesCompanion(
+                id: id,
+                folderId: folderId,
+                fileName: fileName,
+                contentHash: contentHash,
+                pageCount: pageCount,
+                extractionMethod: extractionMethod,
+                importedAt: importedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String folderId,
+                required String fileName,
+                required String contentHash,
+                required int pageCount,
+                required String extractionMethod,
+                required DateTime importedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => StudySourcesCompanion.insert(
+                id: id,
+                folderId: folderId,
+                fileName: fileName,
+                contentHash: contentHash,
+                pageCount: pageCount,
+                extractionMethod: extractionMethod,
+                importedAt: importedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$StudySourcesTable, StudySourceRow>(table),
+                  $$StudySourcesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({
+                folderId = false,
+                conceptsRefs = false,
+                questionSourcesRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (conceptsRefs) db.concepts,
+                    if (questionSourcesRefs) db.questionSources,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (folderId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.folderId,
+                            referencedTable: $$StudySourcesTableReferences
+                                ._folderIdTable(db),
+                            referencedColumn: $$StudySourcesTableReferences
+                                ._folderIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (conceptsRefs)
+                        await $_getPrefetchedData<
+                          StudySourceRow,
+                          $StudySourcesTable,
+                          ConceptRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$StudySourcesTableReferences
+                              ._conceptsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$StudySourcesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).conceptsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.sourceId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (questionSourcesRefs)
+                        await $_getPrefetchedData<
+                          StudySourceRow,
+                          $StudySourcesTable,
+                          QuestionSourceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$StudySourcesTableReferences
+                              ._questionSourcesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$StudySourcesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).questionSourcesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.sourceId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$StudySourcesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $StudySourcesTable,
+      StudySourceRow,
+      $$StudySourcesTableFilterComposer,
+      $$StudySourcesTableOrderingComposer,
+      $$StudySourcesTableAnnotationComposer,
+      $$StudySourcesTableCreateCompanionBuilder,
+      $$StudySourcesTableUpdateCompanionBuilder,
+      (StudySourceRow, $$StudySourcesTableReferences),
+      StudySourceRow,
+      PrefetchHooks Function({
+        bool folderId,
+        bool conceptsRefs,
+        bool questionSourcesRefs,
+      })
+    >;
+typedef $$ConceptsTableCreateCompanionBuilder = ConceptsCompanion Function({
+  required String id,
+  required String sourceId,
+  required String title,
+  required String summary,
+  required String details,
+  required String pageNumbersJson,
+  required String status,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$ConceptsTableUpdateCompanionBuilder = ConceptsCompanion Function({
+  Value<String> id,
+  Value<String> sourceId,
+  Value<String> title,
+  Value<String> summary,
+  Value<String> details,
+  Value<String> pageNumbersJson,
+  Value<String> status,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+final class $$ConceptsTableReferences
+    extends BaseReferences<_$AppDatabase, $ConceptsTable, ConceptRow> {
+  $$ConceptsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $StudySourcesTable _sourceIdTable(_$AppDatabase db) =>
+      db.studySources.createAlias('concepts__source_id__sources__id');
+
+  $$StudySourcesTableProcessedTableManager get sourceId {
+    final $_column = $_itemColumn<String>('source_id')!;
+
+    final manager = $$StudySourcesTableTableManager(
+      $_db,
+      $_db.studySources,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_sourceIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$QuestionSourcesTable, List<QuestionSourceRow>>
+  _questionSourcesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.questionSources,
+    aliasName: 'concepts__id__question_sources__concept_id',
+  );
+
+  $$QuestionSourcesTableProcessedTableManager get questionSourcesRefs {
+    final manager = $$QuestionSourcesTableTableManager(
+      $_db,
+      $_db.questionSources,
+    ).filter((f) => f.conceptId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _questionSourcesRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$ConceptsTableFilterComposer
+    extends Composer<_$AppDatabase, $ConceptsTable> {
+  $$ConceptsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get summary => $composableBuilder(
+    column: $table.summary,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get details => $composableBuilder(
+    column: $table.details,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageNumbersJson => $composableBuilder(
+    column: $table.pageNumbersJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$StudySourcesTableFilterComposer get sourceId {
+    final $$StudySourcesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableFilterComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> questionSourcesRefs(
+    Expression<bool> Function($$QuestionSourcesTableFilterComposer f) f,
+  ) {
+    final $$QuestionSourcesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.questionSources,
+      getReferencedColumn: (t) => t.conceptId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionSourcesTableFilterComposer(
+            $db: $db,
+            $table: $db.questionSources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$ConceptsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ConceptsTable> {
+  $$ConceptsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get summary => $composableBuilder(
+    column: $table.summary,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get details => $composableBuilder(
+    column: $table.details,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pageNumbersJson => $composableBuilder(
+    column: $table.pageNumbersJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$StudySourcesTableOrderingComposer get sourceId {
+    final $$StudySourcesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableOrderingComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ConceptsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ConceptsTable> {
+  $$ConceptsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get summary =>
+      $composableBuilder(column: $table.summary, builder: (column) => column);
+
+  GeneratedColumn<String> get details =>
+      $composableBuilder(column: $table.details, builder: (column) => column);
+
+  GeneratedColumn<String> get pageNumbersJson => $composableBuilder(
+    column: $table.pageNumbersJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$StudySourcesTableAnnotationComposer get sourceId {
+    final $$StudySourcesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> questionSourcesRefs<T extends Object>(
+    Expression<T> Function($$QuestionSourcesTableAnnotationComposer a) f,
+  ) {
+    final $$QuestionSourcesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.questionSources,
+      getReferencedColumn: (t) => t.conceptId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionSourcesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.questionSources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$ConceptsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ConceptsTable,
+          ConceptRow,
+          $$ConceptsTableFilterComposer,
+          $$ConceptsTableOrderingComposer,
+          $$ConceptsTableAnnotationComposer,
+          $$ConceptsTableCreateCompanionBuilder,
+          $$ConceptsTableUpdateCompanionBuilder,
+          (ConceptRow, $$ConceptsTableReferences),
+          ConceptRow,
+          PrefetchHooks Function({bool sourceId, bool questionSourcesRefs})
+        > {
+  $$ConceptsTableTableManager(_$AppDatabase db, $ConceptsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ConceptsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ConceptsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ConceptsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> summary = const Value.absent(),
+                Value<String> details = const Value.absent(),
+                Value<String> pageNumbersJson = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ConceptsCompanion(
+                id: id,
+                sourceId: sourceId,
+                title: title,
+                summary: summary,
+                details: details,
+                pageNumbersJson: pageNumbersJson,
+                status: status,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String sourceId,
+                required String title,
+                required String summary,
+                required String details,
+                required String pageNumbersJson,
+                required String status,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ConceptsCompanion.insert(
+                id: id,
+                sourceId: sourceId,
+                title: title,
+                summary: summary,
+                details: details,
+                pageNumbersJson: pageNumbersJson,
+                status: status,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$ConceptsTable, ConceptRow>(table),
+                  $$ConceptsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({sourceId = false, questionSourcesRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (questionSourcesRefs) db.questionSources,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (sourceId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.sourceId,
+                            referencedTable: $$ConceptsTableReferences
+                                ._sourceIdTable(db),
+                            referencedColumn: $$ConceptsTableReferences
+                                ._sourceIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (questionSourcesRefs)
+                        await $_getPrefetchedData<
+                          ConceptRow,
+                          $ConceptsTable,
+                          QuestionSourceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ConceptsTableReferences
+                              ._questionSourcesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ConceptsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).questionSourcesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.conceptId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$ConceptsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ConceptsTable,
+      ConceptRow,
+      $$ConceptsTableFilterComposer,
+      $$ConceptsTableOrderingComposer,
+      $$ConceptsTableAnnotationComposer,
+      $$ConceptsTableCreateCompanionBuilder,
+      $$ConceptsTableUpdateCompanionBuilder,
+      (ConceptRow, $$ConceptsTableReferences),
+      ConceptRow,
+      PrefetchHooks Function({bool sourceId, bool questionSourcesRefs})
+    >;
+typedef $$QuestionSourcesTableCreateCompanionBuilder =
+    QuestionSourcesCompanion Function({
+      required String id,
+      required String questionId,
+      required String sourceId,
+      Value<String?> conceptId,
+      required String pageNumbersJson,
+      Value<int> rowid,
+    });
+typedef $$QuestionSourcesTableUpdateCompanionBuilder =
+    QuestionSourcesCompanion Function({
+      Value<String> id,
+      Value<String> questionId,
+      Value<String> sourceId,
+      Value<String?> conceptId,
+      Value<String> pageNumbersJson,
+      Value<int> rowid,
+    });
+
+final class $$QuestionSourcesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $QuestionSourcesTable,
+          QuestionSourceRow
+        > {
+  $$QuestionSourcesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $QuestionsTable _questionIdTable(_$AppDatabase db) =>
+      db.questions.createAlias('question_sources__question_id__questions__id');
+
+  $$QuestionsTableProcessedTableManager get questionId {
+    final $_column = $_itemColumn<String>('question_id')!;
+
+    final manager = $$QuestionsTableTableManager(
+      $_db,
+      $_db.questions,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_questionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $StudySourcesTable _sourceIdTable(_$AppDatabase db) =>
+      db.studySources.createAlias('question_sources__source_id__sources__id');
+
+  $$StudySourcesTableProcessedTableManager get sourceId {
+    final $_column = $_itemColumn<String>('source_id')!;
+
+    final manager = $$StudySourcesTableTableManager(
+      $_db,
+      $_db.studySources,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_sourceIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $ConceptsTable _conceptIdTable(_$AppDatabase db) =>
+      db.concepts.createAlias('question_sources__concept_id__concepts__id');
+
+  $$ConceptsTableProcessedTableManager? get conceptId {
+    final $_column = $_itemColumn<String>('concept_id');
+    if ($_column == null) return null;
+    final manager = $$ConceptsTableTableManager(
+      $_db,
+      $_db.concepts,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_conceptIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$QuestionSourcesTableFilterComposer
+    extends Composer<_$AppDatabase, $QuestionSourcesTable> {
+  $$QuestionSourcesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageNumbersJson => $composableBuilder(
+    column: $table.pageNumbersJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$QuestionsTableFilterComposer get questionId {
+    final $$QuestionsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.questionId,
+      referencedTable: $db.questions,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionsTableFilterComposer(
+            $db: $db,
+            $table: $db.questions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$StudySourcesTableFilterComposer get sourceId {
+    final $$StudySourcesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableFilterComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ConceptsTableFilterComposer get conceptId {
+    final $$ConceptsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.conceptId,
+      referencedTable: $db.concepts,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ConceptsTableFilterComposer(
+            $db: $db,
+            $table: $db.concepts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$QuestionSourcesTableOrderingComposer
+    extends Composer<_$AppDatabase, $QuestionSourcesTable> {
+  $$QuestionSourcesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pageNumbersJson => $composableBuilder(
+    column: $table.pageNumbersJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$QuestionsTableOrderingComposer get questionId {
+    final $$QuestionsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.questionId,
+      referencedTable: $db.questions,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionsTableOrderingComposer(
+            $db: $db,
+            $table: $db.questions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$StudySourcesTableOrderingComposer get sourceId {
+    final $$StudySourcesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableOrderingComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ConceptsTableOrderingComposer get conceptId {
+    final $$ConceptsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.conceptId,
+      referencedTable: $db.concepts,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ConceptsTableOrderingComposer(
+            $db: $db,
+            $table: $db.concepts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$QuestionSourcesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $QuestionSourcesTable> {
+  $$QuestionSourcesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get pageNumbersJson => $composableBuilder(
+    column: $table.pageNumbersJson,
+    builder: (column) => column,
+  );
+
+  $$QuestionsTableAnnotationComposer get questionId {
+    final $$QuestionsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.questionId,
+      referencedTable: $db.questions,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$QuestionsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.questions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$StudySourcesTableAnnotationComposer get sourceId {
+    final $$StudySourcesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.studySources,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StudySourcesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.studySources,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ConceptsTableAnnotationComposer get conceptId {
+    final $$ConceptsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.conceptId,
+      referencedTable: $db.concepts,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ConceptsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.concepts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$QuestionSourcesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $QuestionSourcesTable,
+          QuestionSourceRow,
+          $$QuestionSourcesTableFilterComposer,
+          $$QuestionSourcesTableOrderingComposer,
+          $$QuestionSourcesTableAnnotationComposer,
+          $$QuestionSourcesTableCreateCompanionBuilder,
+          $$QuestionSourcesTableUpdateCompanionBuilder,
+          (QuestionSourceRow, $$QuestionSourcesTableReferences),
+          QuestionSourceRow,
+          PrefetchHooks Function({
+            bool questionId,
+            bool sourceId,
+            bool conceptId,
+          })
+        > {
+  $$QuestionSourcesTableTableManager(
+    _$AppDatabase db,
+    $QuestionSourcesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$QuestionSourcesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$QuestionSourcesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$QuestionSourcesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> questionId = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String?> conceptId = const Value.absent(),
+                Value<String> pageNumbersJson = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => QuestionSourcesCompanion(
+                id: id,
+                questionId: questionId,
+                sourceId: sourceId,
+                conceptId: conceptId,
+                pageNumbersJson: pageNumbersJson,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String questionId,
+                required String sourceId,
+                Value<String?> conceptId = const Value.absent(),
+                required String pageNumbersJson,
+                Value<int> rowid = const Value.absent(),
+              }) => QuestionSourcesCompanion.insert(
+                id: id,
+                questionId: questionId,
+                sourceId: sourceId,
+                conceptId: conceptId,
+                pageNumbersJson: pageNumbersJson,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$QuestionSourcesTable, QuestionSourceRow>(table),
+                  $$QuestionSourcesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({questionId = false, sourceId = false, conceptId = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (questionId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.questionId,
+                            referencedTable: $$QuestionSourcesTableReferences
+                                ._questionIdTable(db),
+                            referencedColumn: $$QuestionSourcesTableReferences
+                                ._questionIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+                        if (sourceId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.sourceId,
+                            referencedTable: $$QuestionSourcesTableReferences
+                                ._sourceIdTable(db),
+                            referencedColumn: $$QuestionSourcesTableReferences
+                                ._sourceIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+                        if (conceptId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.conceptId,
+                            referencedTable: $$QuestionSourcesTableReferences
+                                ._conceptIdTable(db),
+                            referencedColumn: $$QuestionSourcesTableReferences
+                                ._conceptIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$QuestionSourcesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $QuestionSourcesTable,
+      QuestionSourceRow,
+      $$QuestionSourcesTableFilterComposer,
+      $$QuestionSourcesTableOrderingComposer,
+      $$QuestionSourcesTableAnnotationComposer,
+      $$QuestionSourcesTableCreateCompanionBuilder,
+      $$QuestionSourcesTableUpdateCompanionBuilder,
+      (QuestionSourceRow, $$QuestionSourcesTableReferences),
+      QuestionSourceRow,
+      PrefetchHooks Function({bool questionId, bool sourceId, bool conceptId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8256,4 +11420,10 @@ class $AppDatabaseManager {
       $$SyncOutboxTableTableManager(_db, _db.syncOutbox);
   $$SyncStatesTableTableManager get syncStates =>
       $$SyncStatesTableTableManager(_db, _db.syncStates);
+  $$StudySourcesTableTableManager get studySources =>
+      $$StudySourcesTableTableManager(_db, _db.studySources);
+  $$ConceptsTableTableManager get concepts =>
+      $$ConceptsTableTableManager(_db, _db.concepts);
+  $$QuestionSourcesTableTableManager get questionSources =>
+      $$QuestionSourcesTableTableManager(_db, _db.questionSources);
 }

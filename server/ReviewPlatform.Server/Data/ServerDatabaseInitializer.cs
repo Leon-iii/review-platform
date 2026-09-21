@@ -27,6 +27,18 @@ public static class ServerDatabaseInitializer
             );
             CREATE INDEX IF NOT EXISTS "IX_AiGenerationRecords_RequestedAt"
                 ON "AiGenerationRecords" ("RequestedAt");
+            CREATE TABLE IF NOT EXISTS "LlmProfiles" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_LlmProfiles" PRIMARY KEY,
+                "Name" TEXT NOT NULL,
+                "Provider" TEXT NOT NULL,
+                "Model" TEXT NOT NULL,
+                "BaseUrl" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS "LlmPurposeAssignments" (
+                "Purpose" TEXT NOT NULL CONSTRAINT "PK_LlmPurposeAssignments" PRIMARY KEY,
+                "ProfileId" TEXT NOT NULL
+            );
             """,
             cancellationToken);
     }

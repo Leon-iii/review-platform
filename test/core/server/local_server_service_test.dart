@@ -7,11 +7,7 @@ import 'package:review_platform/core/server/local_server_service.dart';
 import 'package:review_platform/core/server/local_server_settings_store.dart';
 
 void main() {
-  const config = LocalServerConfig(
-    provider: LocalLlmProvider.openAi,
-    model: 'gpt-test',
-    port: 5080,
-  );
+  const config = LocalServerConfig(port: 5080, autoStart: false);
 
   test('health check 성공 후에만 running 상태가 된다', () async {
     final process = _FakeProcess();
@@ -38,7 +34,7 @@ void main() {
       healthCheck: (uri) async {
         healthCalls += 1;
         expect(uri.toString(), 'http://127.0.0.1:5080/health');
-        return true;
+        return healthCalls > 1;
       },
       accessTokenReader: () async => 'sync-token',
       portAvailabilityCheck: (_) async => true,
@@ -47,11 +43,11 @@ void main() {
 
     await service.start(config);
 
-    expect(healthCalls, 1);
+    expect(healthCalls, 2);
     expect(service.currentState.status, LocalServerStatus.running);
     expect(capturedWorkingDirectory, r'C:\project\server');
-    expect(capturedEnvironment['Llm__Provider'], 'openai');
-    expect(capturedEnvironment['Llm__Model'], 'gpt-test');
+    expect(capturedEnvironment, isNot(contains('Llm__Provider')));
+    expect(capturedEnvironment, isNot(contains('Llm__Model')));
     expect(capturedEnvironment['OPENAI_API_KEY'], 'secret-value');
     expect(capturedEnvironment['Sync__AccessToken'], 'sync-token');
     expect(capturedEnvironment['ASPNETCORE_URLS'], 'http://0.0.0.0:5080');
@@ -107,6 +103,8 @@ void main() {
     final service = LocalServerService(
       secretStore: _MemorySecretStore('secret-value'),
       isWindows: true,
+      healthCheck: (_) async => false,
+      accessTokenReader: () async => 'sync-token',
       portAvailabilityCheck: (_) async => false,
     );
     addTearDown(service.dispose);
@@ -116,6 +114,48 @@ void main() {
     expect(service.currentState.status, LocalServerStatus.error);
     expect(service.currentState.lastError, contains('Port 5080'));
     expect(service.currentState.lastError, contains('이미 사용 중'));
+  });
+
+  test('이미 응답하는 외부 서버는 실행하지 않고 별도 상태로 표시한다', () async {
+    var launchCount = 0;
+    final service = LocalServerService(
+      secretStore: _MemorySecretStore(null),
+      isWindows: true,
+      healthCheck: (_) async => true,
+      processLauncher:
+          (
+            executable,
+            arguments, {
+            required workingDirectory,
+            required environment,
+          }) async {
+            launchCount += 1;
+            return _FakeProcess();
+          },
+    );
+    addTearDown(service.dispose);
+
+    await service.start(config);
+    await service.stop();
+
+    expect(launchCount, 0);
+    expect(service.currentState.status, LocalServerStatus.externalRunning);
+  });
+
+  test('관리 서버 시작 전 접근 토큰이 없으면 명확한 오류를 표시한다', () async {
+    final service = LocalServerService(
+      secretStore: _MemorySecretStore(null),
+      isWindows: true,
+      healthCheck: (_) async => false,
+      accessTokenReader: () async => null,
+      portAvailabilityCheck: (_) async => true,
+    );
+    addTearDown(service.dispose);
+
+    await expectLater(service.start(config), throwsA(isA<ValidationFailure>()));
+
+    expect(service.currentState.status, LocalServerStatus.error);
+    expect(service.currentState.lastError, contains('접근 토큰'));
   });
 }
 
@@ -130,7 +170,11 @@ LocalServerService _serviceFor(_FakeProcess process) {
       required workingDirectory,
       required environment,
     }) async => process,
-    healthCheck: (_) async => true,
+    healthCheck: (() {
+      var calls = 0;
+      return (_) async => ++calls > 1;
+    })(),
+    accessTokenReader: () async => 'sync-token',
     portAvailabilityCheck: (_) async => true,
   );
 }

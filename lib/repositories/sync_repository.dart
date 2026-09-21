@@ -175,6 +175,9 @@ class DriftSyncRepository implements SyncRepository {
         final answers = isDelete
             ? const <AcceptableAnswerRow>[]
             : await _database.questionDao.getAcceptableAnswers(entry.entityId);
+        final sourceReferences = isDelete
+            ? const <QuestionSourceRow>[]
+            : await _database.sourceDao.getQuestionSources(entry.entityId);
         return PushSyncChange(
           operationId: entry.id,
           entityType: entry.entityType.name,
@@ -208,7 +211,60 @@ class DriftSyncRepository implements SyncRepository {
                     for (final answer in answers)
                       {'id': answer.id, 'text': answer.answerText},
                   ],
+                  'sourceReferences': [
+                    for (final reference in sourceReferences)
+                      {
+                        'id': reference.id,
+                        'sourceId': reference.sourceId,
+                        'conceptId': reference.conceptId,
+                        'pageNumbers': jsonDecode(reference.pageNumbersJson),
+                      },
+                  ],
                 },
+        );
+      case SyncEntityType.source:
+        final row = await _database.sourceDao.getSource(entry.entityId);
+        if (row == null) {
+          throw const SyncFailure('동기화할 학습 자료를 찾을 수 없어요.');
+        }
+        return PushSyncChange(
+          operationId: entry.id,
+          entityType: entry.entityType.name,
+          entityId: entry.entityId,
+          operation: 'upsert',
+          updatedAt: row.importedAt.toUtc(),
+          payload: {
+            'id': row.id,
+            'folderId': row.folderId,
+            'fileName': row.fileName,
+            'contentHash': row.contentHash,
+            'pageCount': row.pageCount,
+            'extractionMethod': row.extractionMethod,
+            'importedAt': row.importedAt.toUtc().toIso8601String(),
+          },
+        );
+      case SyncEntityType.concept:
+        final row = await _database.sourceDao.getConcept(entry.entityId);
+        if (row == null) {
+          throw const SyncFailure('동기화할 학습 개념을 찾을 수 없어요.');
+        }
+        return PushSyncChange(
+          operationId: entry.id,
+          entityType: entry.entityType.name,
+          entityId: entry.entityId,
+          operation: 'upsert',
+          updatedAt: row.updatedAt.toUtc(),
+          payload: {
+            'id': row.id,
+            'sourceId': row.sourceId,
+            'title': row.title,
+            'summary': row.summary,
+            'details': row.details,
+            'pageNumbers': jsonDecode(row.pageNumbersJson),
+            'status': row.status,
+            'createdAt': row.createdAt.toUtc().toIso8601String(),
+            'updatedAt': row.updatedAt.toUtc().toIso8601String(),
+          },
         );
       case SyncEntityType.quizSession:
         final row = await _database.quizDao.getSession(entry.entityId);
@@ -359,6 +415,58 @@ class DriftSyncRepository implements SyncRepository {
               answerText: raw['text']! as String,
             ),
         ]);
+        if (payload.containsKey('sourceReferences')) {
+          await _database.sourceDao.replaceQuestionSources(change.entityId, [
+            for (final raw in payload['sourceReferences']! as List)
+              QuestionSourcesCompanion.insert(
+                id: (raw as Map)['id']! as String,
+                questionId: change.entityId,
+                sourceId: raw['sourceId']! as String,
+                conceptId: Value(raw['conceptId'] as String?),
+                pageNumbersJson: jsonEncode(raw['pageNumbers']),
+              ),
+          ]);
+        }
+      case SyncEntityType.source:
+        if (isDelete) return;
+        final payload = _requirePayload(change);
+        final existing = await _database.sourceDao.getSource(change.entityId);
+        if (existing != null &&
+            existing.importedAt.toUtc().isAfter(change.updatedAt)) {
+          return;
+        }
+        await _database.sourceDao.upsertSource(
+          StudySourcesCompanion.insert(
+            id: change.entityId,
+            folderId: payload['folderId']! as String,
+            fileName: payload['fileName']! as String,
+            contentHash: payload['contentHash']! as String,
+            pageCount: (payload['pageCount']! as num).toInt(),
+            extractionMethod: payload['extractionMethod']! as String,
+            importedAt: _date(payload, 'importedAt'),
+          ),
+        );
+      case SyncEntityType.concept:
+        if (isDelete) return;
+        final payload = _requirePayload(change);
+        final existing = await _database.sourceDao.getConcept(change.entityId);
+        if (existing != null &&
+            existing.updatedAt.toUtc().isAfter(change.updatedAt)) {
+          return;
+        }
+        await _database.sourceDao.upsertConcept(
+          ConceptsCompanion.insert(
+            id: change.entityId,
+            sourceId: payload['sourceId']! as String,
+            title: payload['title']! as String,
+            summary: payload['summary']! as String,
+            details: payload['details']! as String,
+            pageNumbersJson: jsonEncode(payload['pageNumbers']),
+            status: payload['status']! as String,
+            createdAt: _date(payload, 'createdAt'),
+            updatedAt: change.updatedAt,
+          ),
+        );
       case SyncEntityType.quizSession:
         final existing = await _database.quizDao.getSession(change.entityId);
         if (existing != null &&

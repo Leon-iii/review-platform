@@ -42,7 +42,7 @@ final class LocalServerControllerProvider
 }
 
 String _$localServerControllerHash() =>
-    r'cf379c8fc7d29ba40ce42dc534dd3be604b6c0b9';
+    r'a45c75aa25b34c97e7ccc1e25cc3c31eee3fc938';
 
 abstract class _$LocalServerController extends $Notifier<LocalServerState> {
   LocalServerState build();

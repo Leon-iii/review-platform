@@ -11,6 +11,8 @@ public sealed class SyncService(SyncDbContext database)
     [
         "folder",
         "question",
+        "source",
+        "concept",
         "quizSession",
         "attempt"
     ];

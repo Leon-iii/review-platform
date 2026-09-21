@@ -241,6 +241,60 @@ void main() {
     expect(outbox.read<String>('entity_id'), 'folder-old');
     expect(outbox.read<String>('operation'), 'upsert');
   });
+
+  test('v6 데이터를 보존하며 Source, Concept, QuestionSource 테이블을 추가한다', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'review_platform_source_migration_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final databaseFile = File('${tempDirectory.path}/migration.sqlite');
+
+    final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    legacyDatabase.execute('''
+      CREATE TABLE folders (
+        id TEXT NOT NULL PRIMARY KEY,
+        parent_id TEXT NULL REFERENCES folders(id),
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE questions (
+        id TEXT NOT NULL PRIMARY KEY,
+        folder_id TEXT NOT NULL REFERENCES folders(id),
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        explanation TEXT NULL,
+        difficulty INTEGER NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER NULL
+      )
+    ''');
+    legacyDatabase.execute(
+      "INSERT INTO folders VALUES ('folder-1', NULL, '기존 자료', 0, 0, NULL)",
+    );
+    legacyDatabase.execute('PRAGMA user_version = 6');
+    legacyDatabase.close();
+
+    final database = AppDatabase(NativeDatabase(databaseFile));
+    addTearDown(database.close);
+
+    final folder = await database
+        .customSelect("SELECT name FROM folders WHERE id = 'folder-1'")
+        .getSingle();
+    final sourceTables = await database.customSelect('''
+      SELECT name FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN ('sources', 'concepts', 'question_sources')
+    ''').get();
+
+    expect(folder.read<String>('name'), '기존 자료');
+    expect(sourceTables, hasLength(3));
+  });
 }
 
 void _createV4CoreTables(sqlite.Database database) {

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -16,17 +14,16 @@ class LocalServerView extends ConsumerStatefulWidget {
 
 class _LocalServerViewState extends ConsumerState<LocalServerView> {
   final _formKey = GlobalKey<FormState>();
-  final _modelController = TextEditingController();
   final _apiKeyController = TextEditingController();
   final _portController = TextEditingController();
   final _logScrollController = ScrollController();
-  LocalLlmProvider _provider = LocalLlmProvider.ollama;
   bool _obscureApiKey = true;
+  bool _autoStart = true;
+  bool _startRequested = false;
   bool _settingsApplied = false;
 
   @override
   void dispose() {
-    _modelController.dispose();
     _apiKeyController.dispose();
     _portController.dispose();
     _logScrollController.dispose();
@@ -46,22 +43,25 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
       _settingsApplied = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _provider = state.config.provider;
-        _modelController.text = state.config.model;
         _portController.text = state.config.port.toString();
+        _autoStart = state.config.autoStart;
         setState(() {});
       });
     }
 
     final status = state.runtime.status;
+    final isStarting =
+        _startRequested || status == LocalServerStatus.starting;
     final isBusy =
+        _startRequested ||
         state.isSavingSettings ||
         status == LocalServerStatus.starting ||
         status == LocalServerStatus.stopping;
     final canStart =
         !state.isLoadingSettings &&
         !isBusy &&
-        status != LocalServerStatus.running;
+        status != LocalServerStatus.running &&
+        status != LocalServerStatus.externalRunning;
     final canStop =
         status == LocalServerStatus.running ||
         status == LocalServerStatus.starting;
@@ -98,74 +98,6 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  DropdownButtonFormField<LocalLlmProvider>(
-                                    key: const Key(
-                                      'local-server-provider-field',
-                                    ),
-                                    initialValue: _provider,
-                                    decoration: const InputDecoration(
-                                      labelText: 'LLM Provider',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    items:
-                                        const [
-                                              LocalLlmProvider.ollama,
-                                              LocalLlmProvider.openAi,
-                                            ]
-                                            .map(
-                                              (provider) => DropdownMenuItem(
-                                                value: provider,
-                                                child: Text(
-                                                  provider.displayName,
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                    onChanged: isBusy
-                                        ? null
-                                        : (value) {
-                                            if (value == null) return;
-                                            setState(() {
-                                              final previous = _provider;
-                                              _provider = value;
-                                              if (previous != value) {
-                                                _modelController.text =
-                                                    value ==
-                                                        LocalLlmProvider.ollama
-                                                    ? 'qwen3:8b'
-                                                    : 'gpt-4o-mini';
-                                              }
-                                            });
-                                            unawaited(
-                                              ref
-                                                  .read(
-                                                    localServerControllerProvider
-                                                        .notifier,
-                                                  )
-                                                  .selectProvider(value),
-                                            );
-                                          },
-                                  ),
-                                  const SizedBox(height: 14),
-                                  TextFormField(
-                                    key: const Key('local-server-model-field'),
-                                    controller: _modelController,
-                                    enabled:
-                                        !isBusy && _provider.requiresApiKey,
-                                    decoration: InputDecoration(
-                                      labelText: 'Model',
-                                      hintText:
-                                          _provider == LocalLlmProvider.ollama
-                                          ? 'qwen3:8b'
-                                          : 'gpt-4o-mini',
-                                      border: const OutlineInputBorder(),
-                                    ),
-                                    validator: (value) =>
-                                        value == null || value.trim().isEmpty
-                                        ? 'Model을 입력해 주세요.'
-                                        : null,
-                                  ),
-                                  const SizedBox(height: 14),
                                   TextFormField(
                                     key: const Key(
                                       'local-server-api-key-field',
@@ -176,23 +108,19 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                     autocorrect: false,
                                     enableSuggestions: false,
                                     decoration: InputDecoration(
-                                      labelText: 'API Key',
-                                      hintText: !_provider.requiresApiKey
-                                          ? 'Ollama에는 API Key가 필요하지 않습니다.'
-                                          : state.hasApiKey
+                                      labelText: 'OpenAI API Key (선택)',
+                                      hintText: state.hasApiKey
                                           ? '비워 두면 저장된 키 유지'
-                                          : 'Provider API Key',
+                                          : 'OpenAI 프로필을 사용할 때만 필요',
                                       border: const OutlineInputBorder(),
                                       suffixIcon: IconButton(
                                         tooltip: _obscureApiKey
                                             ? 'API Key 표시'
                                             : 'API Key 숨기기',
-                                        onPressed: _provider.requiresApiKey
-                                            ? () => setState(
-                                                () => _obscureApiKey =
-                                                    !_obscureApiKey,
-                                              )
-                                            : null,
+                                        onPressed: () => setState(
+                                          () =>
+                                              _obscureApiKey = !_obscureApiKey,
+                                        ),
                                         icon: Icon(
                                           _obscureApiKey
                                               ? Icons.visibility_outlined
@@ -200,14 +128,11 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                         ),
                                       ),
                                     ),
-                                    validator: (value) {
-                                      if (_provider.requiresApiKey &&
-                                          (value ?? '').trim().isEmpty &&
-                                          !state.hasApiKey) {
-                                        return 'API Key를 입력해 주세요.';
-                                      }
-                                      return null;
-                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Provider와 모델은 공통 LLM 프로필 화면에서 '
+                                    '서버 실행 중에도 변경할 수 있습니다.',
                                   ),
                                   const SizedBox(height: 14),
                                   TextFormField(
@@ -232,6 +157,23 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                       }
                                       return null;
                                     },
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SwitchListTile(
+                                    key: const Key(
+                                      'local-server-auto-start-switch',
+                                    ),
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('앱 실행 시 서버 자동 시작'),
+                                    subtitle: const Text(
+                                      '다음 Windows 앱 실행부터 적용됩니다.',
+                                    ),
+                                    value: _autoStart,
+                                    onChanged: state.isSavingSettings
+                                        ? null
+                                        : (value) => setState(
+                                            () => _autoStart = value,
+                                          ),
                                   ),
                                   const SizedBox(height: 22),
                                   _StatusPanel(
@@ -261,8 +203,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                           'start-local-server-button',
                                         ),
                                         onPressed: canStart ? _start : null,
-                                        icon:
-                                            status == LocalServerStatus.starting
+                                        icon: isStarting
                                             ? const SizedBox.square(
                                                 dimension: 18,
                                                 child:
@@ -270,10 +211,14 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                                       strokeWidth: 2,
                                                     ),
                                               )
-                                            : const Icon(
+                                              : const Icon(
                                                 Icons.play_arrow_rounded,
                                               ),
-                                        label: const Text('Start Server'),
+                                        label: Text(
+                                          isStarting
+                                              ? 'Starting...'
+                                              : 'Start Server',
+                                        ),
                                       ),
                                       OutlinedButton.icon(
                                         key: const Key(
@@ -351,9 +296,8 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
   LocalServerConfig? _readConfig() {
     if (!(_formKey.currentState?.validate() ?? false)) return null;
     return LocalServerConfig(
-      provider: _provider,
-      model: _modelController.text.trim(),
       port: int.parse(_portController.text.trim()),
+      autoStart: _autoStart,
     );
   }
 
@@ -374,8 +318,10 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
   }
 
   Future<void> _start() async {
+    if (_startRequested) return;
     final config = _readConfig();
     if (config == null) return;
+    setState(() => _startRequested = true);
     try {
       await ref
           .read(localServerControllerProvider.notifier)
@@ -384,6 +330,10 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
       _apiKeyController.clear();
     } catch (error) {
       _showError(error);
+    } finally {
+      if (mounted) {
+        setState(() => _startRequested = false);
+      }
     }
   }
 
@@ -432,7 +382,8 @@ class _StatusPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (status) {
-      LocalServerStatus.running => Colors.green,
+      LocalServerStatus.running ||
+      LocalServerStatus.externalRunning => Colors.green,
       LocalServerStatus.starting || LocalServerStatus.stopping => Colors.orange,
       LocalServerStatus.error => Theme.of(context).colorScheme.error,
       LocalServerStatus.stopped => Theme.of(context).colorScheme.outline,
@@ -441,6 +392,7 @@ class _StatusPanel extends StatelessWidget {
       LocalServerStatus.stopped => 'Stopped',
       LocalServerStatus.starting => 'Starting...',
       LocalServerStatus.running => 'Running',
+      LocalServerStatus.externalRunning => 'Running (external)',
       LocalServerStatus.stopping => 'Stopping...',
       LocalServerStatus.error => 'Error',
     };
@@ -468,6 +420,10 @@ class _StatusPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             SelectableText('Local: $address'),
+            if (status == LocalServerStatus.externalRunning) ...[
+              const SizedBox(height: 6),
+              const Text('외부에서 실행한 서버입니다. 이 앱에서는 종료하지 않습니다.'),
+            ],
             if (error case final message?) ...[
               const SizedBox(height: 8),
               Text(

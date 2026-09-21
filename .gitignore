@@ -35,6 +35,7 @@ app.*.map.json
 /server/**/*.db
 /server/**/*.db-shm
 /server/**/*.db-wal
+/server/**/App_Data/
 
 # scripts
 run_phone_test.bat

@@ -35,6 +35,7 @@ void main() {
     localServerService = LocalServerService(
       secretStore: localServerSecretStore,
       isWindows: true,
+      healthCheck: (_) async => false,
     );
   });
   tearDown(() async {
@@ -114,6 +115,14 @@ void main() {
     await tester.tap(find.text('설정'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('local-server-settings-tile')), findsOneWidget);
+    expect(
+      find.byKey(const Key('local-server-status-indicator')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('local-server-settings-tile'))).dy,
+      lessThan(tester.getTopLeft(find.text('동기화')).dy),
+    );
 
     await tester.ensureVisible(
       find.byKey(const Key('local-server-settings-tile')),
@@ -125,6 +134,57 @@ void main() {
     expect(find.text('Review Platform Server'), findsOneWidget);
     expect(find.byKey(const Key('start-local-server-button')), findsOneWidget);
     expect(find.byKey(const Key('local-server-log-view')), findsOneWidget);
+    final autoStart = tester.widget<SwitchListTile>(
+      find.byKey(const Key('local-server-auto-start-switch')),
+    );
+    expect(autoStart.value, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Start Server를 누르면 응답 전까지 버튼을 잠그고 Starting 상태를 표시한다', (
+    tester,
+  ) async {
+    await localServerService.dispose();
+    var serverReady = false;
+    final process = _FakeManagedServerProcess();
+    localServerService = LocalServerService(
+      secretStore: localServerSecretStore,
+      isWindows: true,
+      directoryResolver: () async => r'C:\project\server',
+      processLauncher:
+          (
+            executable,
+            arguments, {
+            required workingDirectory,
+            required environment,
+          }) async => process,
+      healthCheck: (_) async => serverReady,
+      portAvailabilityCheck: (_) async => true,
+      healthInterval: const Duration(milliseconds: 10),
+      healthTimeout: const Duration(seconds: 1),
+    );
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(buildApp());
+
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('local-server-settings-tile')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('start-local-server-button')));
+    await tester.pump();
+
+    final startingButton = tester.widget<FilledButton>(
+      find.byKey(const Key('start-local-server-button')),
+    );
+    expect(startingButton.onPressed, isNull);
+    expect(find.text('Starting...'), findsAtLeastNWidgets(1));
+
+    serverReady = true;
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Running'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -151,6 +211,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('local-server-settings-tile')), findsNothing);
+    expect(find.byKey(const Key('llm-profiles-settings-tile')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -292,6 +353,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('폴더에서 PDF 학습자료 화면으로 이동한다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await DriftFolderRepository(database).createFolder(name: '물리학');
+    await tester.pumpWidget(buildApp());
+
+    await tester.tap(find.text('문제 관리'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('물리학'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('import-pdf-nav-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('document-import-view')), findsOneWidget);
+    expect(find.byKey(const Key('pick-pdf-button')), findsOneWidget);
+    expect(find.text('아직 가져온 PDF가 없어요.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('AI 문제 생성 요청 중 Progress bar를 표시한다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -377,7 +460,10 @@ void main() {
 }
 
 class _MemoryLocalServerConfigStore implements LocalServerConfigStore {
-  LocalServerConfig value = const LocalServerConfig.defaults();
+  LocalServerConfig value = const LocalServerConfig(
+    port: 5080,
+    autoStart: false,
+  );
 
   @override
   Future<LocalServerConfig> read() async => value;
@@ -397,5 +483,30 @@ class _MemoryLocalServerSecretStore implements LocalServerSecretStore {
   @override
   Future<void> write(LocalLlmProvider provider, String value) async {
     _values[provider] = value;
+  }
+}
+
+class _FakeManagedServerProcess implements ManagedServerProcess {
+  final _stdout = StreamController<List<int>>();
+  final _stderr = StreamController<List<int>>();
+  final _exitCode = Completer<int>();
+
+  @override
+  Stream<List<int>> get stdout => _stdout.stream;
+
+  @override
+  Stream<List<int>> get stderr => _stderr.stream;
+
+  @override
+  Future<int> get exitCode => _exitCode.future;
+
+  @override
+  bool kill() {
+    if (!_exitCode.isCompleted) {
+      _exitCode.complete(0);
+      unawaited(_stdout.close());
+      unawaited(_stderr.close());
+    }
+    return true;
   }
 }

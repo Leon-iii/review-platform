@@ -14,11 +14,7 @@ void main() {
     final store = JsonLocalServerConfigStore(
       directoryProvider: () async => directory,
     );
-    const config = LocalServerConfig(
-      provider: LocalLlmProvider.openAi,
-      model: 'gpt-test',
-      port: 5090,
-    );
+    const config = LocalServerConfig(port: 5090, autoStart: true);
 
     await store.write(config);
     final restored = await store.read();
@@ -28,10 +24,9 @@ void main() {
       ).readAsString(),
     ) as Map<String, Object?>;
 
-    expect(restored.provider, LocalLlmProvider.openAi);
-    expect(restored.model, 'gpt-test');
     expect(restored.port, 5090);
-    expect(json.keys, unorderedEquals(['provider', 'model', 'port']));
+    expect(restored.autoStart, isTrue);
+    expect(json.keys, unorderedEquals(['port', 'autoStart']));
     expect(json.toString().toLowerCase(), isNot(contains('key')));
   });
 
@@ -49,8 +44,25 @@ void main() {
 
     final restored = await store.read();
 
-    expect(restored.provider, LocalLlmProvider.ollama);
-    expect(restored.model, 'qwen3:8b');
     expect(restored.port, 5080);
+    expect(restored.autoStart, isTrue);
+  });
+
+  test('자동 시작 값이 없는 기존 설정 파일에는 기본값을 활성화한다', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'review-platform-settings-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    await File(
+      '${directory.path}${Platform.pathSeparator}local_server_settings.json',
+    ).writeAsString('{"port":5091}');
+    final store = JsonLocalServerConfigStore(
+      directoryProvider: () async => directory,
+    );
+
+    final restored = await store.read();
+
+    expect(restored.port, 5091);
+    expect(restored.autoStart, isTrue);
   });
 }

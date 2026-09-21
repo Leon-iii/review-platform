@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:review_platform/core/server/local_server_service.dart';
+import 'package:review_platform/core/server/local_server_startup_coordinator.dart';
 import 'package:review_platform/core/server/local_server_settings_store.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -35,4 +36,13 @@ LocalServerService localServerService(Ref ref) {
   );
   ref.onDispose(() => unawaited(service.dispose()));
   return service;
+}
+
+@Riverpod(keepAlive: true)
+LocalServerStartupCoordinator localServerStartupCoordinator(Ref ref) {
+  return LocalServerStartupCoordinator(
+    configStore: ref.watch(localServerConfigStoreProvider),
+    service: ref.watch(localServerServiceProvider),
+    isWindows: ref.watch(isWindowsPlatformProvider),
+  );
 }

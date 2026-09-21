@@ -31,7 +31,7 @@ class LocalServerController extends _$LocalServerController {
       final config = await ref.read(localServerConfigStoreProvider).read();
       final apiKey = await ref
           .read(localServerSecretStoreProvider)
-          .read(config.provider);
+          .read(LocalLlmProvider.openAi);
       if (_disposed) return;
       state = state.copyWith(
         config: config,
@@ -52,7 +52,7 @@ class LocalServerController extends _$LocalServerController {
     required LocalServerConfig config,
     required String apiKey,
   }) async {
-    _validate(config, apiKey);
+    _validate(config);
     state = state.copyWith(isSavingSettings: true, clearSettingsError: true);
     try {
       await ref.read(localServerConfigStoreProvider).write(config);
@@ -60,15 +60,12 @@ class LocalServerController extends _$LocalServerController {
       if (normalizedKey.isNotEmpty) {
         await ref
             .read(localServerSecretStoreProvider)
-            .write(config.provider, normalizedKey);
+            .write(LocalLlmProvider.openAi, normalizedKey);
       }
       if (_disposed) return;
       state = state.copyWith(
         config: config,
-        hasApiKey:
-            config.provider.requiresApiKey &&
-            (normalizedKey.isNotEmpty ||
-                (state.config.provider == config.provider && state.hasApiKey)),
+        hasApiKey: normalizedKey.isNotEmpty || state.hasApiKey,
         isSavingSettings: false,
         clearSettingsError: true,
       );
@@ -93,16 +90,6 @@ class LocalServerController extends _$LocalServerController {
 
   Future<void> stop() => ref.read(localServerServiceProvider).stop();
 
-  Future<void> selectProvider(LocalLlmProvider provider) async {
-    final apiKey = await ref
-        .read(localServerSecretStoreProvider)
-        .read(provider);
-    if (_disposed) return;
-    state = state.copyWith(
-      hasApiKey: provider.requiresApiKey && (apiKey ?? '').trim().isNotEmpty,
-    );
-  }
-
   void clearLogs() => ref.read(localServerServiceProvider).clearLogs();
 
   void _onRuntimeState(LocalServerRuntimeState runtime) {
@@ -110,17 +97,9 @@ class LocalServerController extends _$LocalServerController {
     state = state.copyWith(runtime: runtime);
   }
 
-  void _validate(LocalServerConfig config, String apiKey) {
-    if (config.model.trim().isEmpty) {
-      throw const ValidationFailure('LLM Model을 입력해 주세요.');
-    }
+  void _validate(LocalServerConfig config) {
     if (config.port < 1 || config.port > 65535) {
       throw const ValidationFailure('Port는 1~65535 사이여야 해요.');
-    }
-    if (config.provider.requiresApiKey &&
-        apiKey.trim().isEmpty &&
-        !state.hasApiKey) {
-      throw const ValidationFailure('선택한 Provider의 API Key를 입력해 주세요.');
     }
   }
 }

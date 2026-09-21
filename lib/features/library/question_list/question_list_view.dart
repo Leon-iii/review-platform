@@ -6,6 +6,7 @@ import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
 
 class QuestionListView extends ConsumerWidget {
@@ -32,6 +33,14 @@ class QuestionListView extends ConsumerWidget {
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
+              IconButton(
+                key: const Key('import-pdf-nav-button'),
+                tooltip: 'PDF 학습자료',
+                onPressed: () =>
+                    context.push(AppRoutes.documentsForFolder(folderId)),
+                icon: const Icon(Icons.picture_as_pdf_rounded),
+              ),
+              const SizedBox(width: 4),
               IconButton(
                 key: const Key('generate-ai-questions-nav-button'),
                 tooltip: 'AI 문제 생성',
@@ -190,8 +199,10 @@ class _QuestionCard extends StatelessWidget {
             QuestionType.shortAnswer => '단답형',
             QuestionType.essay => '서술형',
           }}'
-          '${question.status.name == 'draft' ? ' · Draft' : ''}',
+          '${question.status.name == 'draft' ? ' · Draft' : ''}'
+          '${question.sourceReferences.isEmpty ? '' : '\n${_sourceLabel(question.sourceReferences.first)}'}',
         ),
+        isThreeLine: question.sourceReferences.isNotEmpty,
         trailing: PopupMenuButton<_QuestionAction>(
           tooltip: '문제 메뉴',
           onSelected: (action) {
@@ -246,3 +257,13 @@ class _QuestionError extends StatelessWidget {
 }
 
 enum _QuestionAction { approve, edit, delete }
+
+String _sourceLabel(QuestionSourceReference reference) {
+  final pages = reference.pageNumbers.isEmpty
+      ? ''
+      : ' · p.${reference.pageNumbers.join(', ')}';
+  final concept = reference.conceptTitle == null
+      ? ''
+      : ' · ${reference.conceptTitle}';
+  return '출처: ${reference.fileName}$pages$concept';
+}

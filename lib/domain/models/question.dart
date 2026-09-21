@@ -1,5 +1,6 @@
 import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 
 class Question {
   const Question({
@@ -15,6 +16,7 @@ class Question {
     this.explanation,
     this.difficulty,
     this.deletedAt,
+    this.sourceReferences = const [],
   });
 
   final String id;
@@ -29,6 +31,7 @@ class Question {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
+  final List<QuestionSourceReference> sourceReferences;
 }
 
 class QuestionChoice {

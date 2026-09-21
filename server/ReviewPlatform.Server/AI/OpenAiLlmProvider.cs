@@ -67,6 +67,50 @@ public sealed class OpenAiLlmProvider(
         }
     }
 
+    public async Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
+        ConceptExtractionInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConfiguration();
+        using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            settings.ApiKey);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(BuildConceptRequest(input), JsonOptions),
+            Encoding.UTF8,
+            "application/json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await httpClient.SendAsync(request, cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI 개념 추출 요청 시간이 초과되었습니다.");
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI API에 연결하지 못했습니다.",
+                exception);
+        }
+
+        using (response)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new LlmProviderRequestException(
+                    ToSafeApiError(response.StatusCode, responseBody));
+            }
+            return ParseConceptResponse(responseBody);
+        }
+    }
+
     private void ValidateConfiguration()
     {
         if (string.IsNullOrWhiteSpace(settings.ApiKey))
@@ -117,61 +161,45 @@ public sealed class OpenAiLlmProvider(
         };
     }
 
+    private object BuildConceptRequest(ConceptExtractionInput input)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["model"] = settings.Model,
+            ["store"] = false,
+            ["max_output_tokens"] = 8_000,
+            ["input"] = new object[]
+            {
+                new
+                {
+                    role = "system",
+                    content = ConceptExtractionPrompt.SystemPrompt
+                },
+                new
+                {
+                    role = "user",
+                    content = ConceptExtractionPrompt.BuildUserPrompt(input)
+                }
+            },
+            ["text"] = new
+            {
+                format = new Dictionary<string, object?>
+                {
+                    ["type"] = "json_schema",
+                    ["name"] = "review_concept_extraction",
+                    ["description"] = "Draft study concepts grounded in PDF pages",
+                    ["strict"] = true,
+                    ["schema"] = ConceptExtractionPrompt.BuildSchema(input)
+                }
+            }
+        };
+    }
+
     private static IReadOnlyList<GeneratedQuestionDraft> ParseResponse(string body)
     {
         try
         {
-            using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            if (root.TryGetProperty("status", out var status) &&
-                status.GetString() != "completed")
-            {
-                throw new LlmProviderRequestException(
-                    "OpenAI가 문제 생성을 완료하지 못했습니다.");
-            }
-
-            string? outputText = null;
-            string? refusal = null;
-            if (root.TryGetProperty("output", out var output) &&
-                output.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in output.EnumerateArray())
-                {
-                    if (!item.TryGetProperty("content", out var content) ||
-                        content.ValueKind != JsonValueKind.Array)
-                    {
-                        continue;
-                    }
-                    foreach (var part in content.EnumerateArray())
-                    {
-                        var type = part.TryGetProperty("type", out var typeElement)
-                            ? typeElement.GetString()
-                            : null;
-                        if (type == "output_text" &&
-                            part.TryGetProperty("text", out var text))
-                        {
-                            outputText = text.GetString();
-                        }
-                        else if (type == "refusal" &&
-                            part.TryGetProperty("refusal", out var refusalElement))
-                        {
-                            refusal = refusalElement.GetString();
-                        }
-                    }
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(refusal))
-            {
-                throw new LlmProviderRequestException(
-                    "OpenAI가 해당 문제 생성 요청을 거절했습니다.");
-            }
-            if (string.IsNullOrWhiteSpace(outputText))
-            {
-                throw new LlmProviderRequestException(
-                    "OpenAI 응답에 구조화된 문제가 없습니다.");
-            }
-
+            var outputText = ExtractOutputText(body, "문제 생성");
             var envelope = JsonSerializer.Deserialize<QuestionEnvelope>(
                 outputText,
                 JsonOptions);
@@ -188,6 +216,85 @@ public sealed class OpenAiLlmProvider(
                 "OpenAI의 구조화 응답을 해석하지 못했습니다.",
                 exception);
         }
+    }
+
+    private static IReadOnlyList<GeneratedConceptDraft> ParseConceptResponse(
+        string body)
+    {
+        try
+        {
+            var outputText = ExtractOutputText(body, "개념 추출");
+            var envelope = JsonSerializer.Deserialize<ConceptEnvelope>(
+                outputText,
+                JsonOptions);
+            return envelope?.Concepts ?? throw new LlmProviderRequestException(
+                "OpenAI의 구조화된 개념 응답을 해석하지 못했습니다.");
+        }
+        catch (LlmProviderRequestException)
+        {
+            throw;
+        }
+        catch (JsonException exception)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI의 구조화된 개념 응답을 해석하지 못했습니다.",
+                exception);
+        }
+    }
+
+    private static string ExtractOutputText(string body, string operation)
+    {
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.TryGetProperty("status", out var status) &&
+            status.GetString() != "completed")
+        {
+            throw new LlmProviderRequestException(
+                $"OpenAI가 {operation}을 완료하지 못했습니다.");
+        }
+
+        string? outputText = null;
+        string? refusal = null;
+        if (root.TryGetProperty("output", out var output) &&
+            output.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in output.EnumerateArray())
+            {
+                if (!item.TryGetProperty("content", out var content) ||
+                    content.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+                foreach (var part in content.EnumerateArray())
+                {
+                    var type = part.TryGetProperty("type", out var typeElement)
+                        ? typeElement.GetString()
+                        : null;
+                    if (type == "output_text" &&
+                        part.TryGetProperty("text", out var text))
+                    {
+                        outputText = text.GetString();
+                    }
+                    else if (type == "refusal" &&
+                        part.TryGetProperty("refusal", out var refusalElement))
+                    {
+                        refusal = refusalElement.GetString();
+                    }
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(refusal))
+        {
+            throw new LlmProviderRequestException(
+                $"OpenAI가 {operation} 요청을 거절했습니다.");
+        }
+        if (string.IsNullOrWhiteSpace(outputText))
+        {
+            throw new LlmProviderRequestException(
+                $"OpenAI 응답에 구조화된 {operation} 결과가 없습니다.");
+        }
+        return outputText;
     }
 
     private static string ToSafeApiError(
@@ -217,4 +324,7 @@ public sealed class OpenAiLlmProvider(
 
     private sealed record QuestionEnvelope(
         IReadOnlyList<GeneratedQuestionDraft>? Questions);
+
+    private sealed record ConceptEnvelope(
+        IReadOnlyList<GeneratedConceptDraft>? Concepts);
 }

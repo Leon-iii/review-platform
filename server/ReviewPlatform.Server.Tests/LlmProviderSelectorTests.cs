@@ -42,7 +42,7 @@ public sealed class LlmProviderSelectorTests
         var defaults = new LlmOptions();
 
         Assert.Equal("ollama", defaults.Provider);
-        Assert.Equal("qwen3:8b", defaults.Model);
+        Assert.Equal("qwen3-vl:8b-instruct", defaults.Model);
         Assert.Equal("http://127.0.0.1:11434", defaults.BaseUrl);
         Assert.Empty(defaults.ApiKey);
     }

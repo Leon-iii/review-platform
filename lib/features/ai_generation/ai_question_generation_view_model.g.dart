@@ -97,7 +97,7 @@ final class AiQuestionGenerationControllerProvider
 }
 
 String _$aiQuestionGenerationControllerHash() =>
-    r'bceae956d07fcce2a1deb12c6494c75c1efaffe9';
+    r'42f4674b25d0f569f97e6a0909c122e246b8378b';
 
 final class AiQuestionGenerationControllerFamily extends $Family
     with

@@ -38,17 +38,20 @@ builder.Services.PostConfigure<LlmOptions>(options =>
 });
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<QuestionGenerationService>();
-builder.Services.AddHttpClient<OpenAiLlmProvider>(client =>
+builder.Services.AddScoped<DocumentProcessingService>();
+builder.Services.AddScoped<LlmProfileService>();
+builder.Services.AddScoped<ILlmProviderResolver, RuntimeLlmProviderResolver>();
+builder.Services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
+builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
+builder.Services.AddSingleton<IDocumentPageTextCache, FileDocumentPageTextCache>();
+builder.Services.AddHttpClient("openai", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
-builder.Services.AddHttpClient<OllamaLlmProvider>(client =>
+builder.Services.AddHttpClient("ollama", client =>
 {
     client.Timeout = TimeSpan.FromMinutes(5);
 });
-builder.Services.AddScoped<LlmProviderSelector>();
-builder.Services.AddScoped<ILLMProvider>(services =>
-    services.GetRequiredService<LlmProviderSelector>().Select());
 
 var app = builder.Build();
 
@@ -56,6 +59,8 @@ using (var scope = app.Services.CreateScope())
 {
     var database = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
     await ServerDatabaseInitializer.InitializeAsync(database);
+    await scope.ServiceProvider.GetRequiredService<LlmProfileService>()
+        .EnsureInitializedAsync();
 }
 
 app.UseMiddleware<SyncTokenMiddleware>();
@@ -63,9 +68,22 @@ app.UseMiddleware<SyncTokenMiddleware>();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 app.MapGet("/api/ai/ollama/status", async (
-    OllamaLlmProvider provider,
+    ILlmProviderResolver resolver,
     CancellationToken cancellationToken) =>
 {
+    var selected = await resolver.ResolveAsync(
+        LlmPurposes.QuestionGeneration,
+        cancellationToken);
+    if (selected is not OllamaLlmProvider provider)
+    {
+        return Results.Ok(new
+        {
+            provider = selected.ProviderName,
+            model = selected.ModelName,
+            reachable = false,
+            modelInstalled = false
+        });
+    }
     var status = await provider.CheckStatusAsync(cancellationToken);
     return Results.Ok(new
     {
@@ -74,6 +92,28 @@ app.MapGet("/api/ai/ollama/status", async (
         reachable = status.Reachable,
         modelInstalled = status.ModelInstalled
     });
+});
+
+app.MapGet("/api/llm/settings", async (
+    LlmProfileService profileService,
+    CancellationToken cancellationToken) =>
+    Results.Ok(await profileService.GetSettingsAsync(cancellationToken)));
+
+app.MapPut("/api/llm/settings", async (
+    UpdateLlmProfileSettingsRequest request,
+    LlmProfileService profileService,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await profileService.UpdateSettingsAsync(
+            request,
+            cancellationToken));
+    }
+    catch (LlmProfileValidationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
 });
 
 app.MapPost("/api/sync/push", async (
@@ -130,6 +170,49 @@ app.MapPost("/api/ai/questions/generate", async (
         return Results.Json(
             new { error = exception.Message },
             statusCode: StatusCodes.Status502BadGateway);
+    }
+    catch (LlmProviderRequestException exception)
+    {
+        return Results.Json(
+            new { error = exception.Message },
+            statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapPost("/api/documents/import", async (
+    HttpRequest request,
+    DocumentProcessingService processingService,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        if (!request.HasFormContentType)
+        {
+            return Results.BadRequest(new { error = "PDF 파일을 첨부해 주세요." });
+        }
+        var form = await request.ReadFormAsync(cancellationToken);
+        var file = form.Files.GetFile("file");
+        if (file is null)
+        {
+            return Results.BadRequest(new { error = "PDF 파일을 첨부해 주세요." });
+        }
+        await using var stream = file.OpenReadStream();
+        var response = await processingService.ImportPdfAsync(
+            stream,
+            file.FileName,
+            file.Length,
+            cancellationToken);
+        return Results.Ok(response);
+    }
+    catch (DocumentImportException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (LlmProviderUnavailableException exception)
+    {
+        return Results.Json(
+            new { error = exception.Message },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     }
     catch (LlmProviderRequestException exception)
     {

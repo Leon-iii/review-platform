@@ -9,10 +9,7 @@ using ReviewPlatform.Server.Data;
 
 namespace ReviewPlatform.Server.Services;
 
-public sealed class QuestionGenerationService(
-    SyncDbContext database,
-    ILLMProvider provider,
-    ILogger<QuestionGenerationService>? logger = null)
+public sealed class QuestionGenerationService
 {
     public const string PromptVersion = "question-generation-v5-multiple-choice";
     private const int MaximumSourceLength = 50_000;
@@ -25,12 +22,35 @@ public sealed class QuestionGenerationService(
     private static readonly JsonSerializerOptions JsonOptions = new(
         JsonSerializerDefaults.Web);
     private readonly ILogger<QuestionGenerationService> log =
-        logger ?? NullLogger<QuestionGenerationService>.Instance;
+        NullLogger<QuestionGenerationService>.Instance;
+    private readonly SyncDbContext database;
+    private readonly ILlmProviderResolver providerResolver;
+
+    public QuestionGenerationService(
+        SyncDbContext database,
+        ILlmProviderResolver providerResolver,
+        ILogger<QuestionGenerationService>? logger = null)
+    {
+        this.database = database;
+        this.providerResolver = providerResolver;
+        log = logger ?? NullLogger<QuestionGenerationService>.Instance;
+    }
+
+    public QuestionGenerationService(
+        SyncDbContext database,
+        ILLMProvider provider,
+        ILogger<QuestionGenerationService>? logger = null)
+        : this(database, new FixedLlmProviderResolver(provider), logger)
+    {
+    }
 
     public async Task<GenerateQuestionsResponse> GenerateAsync(
         GenerateQuestionsRequest request,
         CancellationToken cancellationToken = default)
     {
+        var provider = await providerResolver.ResolveAsync(
+            LlmPurposes.QuestionGeneration,
+            cancellationToken);
         QuestionGenerationInput input;
         try
         {

@@ -193,3 +193,54 @@ final class LocalServerServiceProvider
 
 String _$localServerServiceHash() =>
     r'48328f654c388b517c11a9300e3bf725b186fa8e';
+
+@ProviderFor(localServerStartupCoordinator)
+final localServerStartupCoordinatorProvider =
+    LocalServerStartupCoordinatorProvider._();
+
+final class LocalServerStartupCoordinatorProvider
+    extends
+        $FunctionalProvider<
+          LocalServerStartupCoordinator,
+          LocalServerStartupCoordinator,
+          LocalServerStartupCoordinator
+        >
+    with $Provider<LocalServerStartupCoordinator> {
+  LocalServerStartupCoordinatorProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'localServerStartupCoordinatorProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$localServerStartupCoordinatorHash();
+
+  @$internal
+  @override
+  $ProviderElement<LocalServerStartupCoordinator> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  LocalServerStartupCoordinator create(Ref ref) {
+    return localServerStartupCoordinator(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(LocalServerStartupCoordinator value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<LocalServerStartupCoordinator>(
+        value,
+      ),
+    );
+  }
+}
+
+String _$localServerStartupCoordinatorHash() =>
+    r'9890a19cc0db6df0a3444563e1529e0f7fb48ddd';

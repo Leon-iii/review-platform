@@ -7,6 +7,7 @@ import 'package:review_platform/app/theme.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/core/server/local_server_service.dart';
+import 'package:review_platform/core/server/local_server_startup_coordinator.dart';
 import 'package:review_platform/domain/services/automatic_sync_controller.dart';
 
 class ReviewApp extends ConsumerStatefulWidget {
@@ -20,6 +21,7 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
     with WidgetsBindingObserver {
   late final AutomaticSyncController _automaticSyncController;
   LocalServerService? _localServerService;
+  LocalServerStartupCoordinator? _localServerStartupCoordinator;
 
   @override
   void initState() {
@@ -29,6 +31,10 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
     unawaited(_automaticSyncController.start());
     if (ref.read(isWindowsPlatformProvider)) {
       _localServerService = ref.read(localServerServiceProvider);
+      _localServerStartupCoordinator = ref.read(
+        localServerStartupCoordinatorProvider,
+      );
+      unawaited(_localServerStartupCoordinator!.initialize());
     }
   }
 
@@ -37,6 +43,7 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
     if (state == AppLifecycleState.resumed) {
       unawaited(_automaticSyncController.onForeground());
     } else if (state == AppLifecycleState.detached) {
+      _localServerStartupCoordinator?.cancel();
       unawaited(_localServerService?.stop());
     }
   }
@@ -44,6 +51,7 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _localServerStartupCoordinator?.cancel();
     unawaited(_localServerService?.stop());
     super.dispose();
   }

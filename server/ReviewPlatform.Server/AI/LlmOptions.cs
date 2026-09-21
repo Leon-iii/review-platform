@@ -6,7 +6,7 @@ public sealed class LlmOptions
 
     public string ApiKey { get; set; } = string.Empty;
 
-    public string Model { get; set; } = "qwen3:8b";
+    public string Model { get; set; } = "qwen3-vl:8b-instruct";
 
     public string BaseUrl { get; set; } = "http://127.0.0.1:11434";
 }

@@ -6,6 +6,7 @@ import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/ai_question_generation.dart';
 import 'package:review_platform/domain/models/folder.dart';
 import 'package:review_platform/domain/models/question.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -94,6 +95,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
     AiQuestionGenerationMode generationMode = AiQuestionGenerationMode.manual,
     AiQuestionDensity? automaticDensity,
     int? questionCount = 10,
+    QuestionSourceDraft? sourceReference,
   }) async {
     state = const AsyncLoading();
     try {
@@ -137,7 +139,15 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
       ];
       final ids = await ref
           .read(questionRepositoryProvider)
-          .createQuestions(drafts);
+          .createQuestions(
+            drafts,
+            sourceReferences: sourceReference == null
+                ? null
+                : List<QuestionSourceDraft?>.filled(
+                    drafts.length,
+                    sourceReference,
+                  ),
+          );
       state = AsyncData(
         AiQuestionReviewState(
           folderId: folderId,

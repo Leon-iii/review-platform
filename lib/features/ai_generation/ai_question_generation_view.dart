@@ -7,13 +7,20 @@ import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/folder.dart';
 import 'package:review_platform/domain/models/ai_question_generation.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/ai_generation/ai_question_generation_view_model.dart';
+import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
 
 class AiQuestionGenerationView extends ConsumerStatefulWidget {
-  const AiQuestionGenerationView({this.initialFolderId, super.key});
+  const AiQuestionGenerationView({
+    this.initialFolderId,
+    this.initialConceptId,
+    super.key,
+  });
 
   final String? initialFolderId;
+  final String? initialConceptId;
 
   @override
   ConsumerState<AiQuestionGenerationView> createState() =>
@@ -34,11 +41,18 @@ class _AiQuestionGenerationViewState
     QuestionType.trueFalse,
     QuestionType.shortAnswer,
   };
+  ConceptGenerationSeed? _conceptSeed;
+  Object? _conceptSeedError;
+  bool _loadingConceptSeed = false;
 
   @override
   void initState() {
     super.initState();
     _selectedFolderId = widget.initialFolderId;
+    if (widget.initialConceptId != null) {
+      _loadingConceptSeed = true;
+      Future<void>.microtask(_loadConceptSeed);
+    }
   }
 
   @override
@@ -60,45 +74,52 @@ class _AiQuestionGenerationViewState
     return Scaffold(
       key: const Key('ai-generation-view'),
       appBar: AppBar(title: const Text('AI 문제 생성')),
-      body: generation.when(
-        loading: () => Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: 480),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(Icons.auto_awesome_rounded, size: 40),
-                  SizedBox(height: 16),
-                  Text(
-                    '학습 내용을 분석하고 문제를 생성하고 있어요.',
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 20),
-                  Semantics(
-                    label: 'AI 문제 생성 진행 중',
-                    child: LinearProgressIndicator(
-                      key: Key('ai-generation-progress-bar'),
+      body: _loadingConceptSeed
+          ? const Center(child: CircularProgressIndicator())
+          : generation.when(
+              loading: () => Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: 480),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, size: 40),
+                        SizedBox(height: 16),
+                        Text(
+                          '학습 내용을 분석하고 문제를 생성하고 있어요.',
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 20),
+                        Semantics(
+                          label: 'AI 문제 생성 진행 중',
+                          child: LinearProgressIndicator(
+                            key: Key('ai-generation-progress-bar'),
+                          ),
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          '문제 수와 모델 성능에 따라 시간이 걸릴 수 있어요.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
-                  SizedBox(height: 12),
-                  Text(
-                    '문제 수와 모델 성능에 따라 시간이 걸릴 수 있어요.',
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                ),
               ),
+              error: (error, stackTrace) =>
+                  _buildForm(folders, errorMessage: _messageFor(error)),
+              data: (review) => review == null
+                  ? _buildForm(
+                      folders,
+                      errorMessage: _conceptSeedError == null
+                          ? null
+                          : _messageFor(_conceptSeedError!),
+                    )
+                  : _ReviewPanel(review: review, provider: provider),
             ),
-          ),
-        ),
-        error: (error, stackTrace) =>
-            _buildForm(folders, errorMessage: _messageFor(error)),
-        data: (review) => review == null
-            ? _buildForm(folders)
-            : _ReviewPanel(review: review, provider: provider),
-      ),
     );
   }
 
@@ -147,6 +168,7 @@ class _AiQuestionGenerationViewState
                       TextFormField(
                         key: const Key('ai-source-label-field'),
                         controller: _sourceLabelController,
+                        readOnly: _conceptSeed != null,
                         maxLength: 200,
                         decoration: const InputDecoration(
                           labelText: '자료 이름 (선택)',
@@ -158,6 +180,7 @@ class _AiQuestionGenerationViewState
                       TextFormField(
                         key: const Key('ai-source-text-field'),
                         controller: _sourceTextController,
+                        readOnly: _conceptSeed != null,
                         minLines: 10,
                         maxLines: 20,
                         maxLength: 50000,
@@ -325,6 +348,13 @@ class _AiQuestionGenerationViewState
             questionCount: _generationMode == AiQuestionGenerationMode.manual
                 ? int.parse(_manualQuestionCountController.text)
                 : null,
+            sourceReference: _conceptSeed == null
+                ? null
+                : QuestionSourceDraft(
+                    sourceId: _conceptSeed!.source.id,
+                    conceptId: _conceptSeed!.concept.id,
+                    pageNumbers: _conceptSeed!.concept.pageNumbers,
+                  ),
           );
     } catch (error) {
       if (!mounted) return;
@@ -335,6 +365,28 @@ class _AiQuestionGenerationViewState
 
   String _messageFor(Object error) =>
       error is AppFailure ? error.message : 'AI 문제 생성을 완료하지 못했어요.';
+
+  Future<void> _loadConceptSeed() async {
+    try {
+      final seed = await ref
+          .read(sourceRepositoryProvider)
+          .getConceptGenerationSeed(widget.initialConceptId!);
+      if (!mounted) return;
+      _sourceLabelController.text = seed.sourceLabel;
+      _sourceTextController.text = seed.sourceText;
+      setState(() {
+        _conceptSeed = seed;
+        _selectedFolderId = seed.folderId;
+        _loadingConceptSeed = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _conceptSeedError = error;
+        _loadingConceptSeed = false;
+      });
+    }
+  }
 }
 
 class _ReviewPanel extends ConsumerWidget {

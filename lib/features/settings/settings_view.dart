@@ -7,6 +7,8 @@ import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/domain/models/sync_status.dart';
 import 'package:review_platform/features/settings/settings_view_model.dart';
+import 'package:review_platform/features/settings/local_server/local_server_view_model.dart';
+import 'package:review_platform/core/server/local_server_service.dart';
 
 class SettingsView extends ConsumerWidget {
   const SettingsView({super.key});
@@ -16,6 +18,9 @@ class SettingsView extends ConsumerWidget {
     final syncStatus = ref.watch(syncStatusProvider);
     final settings = ref.watch(syncSettingsProvider);
     final isWindows = ref.watch(isWindowsPlatformProvider);
+    final localServerState = isWindows
+        ? ref.watch(localServerControllerProvider)
+        : null;
 
     return Scaffold(
       key: const Key('settings-view'),
@@ -29,6 +34,28 @@ class SettingsView extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (isWindows) ...[
+                    Text(
+                      '로컬 서버',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: ListTile(
+                        key: const Key('local-server-settings-tile'),
+                        leading: const Icon(Icons.dns_rounded),
+                        title: const Text('Local Server'),
+                        subtitle: const Text(
+                          '이 Windows PC에서 개인 서버를 시작하고 관리합니다.',
+                        ),
+                        trailing: _LocalServerStatusTrailing(
+                          status: localServerState!.runtime.status,
+                        ),
+                        onTap: () => context.go(AppRoutes.localServer),
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                  ],
                   Text('동기화', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 12),
                   Card(
@@ -54,26 +81,21 @@ class SettingsView extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  if (isWindows) ...[
-                    const SizedBox(height: 28),
-                    Text(
-                      '로컬 서버',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: ListTile(
-                        key: const Key('local-server-settings-tile'),
-                        leading: const Icon(Icons.dns_rounded),
-                        title: const Text('Local Server'),
-                        subtitle: const Text(
-                          '이 Windows PC에서 개인 서버를 시작하고 관리합니다.',
-                        ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: () => context.go(AppRoutes.localServer),
+                  const SizedBox(height: 28),
+                  Text('AI', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      key: const Key('llm-profiles-settings-tile'),
+                      leading: const Icon(Icons.psychology_alt_rounded),
+                      title: const Text('LLM 프로필'),
+                      subtitle: const Text(
+                        '문제 생성과 PDF 개념 추출에 사용할 모델을 각각 설정합니다.',
                       ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => context.go(AppRoutes.llmProfiles),
                     ),
-                  ],
+                  ),
                   const SizedBox(height: 28),
                   Text('화면', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 12),
@@ -90,6 +112,46 @@ class SettingsView extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LocalServerStatusTrailing extends StatelessWidget {
+  const _LocalServerStatusTrailing({required this.status});
+
+  final LocalServerStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (status) {
+      LocalServerStatus.running => (Colors.green, '서버 실행 중'),
+      LocalServerStatus.externalRunning => (Colors.green, '외부 서버 실행 중'),
+      LocalServerStatus.starting => (Colors.orange, '서버 시작 중'),
+      LocalServerStatus.stopping => (Colors.orange, '서버 종료 중'),
+      LocalServerStatus.error => (Theme.of(context).colorScheme.error, '서버 오류'),
+      LocalServerStatus.stopped => (
+        Theme.of(context).colorScheme.outline,
+        '서버 중지됨',
+      ),
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Tooltip(
+          message: label,
+          child: Semantics(
+            label: label,
+            child: Container(
+              key: const Key('local-server-status-indicator'),
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        const Icon(Icons.chevron_right_rounded),
+      ],
     );
   }
 }

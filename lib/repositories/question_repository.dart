@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -6,13 +8,17 @@ import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/question.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/domain/services/question_validator.dart';
 import 'package:uuid/uuid.dart';
 
 abstract interface class QuestionRepository {
   Future<String> createQuestion(QuestionDraft draft);
 
-  Future<List<String>> createQuestions(List<QuestionDraft> drafts);
+  Future<List<String>> createQuestions(
+    List<QuestionDraft> drafts, {
+    List<QuestionSourceDraft?>? sourceReferences,
+  });
 
   Future<void> updateQuestion(String id, QuestionDraft draft);
 
@@ -44,10 +50,17 @@ class DriftQuestionRepository implements QuestionRepository {
   }
 
   @override
-  Future<List<String>> createQuestions(List<QuestionDraft> drafts) {
+  Future<List<String>> createQuestions(
+    List<QuestionDraft> drafts, {
+    List<QuestionSourceDraft?>? sourceReferences,
+  }) {
     return _guard(() async {
       if (drafts.isEmpty) {
         throw const ValidationFailure('저장할 문제가 없어요.');
+      }
+      if (sourceReferences != null &&
+          sourceReferences.length != drafts.length) {
+        throw const ValidationFailure('문제와 출처 정보의 개수가 일치하지 않아요.');
       }
       final validatedDrafts = drafts
           .map(QuestionValidator.validate)
@@ -74,6 +87,10 @@ class DriftQuestionRepository implements QuestionRepository {
             ),
           );
           await _replaceDetails(id, draft);
+          final sourceReference = sourceReferences?[index];
+          if (sourceReference != null) {
+            await _insertSourceReference(id, sourceReference);
+          }
           await _database.syncDao.enqueue(
             entityType: SyncEntityType.question.name,
             entityId: id,
@@ -241,9 +258,30 @@ class DriftQuestionRepository implements QuestionRepository {
     final results = await Future.wait([
       _database.questionDao.getChoices(row.id),
       _database.questionDao.getAcceptableAnswers(row.id),
+      _database.sourceDao.getQuestionSources(row.id),
     ]);
     final choices = results[0] as List<QuestionChoiceRow>;
     final answers = results[1] as List<AcceptableAnswerRow>;
+    final sourceRows = results[2] as List<QuestionSourceRow>;
+    final sourceReferences = <QuestionSourceReference>[];
+    for (final reference in sourceRows) {
+      final source = await _database.sourceDao.getSource(reference.sourceId);
+      if (source == null) continue;
+      final concept = reference.conceptId == null
+          ? null
+          : await _database.sourceDao.getConcept(reference.conceptId!);
+      sourceReferences.add(
+        QuestionSourceReference(
+          sourceId: source.id,
+          fileName: source.fileName,
+          conceptId: concept?.id,
+          conceptTitle: concept?.title,
+          pageNumbers: (jsonDecode(reference.pageNumbersJson) as List)
+              .map((value) => (value as num).toInt())
+              .toList(growable: false),
+        ),
+      );
+    }
 
     return Question(
       id: row.id,
@@ -271,6 +309,36 @@ class DriftQuestionRepository implements QuestionRepository {
       createdAt: row.createdAt.toUtc(),
       updatedAt: row.updatedAt.toUtc(),
       deletedAt: row.deletedAt?.toUtc(),
+      sourceReferences: List.unmodifiable(sourceReferences),
+    );
+  }
+
+  Future<void> _insertSourceReference(
+    String questionId,
+    QuestionSourceDraft reference,
+  ) async {
+    final source = await _database.sourceDao.getSource(reference.sourceId);
+    if (source == null) {
+      throw const ValidationFailure('문제의 원본 자료를 찾을 수 없어요.');
+    }
+    if (reference.conceptId != null) {
+      final concept = await _database.sourceDao.getConcept(
+        reference.conceptId!,
+      );
+      if (concept == null || concept.sourceId != reference.sourceId) {
+        throw const ValidationFailure('문제의 출처 개념이 올바르지 않아요.');
+      }
+    }
+    await _database.sourceDao.insertQuestionSource(
+      QuestionSourcesCompanion.insert(
+        id: _uuid.v4(),
+        questionId: questionId,
+        sourceId: reference.sourceId,
+        conceptId: Value(reference.conceptId),
+        pageNumbersJson: jsonEncode(
+          reference.pageNumbers.toSet().toList()..sort(),
+        ),
+      ),
     );
   }
 
