@@ -44,8 +44,7 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
         [
             new GeneratedConceptDraft(
                 "가우스 법칙",
-                "전기선속과 전하의 관계",
-                "폐곡면을 기준으로 두 물리량을 연결한다.",
+                "전기선속과 전하의 관계를 폐곡면을 기준으로 설명한다.",
                 [2, 1])
         ]);
         var service = CreateService(extractor, provider);
@@ -64,11 +63,44 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
         Assert.Equal(64, response.Source.ContentHash.Length);
         var concept = Assert.Single(response.Concepts);
         Assert.Equal([1, 2], concept.PageNumbers);
-        Assert.Equal("draft", concept.Status);
+        Assert.Equal("held", concept.Status);
         Assert.True(File.Exists(Path.Combine(
             temporaryDirectory,
             "sources",
             $"{response.Source.Id}.pdf")));
+    }
+
+    [Fact]
+    public async Task DeletePdf_RemovesStoredSourceFile()
+    {
+        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
+            1,
+            [new ExtractedDocumentPage(
+                1,
+                "삭제할 수 있는 충분한 길이의 학습 자료 내용을 포함하고 있습니다.")]));
+        var provider = new FakeConceptProvider(
+        [
+            new GeneratedConceptDraft(
+                "삭제 테스트",
+                "저장된 PDF 원본 파일을 삭제한다.",
+                [1])
+        ]);
+        var service = CreateService(extractor, provider);
+        await using var content = PdfLikeStream();
+        var response = await service.ImportPdfAsync(
+            content,
+            "삭제.pdf",
+            content.Length,
+            TestContext.Current.CancellationToken);
+        var path = Path.Combine(
+            temporaryDirectory,
+            "sources",
+            $"{response.Source.Id}.pdf");
+        Assert.True(File.Exists(path));
+
+        service.DeletePdf(response.Source.Id);
+
+        Assert.False(File.Exists(path));
     }
 
     [Fact]
@@ -81,7 +113,6 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             [
                 new GeneratedConceptDraft(
                     "사칙연산",
-                    "덧셈과 뺄셈",
                     "이미지에서 추출한 사칙연산 설명",
                     [1])
             ],
@@ -119,7 +150,6 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             [
                 new GeneratedConceptDraft(
                     "혼합 문서",
-                    "두 추출 방식을 함께 사용한다.",
                     "텍스트와 이미지 페이지를 모두 근거로 삼는다.",
                     [1, 2])
             ],
@@ -178,7 +208,6 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             [
                 new GeneratedConceptDraft(
                     "캐시",
-                    "OCR 재사용",
                     "같은 이미지의 OCR 결과를 재사용한다.",
                     [1])
             ],
@@ -226,7 +255,6 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             [
                 new GeneratedConceptDraft(
                     "도표",
-                    "텍스트와 도표",
                     "두 추출 결과를 함께 사용한다.",
                     [1])
             ],
@@ -334,7 +362,6 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             [
                 new GeneratedConceptDraft(
                     $"개념 {page}",
-                    "청크 요약",
                     "청크별 개념 추출을 검증하는 세부 설명",
                     [page])
             ]);

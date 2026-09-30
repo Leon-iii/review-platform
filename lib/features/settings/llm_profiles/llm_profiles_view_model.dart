@@ -34,6 +34,18 @@ class LlmProfilesController extends _$LlmProfilesController {
     state = AsyncData(updated);
   }
 
+  Future<LlmModelCatalog> loadModels(LlmProviderKind provider) async {
+    final configuration = await ref
+        .read(syncCredentialsStoreProvider)
+        .readConfiguration();
+    if (configuration == null) {
+      throw const ValidationFailure('먼저 설정 화면에서 개인 서버 주소와 접근 토큰을 저장해 주세요.');
+    }
+    return ref
+        .read(llmProfileApiProvider)
+        .getModels(configuration: configuration, provider: provider);
+  }
+
   Future<void> reload() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(_load);

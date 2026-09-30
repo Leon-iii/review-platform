@@ -200,6 +200,33 @@ public sealed class DocumentProcessingService
         }
     }
 
+    public void DeletePdf(string sourceId)
+    {
+        if (!Guid.TryParse(sourceId, out var parsed) ||
+            !parsed.ToString().Equals(sourceId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DocumentImportException("올바르지 않은 PDF 자료 ID입니다.");
+        }
+        var path = Path.Combine(ResolveStorageRoot(), $"{sourceId}.pdf");
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            logger.LogInformation("PDF source deleted. SourceId={SourceId}", sourceId);
+        }
+        catch (IOException exception)
+        {
+            throw new DocumentImportException(
+                "PDF 원본 파일을 삭제하지 못했습니다.",
+                exception);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new DocumentImportException(
+                "PDF 원본 파일을 삭제할 권한이 없습니다.",
+                exception);
+        }
+    }
+
     private async Task<PreparedPages> PreparePagesAsync(
         string pdfPath,
         string fileName,
@@ -437,15 +464,13 @@ public sealed class DocumentProcessingService
         foreach (var concept in concepts)
         {
             var title = concept.Title.Trim();
-            var summary = concept.Summary.Trim();
-            var details = concept.Details.Trim();
+            var content = concept.Content.Trim();
             var pageNumbers = concept.PageNumbers
                 .Distinct()
                 .Order()
                 .ToList();
             if (title.Length is < 1 or > 200 ||
-                summary.Length is < 1 or > 2_000 ||
-                details.Length is < 1 or > 8_000 ||
+                content.Length is < 1 or > 8_000 ||
                 pageNumbers.Count == 0 ||
                 pageNumbers.Any(page => !allowedPages.Contains(page)))
             {
@@ -455,8 +480,7 @@ public sealed class DocumentProcessingService
             validated.Add(concept with
             {
                 Title = title,
-                Summary = summary,
-                Details = details,
+                Content = content,
                 PageNumbers = pageNumbers
             });
         }
@@ -480,6 +504,8 @@ public sealed class DocumentProcessingService
                         .ToList()
                 };
             })
+            .OrderBy(concept => concept.PageNumbers.First())
+            .ThenBy(concept => concept.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

@@ -28,7 +28,9 @@ public sealed class RuntimeLlmProviderResolver(
         {
             Provider = profile.Provider,
             Model = profile.Model,
-            BaseUrl = profile.BaseUrl,
+            BaseUrl = profile.Provider == "ollama"
+                ? LlmOptions.LocalOllamaBaseUrl
+                : string.Empty,
             ApiKey = bootstrapOptions.Value.ApiKey
         });
         return profile.Provider switch

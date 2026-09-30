@@ -39,6 +39,10 @@ abstract final class AppRoutes {
   ).toString();
   static String documentsForFolder(String folderId) =>
       Uri(path: documents, queryParameters: {'folderId': folderId}).toString();
+  static String documentsForSource(String folderId, String sourceId) => Uri(
+    path: documents,
+    queryParameters: {'folderId': folderId, 'sourceId': sourceId},
+  ).toString();
   static String studySession(String sessionId) => '/study/session/$sessionId';
   static String studyResult(String sessionId) => '/study/result/$sessionId';
   static String studySetupForWrong(String folderId) => Uri(
@@ -118,6 +122,7 @@ GoRouter router(Ref ref) {
             : null,
         builder: (context, state) => DocumentImportView(
           folderId: state.uri.queryParameters['folderId']!,
+          initialSourceId: state.uri.queryParameters['sourceId'],
         ),
       ),
       GoRoute(

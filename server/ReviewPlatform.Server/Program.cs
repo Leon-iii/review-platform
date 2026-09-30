@@ -39,7 +39,9 @@ builder.Services.PostConfigure<LlmOptions>(options =>
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<QuestionGenerationService>();
 builder.Services.AddScoped<DocumentProcessingService>();
+builder.Services.AddScoped<ConceptRevisionService>();
 builder.Services.AddScoped<LlmProfileService>();
+builder.Services.AddScoped<LlmModelCatalogService>();
 builder.Services.AddScoped<ILlmProviderResolver, RuntimeLlmProviderResolver>();
 builder.Services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
 builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
@@ -113,6 +115,25 @@ app.MapPut("/api/llm/settings", async (
     catch (LlmProfileValidationException exception)
     {
         return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
+app.MapGet("/api/llm/models", async (
+    string? provider,
+    LlmModelCatalogService catalogService,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await catalogService.GetModelsAsync(
+            provider,
+            cancellationToken));
+    }
+    catch (LlmModelCatalogException exception)
+    {
+        return Results.Json(
+            new { error = exception.Message },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 });
 
@@ -219,6 +240,50 @@ app.MapPost("/api/documents/import", async (
         return Results.Json(
             new { error = exception.Message },
             statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapPost("/api/documents/concepts/revise", async (
+    ReviseConceptsRequest request,
+    ConceptRevisionService revisionService,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await revisionService.ReviseAsync(
+            request,
+            cancellationToken));
+    }
+    catch (ConceptRevisionRequestException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (LlmProviderUnavailableException exception)
+    {
+        return Results.Json(
+            new { error = exception.Message },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (LlmProviderRequestException exception)
+    {
+        return Results.Json(
+            new { error = exception.Message },
+            statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapDelete("/api/documents/{sourceId}", (
+    string sourceId,
+    DocumentProcessingService processingService) =>
+{
+    try
+    {
+        processingService.DeletePdf(sourceId);
+        return Results.NoContent();
+    }
+    catch (DocumentImportException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
     }
 });
 

@@ -7,14 +7,37 @@ import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 
-class DocumentImportView extends ConsumerWidget {
-  const DocumentImportView({required this.folderId, super.key});
+class DocumentImportView extends ConsumerStatefulWidget {
+  const DocumentImportView({
+    required this.folderId,
+    this.initialSourceId,
+    super.key,
+  });
 
   final String folderId;
+  final String? initialSourceId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controllerProvider = documentImportControllerProvider(folderId);
+  ConsumerState<DocumentImportView> createState() => _DocumentImportViewState();
+}
+
+class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
+  bool _initialSourceOpened = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final controllerProvider = documentImportControllerProvider(
+      widget.folderId,
+    );
+    if (!_initialSourceOpened && widget.initialSourceId != null) {
+      _initialSourceOpened = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref
+            .read(controllerProvider.notifier)
+            .loadSource(widget.initialSourceId!);
+      });
+    }
     final state = ref.watch(controllerProvider);
     return Scaffold(
       key: const Key('document-import-view'),
@@ -23,26 +46,25 @@ class DocumentImportView extends ConsumerWidget {
         loading: () => const _ImportProgress(),
         error: (error, stackTrace) => _ImportError(
           message: error is AppFailure ? error.message : 'PDF를 처리하지 못했어요.',
-          onBack: () => ref.read(controllerProvider.notifier).showSourceList(),
+          onBack: () =>
+              ref.read(controllerProvider.notifier).showImportPrompt(),
           onRetry: () => ref.read(controllerProvider.notifier).pickAndImport(),
         ),
         data: (review) => review == null
-            ? _SourceList(folderId: folderId, provider: controllerProvider)
+            ? _ImportPrompt(provider: controllerProvider)
             : _ConceptReview(review: review, provider: controllerProvider),
       ),
     );
   }
 }
 
-class _SourceList extends ConsumerWidget {
-  const _SourceList({required this.folderId, required this.provider});
+class _ImportPrompt extends ConsumerWidget {
+  const _ImportPrompt({required this.provider});
 
-  final String folderId;
   final DocumentImportControllerProvider provider;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sources = ref.watch(documentSourcesProvider(folderId));
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       children: [
@@ -64,7 +86,7 @@ class _SourceList extends ConsumerWidget {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          '텍스트 레이어가 있는 PDF를 서버에서 분석하고, 페이지 근거가 포함된 Draft 개념을 만듭니다.',
+                          'PDF를 서버에서 분석하고, 페이지 근거가 포함된 보류 상태의 개념을 만듭니다.',
                         ),
                         const SizedBox(height: 16),
                         FilledButton.icon(
@@ -77,52 +99,6 @@ class _SourceList extends ConsumerWidget {
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Text('가져온 자료', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                sources.when(
-                  loading: () => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                  error: (error, stackTrace) => const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text('가져온 자료를 불러오지 못했어요.'),
-                    ),
-                  ),
-                  data: (items) => items.isEmpty
-                      ? const Card(
-                          child: Padding(
-                            padding: EdgeInsets.all(20),
-                            child: Text('아직 가져온 PDF가 없어요.'),
-                          ),
-                        )
-                      : Column(
-                          children: [
-                            for (final source in items)
-                              Card(
-                                child: ListTile(
-                                  leading: const Icon(
-                                    Icons.picture_as_pdf_rounded,
-                                  ),
-                                  title: Text(source.fileName),
-                                  subtitle: Text(
-                                    '${source.pageCount}페이지 · ${_extractionLabel(source.extractionMethod)}',
-                                  ),
-                                  trailing: const Icon(
-                                    Icons.chevron_right_rounded,
-                                  ),
-                                  onTap: () => ref
-                                      .read(provider.notifier)
-                                      .loadSource(source.id),
-                                ),
-                              ),
-                          ],
-                        ),
                 ),
               ],
             ),
@@ -164,21 +140,26 @@ class _ConceptReview extends ConsumerWidget {
                         Text(
                           '${review.source.pageCount}페이지 · 추출 개념 ${review.concepts.length}개',
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 16),
                         OutlinedButton.icon(
-                          onPressed: () =>
-                              ref.read(provider.notifier).showSourceList(),
-                          icon: const Icon(Icons.arrow_back_rounded),
-                          label: const Text('자료 목록'),
+                          key: const Key('request-concept-revision-button'),
+                          onPressed: () => _requestRevision(context, ref),
+                          icon: const Icon(Icons.auto_fix_high_rounded),
+                          label: const Text('수정 요청'),
                         ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                for (final concept in review.concepts) ...[
+                for (
+                  var index = 0;
+                  index < review.concepts.length;
+                  index++
+                ) ...[
                   _ConceptCard(
-                    concept: concept,
+                    number: index + 1,
+                    concept: review.concepts[index],
                     folderId: review.source.folderId,
                     provider: provider,
                   ),
@@ -191,15 +172,154 @@ class _ConceptReview extends ConsumerWidget {
       ],
     );
   }
+
+  Future<void> _requestRevision(BuildContext context, WidgetRef ref) async {
+    var instruction = '';
+    var scope = ConceptRevisionScope.unapproved;
+    var isSending = false;
+    String? errorMessage;
+    final changedCount = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('개념 수정 요청'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextFormField(
+                    key: const Key('concept-revision-instruction-field'),
+                    enabled: !isSending,
+                    minLines: 4,
+                    maxLines: 10,
+                    maxLength: 4000,
+                    decoration: const InputDecoration(
+                      labelText: '요청사항',
+                      hintText: '개념을 어떻게 수정할지 입력해 주세요.',
+                      alignLabelWithHint: true,
+                    ),
+                    onChanged: (value) => instruction = value,
+                  ),
+                  const SizedBox(height: 8),
+                  Text('수정 범위', style: Theme.of(context).textTheme.titleSmall),
+                  RadioGroup<ConceptRevisionScope>(
+                    groupValue: scope,
+                    onChanged: isSending
+                        ? (_) {}
+                        : (value) {
+                            if (value == null) return;
+                            setDialogState(() => scope = value);
+                          },
+                    child: Column(
+                      children: const [
+                        RadioListTile<ConceptRevisionScope>(
+                          key: Key('concept-revision-scope-unapproved'),
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('미승인'),
+                          subtitle: Text('보류된 개념만 수정'),
+                          value: ConceptRevisionScope.unapproved,
+                        ),
+                        RadioListTile<ConceptRevisionScope>(
+                          key: Key('concept-revision-scope-all'),
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('모두'),
+                          subtitle: Text('승인 여부와 관계없이 모든 개념을 수정'),
+                          value: ConceptRevisionScope.all,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      errorMessage!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSending ? null : () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            FilledButton.icon(
+              key: const Key('send-concept-revision-button'),
+              onPressed: isSending
+                  ? null
+                  : () async {
+                      if (instruction.trim().isEmpty) {
+                        setDialogState(
+                          () => errorMessage = '수정 요청사항을 입력해 주세요.',
+                        );
+                        return;
+                      }
+                      setDialogState(() {
+                        isSending = true;
+                        errorMessage = null;
+                      });
+                      try {
+                        final count = await ref
+                            .read(provider.notifier)
+                            .requestConceptRevision(
+                              instruction: instruction,
+                              scope: scope,
+                            );
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext, count);
+                        }
+                      } catch (error) {
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() {
+                          isSending = false;
+                          errorMessage = error is AppFailure
+                              ? error.message
+                              : '개념 수정 요청을 처리하지 못했어요.';
+                        });
+                      }
+                    },
+              icon: isSending
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded),
+              label: Text(isSending ? '전송 중...' : '요청 전송'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (changedCount == null || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          changedCount == 0
+              ? '수정된 개념이 없어요.'
+              : '$changedCount개 개념을 수정하고 보류 상태로 변경했어요.',
+        ),
+      ),
+    );
+  }
 }
 
 class _ConceptCard extends ConsumerWidget {
   const _ConceptCard({
+    required this.number,
     required this.concept,
     required this.folderId,
     required this.provider,
   });
 
+  final int number;
   final StudyConcept concept;
   final String folderId;
   final DocumentImportControllerProvider provider;
@@ -212,21 +332,64 @@ class _ConceptCard extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Chip(label: Text(_statusLabel(concept.status))),
-                Chip(label: Text('p.${concept.pageNumbers.join(', ')}')),
+                Expanded(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _ConceptStatusBadge(
+                        key: ValueKey('concept-status-${concept.id}'),
+                        status: concept.status,
+                      ),
+                      Chip(label: Text('p.${concept.pageNumbers.join(', ')}')),
+                    ],
+                  ),
+                ),
+                PopupMenuButton<_ConceptAction>(
+                  tooltip: '개념 메뉴',
+                  onSelected: (action) {
+                    switch (action) {
+                      case _ConceptAction.edit:
+                        _edit(context, ref);
+                      case _ConceptAction.delete:
+                        _confirmDelete(context, ref);
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _ConceptAction.edit,
+                      child: Text('수정'),
+                    ),
+                    PopupMenuItem(
+                      value: _ConceptAction.delete,
+                      child: Text('삭제'),
+                    ),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(concept.title, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              '$number. ${concept.title}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
-            Text(concept.summary),
+            Text(concept.content),
             const SizedBox(height: 8),
-            Text(concept.details, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 14),
+            CheckboxListTile(
+              key: ValueKey('concept-approval-${concept.id}'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('승인'),
+              value: concept.status == ConceptStatus.approved,
+              onChanged: (value) {
+                if (value == null) return;
+                ref.read(provider.notifier).setApproved(concept.id, value);
+              },
+            ),
             if (concept.status == ConceptStatus.approved)
               FilledButton.icon(
                 onPressed: () => context.push(
@@ -234,32 +397,6 @@ class _ConceptCard extends ConsumerWidget {
                 ),
                 icon: const Icon(Icons.auto_awesome_rounded),
                 label: const Text('이 개념으로 문제 생성'),
-              )
-            else if (concept.status != ConceptStatus.rejected)
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonal(
-                    onPressed: () =>
-                        ref.read(provider.notifier).approve(concept.id),
-                    child: const Text('승인'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => _edit(context, ref),
-                    child: const Text('수정 후 승인'),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        ref.read(provider.notifier).hold(concept.id),
-                    child: const Text('보류'),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        ref.read(provider.notifier).reject(concept.id),
-                    child: const Text('삭제'),
-                  ),
-                ],
               ),
           ],
         ),
@@ -268,9 +405,8 @@ class _ConceptCard extends ConsumerWidget {
   }
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    final title = TextEditingController(text: concept.title);
-    final summary = TextEditingController(text: concept.summary);
-    final details = TextEditingController(text: concept.details);
+    var title = concept.title;
+    var content = concept.content;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -281,23 +417,18 @@ class _ConceptCard extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: title,
+                TextFormField(
+                  initialValue: concept.title,
                   decoration: const InputDecoration(labelText: '제목'),
+                  onChanged: (value) => title = value,
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: summary,
-                  minLines: 2,
-                  maxLines: 4,
-                  decoration: const InputDecoration(labelText: '요약'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: details,
+                TextFormField(
+                  initialValue: concept.content,
                   minLines: 4,
                   maxLines: 10,
-                  decoration: const InputDecoration(labelText: '상세 내용'),
+                  decoration: const InputDecoration(labelText: '내용'),
+                  onChanged: (value) => content = value,
                 ),
               ],
             ),
@@ -310,7 +441,7 @@ class _ConceptCard extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('저장 및 승인'),
+            child: const Text('저장'),
           ),
         ],
       ),
@@ -318,18 +449,74 @@ class _ConceptCard extends ConsumerWidget {
     if (confirmed == true) {
       await ref
           .read(provider.notifier)
-          .updateAndApprove(
-            conceptId: concept.id,
-            title: title.text,
-            summary: summary.text,
-            details: details.text,
-          );
+          .updateConcept(conceptId: concept.id, title: title, content: content);
     }
-    title.dispose();
-    summary.dispose();
-    details.dispose();
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('개념 삭제'),
+        content: Text('${concept.title} 개념을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            key: const Key('confirm-delete-concept-button'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(provider.notifier).deleteConcept(concept.id);
+    }
   }
 }
+
+class _ConceptStatusBadge extends StatelessWidget {
+  const _ConceptStatusBadge({required this.status, super.key});
+
+  final ConceptStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final approved = status == ConceptStatus.approved;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: approved
+            ? null
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
+        gradient: approved
+            ? const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF43A047), Color(0xFF1B5E20)],
+              )
+            : null,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Text(
+          approved ? '승인됨' : '보류됨',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: approved
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _ConceptAction { edit, delete }
 
 class _ImportProgress extends StatelessWidget {
   const _ImportProgress();
@@ -387,7 +574,10 @@ class _ImportError extends StatelessWidget {
             Wrap(
               spacing: 8,
               children: [
-                OutlinedButton(onPressed: onBack, child: const Text('자료 목록')),
+                OutlinedButton(
+                  onPressed: onBack,
+                  child: const Text('PDF 선택 화면'),
+                ),
                 FilledButton(onPressed: onRetry, child: const Text('다시 선택')),
               ],
             ),
@@ -397,16 +587,3 @@ class _ImportError extends StatelessWidget {
     );
   }
 }
-
-String _statusLabel(ConceptStatus status) => switch (status) {
-  ConceptStatus.draft => 'Draft',
-  ConceptStatus.approved => '승인됨',
-  ConceptStatus.held => '보류',
-  ConceptStatus.rejected => '삭제됨',
-};
-
-String _extractionLabel(String method) => switch (method) {
-  'textLayer' => '텍스트 레이어',
-  'ocr' => 'OCR',
-  _ => method,
-};

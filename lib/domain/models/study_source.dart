@@ -25,8 +25,7 @@ class StudyConcept {
     required this.id,
     required this.sourceId,
     required this.title,
-    required this.summary,
-    required this.details,
+    required this.content,
     required this.pageNumbers,
     required this.status,
     required this.createdAt,
@@ -36,8 +35,7 @@ class StudyConcept {
   final String id;
   final String sourceId;
   final String title;
-  final String summary;
-  final String details;
+  final String content;
   final List<int> pageNumbers;
   final ConceptStatus status;
   final DateTime createdAt;
@@ -45,8 +43,7 @@ class StudyConcept {
 
   StudyConcept copyWith({
     String? title,
-    String? summary,
-    String? details,
+    String? content,
     List<int>? pageNumbers,
     ConceptStatus? status,
     DateTime? updatedAt,
@@ -55,8 +52,7 @@ class StudyConcept {
       id: id,
       sourceId: sourceId,
       title: title ?? this.title,
-      summary: summary ?? this.summary,
-      details: details ?? this.details,
+      content: content ?? this.content,
       pageNumbers: pageNumbers ?? this.pageNumbers,
       status: status ?? this.status,
       createdAt: createdAt,
@@ -70,6 +66,39 @@ class StudySourceWithConcepts {
 
   final StudySource source;
   final List<StudyConcept> concepts;
+}
+
+enum ConceptRevisionScope {
+  unapproved('unapproved'),
+  all('all');
+
+  const ConceptRevisionScope(this.wireValue);
+
+  final String wireValue;
+}
+
+class ConceptRevision {
+  const ConceptRevision({
+    required this.id,
+    required this.title,
+    required this.content,
+    required this.pageNumbers,
+  });
+
+  final String id;
+  final String title;
+  final String content;
+  final List<int> pageNumbers;
+}
+
+class ConceptRevisionApplyResult {
+  const ConceptRevisionApplyResult({
+    required this.review,
+    required this.changedCount,
+  });
+
+  final StudySourceWithConcepts review;
+  final int changedCount;
 }
 
 class ConceptGenerationSeed {
@@ -91,8 +120,7 @@ class ConceptGenerationSeed {
 
   String get sourceText => [
     concept.title,
-    concept.summary,
-    concept.details,
+    concept.content,
   ].where((value) => value.trim().isNotEmpty).join('\n\n');
 }
 
@@ -152,13 +180,11 @@ class ImportedSource {
 class ImportedConcept {
   const ImportedConcept({
     required this.title,
-    required this.summary,
-    required this.details,
+    required this.content,
     required this.pageNumbers,
   });
 
   final String title;
-  final String summary;
-  final String details;
+  final String content;
   final List<int> pageNumbers;
 }

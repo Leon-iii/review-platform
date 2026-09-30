@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -46,6 +48,8 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm> {
   final _formKey = GlobalKey<FormState>();
   late final List<_ProfileDraft> _profiles;
   late final Map<LlmPurpose, String> _assignments;
+  final Map<LlmProviderKind, AsyncValue<LlmModelCatalog>> _modelCatalogs = {};
+  Timer? _modelRefreshTimer;
   bool _saving = false;
 
   @override
@@ -56,10 +60,16 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm> {
         _ProfileDraft.fromProfile(profile),
     ];
     _assignments = Map.of(widget.initialSettings.assignments);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshAllModels());
+    _modelRefreshTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _refreshAllModels(),
+    );
   }
 
   @override
   void dispose() {
+    _modelRefreshTimer?.cancel();
     for (final profile in _profiles) {
       profile.dispose();
     }
@@ -143,6 +153,12 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm> {
                         icon: const Icon(Icons.add_rounded),
                         label: const Text('프로필 추가'),
                       ),
+                      const SizedBox(width: 8),
+                      IconButton.outlined(
+                        tooltip: '모델 목록 새로고침',
+                        onPressed: _saving ? null : _refreshAllModels,
+                        icon: const Icon(Icons.refresh_rounded),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -151,7 +167,12 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm> {
                       draft: _profiles[index],
                       enabled: !_saving,
                       canDelete: _profiles.length > 1,
+                      modelCatalog: _modelCatalogs[_profiles[index].provider],
                       onChanged: () => setState(() {}),
+                      onProviderChanged: (provider) =>
+                          _changeProvider(_profiles[index], provider),
+                      onRefreshModels: () =>
+                          _refreshModels(_profiles[index].provider),
                       onDelete: () => _deleteProfile(index),
                     ),
                     const SizedBox(height: 12),
@@ -161,8 +182,8 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm> {
                       leading: Icon(Icons.security_rounded),
                       title: Text('API Key는 서버에만 보관됩니다.'),
                       subtitle: Text(
-                        'Android를 포함한 클라이언트에서는 Provider, 모델, '
-                        'Ollama 주소와 용도 할당만 변경합니다.',
+                        'Ollama는 서버 컴퓨터의 로컬 인스턴스에서 실행됩니다. '
+                        'Android를 포함한 클라이언트는 실행 방식, 모델, 용도 할당만 변경합니다.',
                       ),
                     ),
                   ),
@@ -188,14 +209,52 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm> {
   }
 
   void _addProfile() {
+    final models =
+        _modelCatalogs[LlmProviderKind.ollama]?.value?.models ??
+        const <String>[];
     final profile = _ProfileDraft(
       id: const Uuid().v4(),
       name: TextEditingController(text: '새 프로필'),
       provider: LlmProviderKind.ollama,
-      model: TextEditingController(text: 'qwen3-vl:8b-instruct'),
-      baseUrl: TextEditingController(text: 'http://127.0.0.1:11434'),
+      model: models.isEmpty ? '' : models.first,
     );
     setState(() => _profiles.add(profile));
+  }
+
+  void _changeProvider(_ProfileDraft draft, LlmProviderKind provider) {
+    draft.provider = provider;
+    final models = _modelCatalogs[provider]?.value?.models;
+    draft.model = models == null || models.isEmpty ? '' : models.first;
+    setState(() {});
+    if (_modelCatalogs[provider] == null) {
+      _refreshModels(provider);
+    }
+  }
+
+  Future<void> _refreshAllModels() async {
+    await Future.wait([
+      for (final provider in LlmProviderKind.values) _refreshModels(provider),
+    ]);
+  }
+
+  Future<void> _refreshModels(LlmProviderKind provider) async {
+    if (!mounted) return;
+    setState(() => _modelCatalogs[provider] = const AsyncLoading());
+    final result = await AsyncValue.guard(
+      () =>
+          ref.read(llmProfilesControllerProvider.notifier).loadModels(provider),
+    );
+    if (!mounted) return;
+    setState(() {
+      _modelCatalogs[provider] = result;
+      final models = result.value?.models ?? const <String>[];
+      if (models.isEmpty) return;
+      for (final draft in _profiles.where(
+        (draft) => draft.provider == provider && draft.model.isEmpty,
+      )) {
+        draft.model = models.first;
+      }
+    });
   }
 
   void _deleteProfile(int index) {
@@ -241,14 +300,20 @@ class _ProfileCard extends StatelessWidget {
     required this.draft,
     required this.enabled,
     required this.canDelete,
+    required this.modelCatalog,
     required this.onChanged,
+    required this.onProviderChanged,
+    required this.onRefreshModels,
     required this.onDelete,
   });
 
   final _ProfileDraft draft;
   final bool enabled;
   final bool canDelete;
+  final AsyncValue<LlmModelCatalog>? modelCatalog;
   final VoidCallback onChanged;
+  final ValueChanged<LlmProviderKind> onProviderChanged;
+  final VoidCallback onRefreshModels;
   final VoidCallback onDelete;
 
   @override
@@ -292,7 +357,7 @@ class _ProfileCard extends StatelessWidget {
             DropdownButtonFormField<LlmProviderKind>(
               initialValue: draft.provider,
               decoration: const InputDecoration(
-                labelText: 'Provider',
+                labelText: '실행 방식',
                 border: OutlineInputBorder(),
               ),
               items: [
@@ -306,56 +371,120 @@ class _ProfileCard extends StatelessWidget {
                   ? null
                   : (value) {
                       if (value == null) return;
-                      draft.provider = value;
-                      if (value == LlmProviderKind.ollama &&
-                          draft.baseUrl.text.trim().isEmpty) {
-                        draft.baseUrl.text = 'http://127.0.0.1:11434';
-                      }
-                      onChanged();
+                      onProviderChanged(value);
                     },
             ),
             const SizedBox(height: 14),
-            TextFormField(
-              controller: draft.model,
+            _ModelDropdown(
+              key: ValueKey(
+                '${draft.id}-${draft.provider.id}-${draft.model}-'
+                '${modelCatalog?.value?.refreshedAt.toIso8601String()}',
+              ),
+              selectedModel: draft.model,
+              catalog: modelCatalog,
               enabled: enabled,
-              decoration: const InputDecoration(
-                labelText: '모델',
-                hintText: 'qwen3-vl:8b-instruct',
-                border: OutlineInputBorder(),
-              ),
-              maxLength: 128,
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? '모델 이름을 입력해 주세요.'
-                  : null,
+              onChanged: (model) {
+                draft.model = model;
+                onChanged();
+              },
+              onRefresh: onRefreshModels,
             ),
-            if (draft.provider == LlmProviderKind.ollama) ...[
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: draft.baseUrl,
-                enabled: enabled,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Ollama Base URL',
-                  hintText: 'http://127.0.0.1:11434',
-                  border: OutlineInputBorder(),
-                ),
-                validator: _validateUrl,
-              ),
-            ],
           ],
         ),
       ),
     );
   }
+}
 
-  static String? _validateUrl(String? value) {
-    final uri = Uri.tryParse(value?.trim() ?? '');
-    if (uri == null ||
-        !uri.hasAuthority ||
-        (uri.scheme != 'http' && uri.scheme != 'https')) {
-      return '올바른 http 또는 https 주소를 입력해 주세요.';
+class _ModelDropdown extends StatelessWidget {
+  const _ModelDropdown({
+    required this.selectedModel,
+    required this.catalog,
+    required this.enabled,
+    required this.onChanged,
+    required this.onRefresh,
+    super.key,
+  });
+
+  final String selectedModel;
+  final AsyncValue<LlmModelCatalog>? catalog;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final availableModels = catalog?.value?.models ?? const <String>[];
+    final models = <String>[...availableModels];
+    if (selectedModel.isNotEmpty && !models.contains(selectedModel)) {
+      models.insert(0, selectedModel);
     }
-    return null;
+    final loading = catalog == null || catalog!.isLoading;
+    final error = catalog?.error;
+    final selectedModelUnavailable =
+        catalog?.hasValue == true &&
+        selectedModel.isNotEmpty &&
+        !availableModels.contains(selectedModel);
+    final helperText = loading
+        ? '서버에서 모델 목록을 불러오는 중입니다.'
+        : error != null
+        ? '모델 목록을 불러오지 못했습니다.'
+        : selectedModelUnavailable
+        ? '현재 모델을 사용할 수 없습니다. 목록에서 다시 선택해 주세요.'
+        : availableModels.isEmpty
+        ? '사용 가능한 모델이 없습니다.'
+        : '목록은 화면 진입 시와 5분마다 자동 갱신됩니다.';
+
+    return DropdownButtonFormField<String>(
+      initialValue: selectedModel.isEmpty ? null : selectedModel,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: '모델',
+        helperText: helperText,
+        border: const OutlineInputBorder(),
+        suffixIcon: loading
+            ? const Padding(
+                padding: EdgeInsets.all(14),
+                child: SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : error != null
+            ? IconButton(
+                tooltip: '다시 불러오기',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded),
+              )
+            : null,
+      ),
+      items: [
+        for (final model in models)
+          DropdownMenuItem(
+            value: model,
+            enabled: availableModels.contains(model) || error != null,
+            child: Text(
+              availableModels.contains(model) || error != null
+                  ? model
+                  : '$model (사용할 수 없음)',
+            ),
+          ),
+      ],
+      onChanged: !enabled || loading || availableModels.isEmpty
+          ? null
+          : (value) {
+              if (value != null) onChanged(value);
+            },
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return '사용할 모델을 선택해 주세요.';
+        }
+        if (catalog?.hasValue == true && !availableModels.contains(value)) {
+          return '서버에서 사용할 수 있는 모델을 선택해 주세요.';
+        }
+        return null;
+      },
+    );
   }
 }
 
@@ -365,36 +494,30 @@ class _ProfileDraft {
     required this.name,
     required this.provider,
     required this.model,
-    required this.baseUrl,
   });
 
   factory _ProfileDraft.fromProfile(LlmProfile profile) => _ProfileDraft(
     id: profile.id,
     name: TextEditingController(text: profile.name),
     provider: profile.provider,
-    model: TextEditingController(text: profile.model),
-    baseUrl: TextEditingController(text: profile.baseUrl),
+    model: profile.model,
   );
 
   final String id;
   final TextEditingController name;
   LlmProviderKind provider;
-  final TextEditingController model;
-  final TextEditingController baseUrl;
+  String model;
 
   LlmProfile toModel() => LlmProfile(
     id: id,
     name: name.text.trim(),
     provider: provider,
-    model: model.text.trim(),
-    baseUrl: provider == LlmProviderKind.ollama ? baseUrl.text.trim() : '',
+    model: model,
     updatedAt: DateTime.now().toUtc(),
   );
 
   void dispose() {
     name.dispose();
-    model.dispose();
-    baseUrl.dispose();
   }
 }
 

@@ -26,7 +26,7 @@ public sealed class LlmProfileService(
                 Name = "기본 프로필",
                 Provider = provider,
                 Model = NormalizeBootstrapModel(provider, options.Model),
-                BaseUrl = NormalizeBaseUrl(provider, options.BaseUrl),
+                BaseUrl = LocalBaseUrl(provider),
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             profiles.Add(profile);
@@ -79,21 +79,13 @@ public sealed class LlmProfileService(
                 profile.Model.Contains("vl", StringComparison.OrdinalIgnoreCase));
         if (visionProfile is null)
         {
-            var ollamaBaseUrl = profiles.FirstOrDefault(profile =>
-                    profile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
-                ?.BaseUrl;
             visionProfile = new LlmProfileRecord
             {
                 Id = NextProfileId(profiles, "document-vision"),
                 Name = "PDF 이미지 OCR",
                 Provider = "ollama",
                 Model = "qwen3-vl:8b-instruct",
-                BaseUrl = NormalizeBaseUrl(
-                    "ollama",
-                    ollamaBaseUrl ??
-                    (string.IsNullOrWhiteSpace(options.BaseUrl)
-                        ? "http://127.0.0.1:11434"
-                        : options.BaseUrl)),
+                BaseUrl = LlmOptions.LocalOllamaBaseUrl,
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             profiles.Add(visionProfile);
@@ -162,7 +154,6 @@ public sealed class LlmProfileService(
                 profile.Name,
                 profile.Provider,
                 profile.Model,
-                profile.BaseUrl,
                 profile.UpdatedAt))
             .ToListAsync(cancellationToken);
         var assignments = await database.LlmPurposeAssignments
@@ -197,7 +188,7 @@ public sealed class LlmProfileService(
                 Name = profile.Name,
                 Provider = profile.Provider,
                 Model = profile.Model,
-                BaseUrl = profile.BaseUrl,
+                BaseUrl = LocalBaseUrl(profile.Provider),
                 UpdatedAt = now
             }));
         database.LlmPurposeAssignments.AddRange(assignments.Select(pair =>
@@ -237,7 +228,6 @@ public sealed class LlmProfileService(
             profile.Name,
             profile.Provider,
             profile.Model,
-            profile.BaseUrl,
             profile.UpdatedAt);
     }
 
@@ -284,8 +274,7 @@ public sealed class LlmProfileService(
                 id,
                 name,
                 provider,
-                model,
-                NormalizeBaseUrl(provider, item.BaseUrl)));
+                model));
         }
         return result;
     }
@@ -336,18 +325,8 @@ public sealed class LlmProfileService(
                 "LLM Provider는 ollama 또는 openai여야 합니다.");
     }
 
-    private static string NormalizeBaseUrl(string provider, string? value)
-    {
-        if (provider == "openai") return string.Empty;
-        var baseUrl = value?.Trim().TrimEnd('/') ?? string.Empty;
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new LlmProfileValidationException(
-                "Ollama Base URL은 올바른 http 또는 https 주소여야 합니다.");
-        }
-        return baseUrl;
-    }
+    private static string LocalBaseUrl(string provider) =>
+        provider == "ollama" ? LlmOptions.LocalOllamaBaseUrl : string.Empty;
 }
 
 public sealed class LlmProfileValidationException(string message)

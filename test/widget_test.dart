@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -9,13 +10,17 @@ import 'package:review_platform/core/ai/ai_providers.dart';
 import 'package:review_platform/core/ai/remote_ai_api.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/database/database_providers.dart';
+import 'package:review_platform/core/documents/document_providers.dart';
+import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/core/server/local_server_config.dart';
 import 'package:review_platform/core/server/local_server_service.dart';
 import 'package:review_platform/core/server/local_server_settings_store.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
+import 'package:review_platform/repositories/source_repository.dart';
 
 import 'support/fake_ai.dart';
 import 'support/fake_sync.dart';
@@ -43,7 +48,10 @@ void main() {
     await database.close();
   });
 
-  Widget buildApp({RemoteAiApi? remoteAiApi}) => ProviderScope(
+  Widget buildApp({
+    RemoteAiApi? remoteAiApi,
+    RemoteDocumentApi? remoteDocumentApi,
+  }) => ProviderScope(
     overrides: [
       appDatabaseProvider.overrideWithValue(database),
       syncCredentialsStoreProvider.overrideWithValue(credentialsStore),
@@ -52,6 +60,8 @@ void main() {
       localServerServiceProvider.overrideWithValue(localServerService),
       if (remoteAiApi != null)
         remoteAiApiProvider.overrideWithValue(remoteAiApi),
+      if (remoteDocumentApi != null)
+        remoteDocumentApiProvider.overrideWithValue(remoteDocumentApi),
     ],
     child: const ReviewApp(),
   );
@@ -151,13 +161,12 @@ void main() {
       secretStore: localServerSecretStore,
       isWindows: true,
       directoryResolver: () async => r'C:\project\server',
-      processLauncher:
-          (
-            executable,
-            arguments, {
-            required workingDirectory,
-            required environment,
-          }) async => process,
+      processLauncher: (
+        executable,
+        arguments, {
+        required workingDirectory,
+        required environment,
+      }) async => process,
       healthCheck: (_) async => serverReady,
       portAvailabilityCheck: (_) async => true,
       healthInterval: const Duration(milliseconds: 10),
@@ -368,7 +377,141 @@ void main() {
 
     expect(find.byKey(const Key('document-import-view')), findsOneWidget);
     expect(find.byKey(const Key('pick-pdf-button')), findsOneWidget);
-    expect(find.text('아직 가져온 PDF가 없어요.'), findsOneWidget);
+    expect(find.text('가져온 자료'), findsNothing);
+    expect(find.text('자료 목록'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('PDF 강의자료를 문제보다 먼저 표시하고 이름 변경 메뉴를 사용한다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final folderId = await DriftFolderRepository(database)
+        .createFolder(name: '전자기학');
+    final saved = await DriftSourceRepository(database).saveImport(
+      folderId: folderId,
+      result: DocumentImportResult(
+        source: ImportedSource(
+          id: 'source-widget-test',
+          fileName: '1주차.pdf',
+          contentHash: List.filled(64, 'a').join(),
+          pageCount: 12,
+          extractionMethod: 'textLayer',
+          importedAt: DateTime.utc(2026, 10, 1),
+        ),
+        concepts: const [
+          ImportedConcept(
+            title: '전자기파',
+            content: '전자기파의 성질을 설명한다.',
+            pageNumbers: [8],
+          ),
+          ImportedConcept(
+            title: '맥스웰 방정식',
+            content: '전기장과 자기장의 관계를 네 개의 방정식으로 설명한다.',
+            pageNumbers: [2, 3],
+          ),
+        ],
+      ),
+    );
+    credentialsStore.configuration = const SyncConfiguration(
+      serverUrl: 'http://127.0.0.1:5080',
+      accessToken: 'test-token',
+    );
+    final remoteDocumentApi = _FakeRemoteDocumentApi(
+      revision: ConceptRevision(
+        id: saved.concepts.first.id,
+        title: saved.concepts.first.title,
+        content: '전기장과 자기장의 관계를 더 자연스럽게 설명한다.',
+        pageNumbers: saved.concepts.first.pageNumbers,
+      ),
+    );
+    await tester.pumpWidget(buildApp(remoteDocumentApi: remoteDocumentApi));
+
+    await tester.tap(find.text('문제 관리'));
+    await tester.pumpAndSettle();
+    expect(find.text('하위 폴더 0개, 문제 0개, PDF 강의자료 1개'), findsOneWidget);
+    await tester.tap(find.text('전자기학'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PDF 강의자료'), findsOneWidget);
+    expect(find.text('1주차.pdf'), findsOneWidget);
+    expect(find.byTooltip('PDF 강의자료 메뉴'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('PDF 강의자료')).dy,
+      lessThan(tester.getTopLeft(find.text('문제')).dy),
+    );
+
+    await tester.tap(find.byTooltip('PDF 강의자료 메뉴'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('이름 변경'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('pdf-source-name-field')),
+      '전자기학 1주차',
+    );
+    await tester.tap(find.byKey(const Key('save-pdf-source-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('전자기학 1주차.pdf'), findsOneWidget);
+
+    await tester.tap(find.text('전자기학 1주차.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('document-import-view')), findsOneWidget);
+    expect(find.text('1. 맥스웰 방정식'), findsOneWidget);
+    expect(find.text('2. 전자기파'), findsOneWidget);
+    expect(find.text('자료 목록'), findsNothing);
+    expect(find.text('보류됨'), findsNWidgets(2));
+    expect(find.text('Draft'), findsNothing);
+    expect(find.text('수정 후 승인'), findsNothing);
+    expect(find.byTooltip('개념 메뉴'), findsNWidgets(2));
+
+    await tester.tap(find.byTooltip('개념 메뉴').first);
+    await tester.pumpAndSettle();
+    expect(find.text('수정'), findsOneWidget);
+    expect(find.text('삭제'), findsOneWidget);
+    await tester.tap(find.text('수정'));
+    await tester.pumpAndSettle();
+    expect(find.text('개념 수정'), findsOneWidget);
+    expect(find.text('저장 및 승인'), findsNothing);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+
+    final firstConceptId = saved.concepts.first.id;
+    await tester.tap(find.byKey(ValueKey('concept-approval-$firstConceptId')));
+    await tester.pumpAndSettle();
+    expect(find.text('승인됨'), findsOneWidget);
+    final approvedBadge = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byKey(ValueKey('concept-status-$firstConceptId')),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final approvedDecoration = approvedBadge.decoration as BoxDecoration;
+    expect(approvedDecoration.gradient, isA<LinearGradient>());
+
+    await tester.tap(find.byKey(const Key('request-concept-revision-button')));
+    await tester.pumpAndSettle();
+    final scopeGroup = tester.widget<RadioGroup<ConceptRevisionScope>>(
+      find.byType(RadioGroup<ConceptRevisionScope>),
+    );
+    expect(scopeGroup.groupValue, ConceptRevisionScope.unapproved);
+    await tester.enterText(
+      find.byKey(const Key('concept-revision-instruction-field')),
+      '설명을 더 자연스럽게 고쳐 줘.',
+    );
+    await tester.tap(find.byKey(const Key('concept-revision-scope-all')));
+    await tester.tap(find.byKey(const Key('send-concept-revision-button')));
+    await tester.pumpAndSettle();
+
+    expect(remoteDocumentApi.capturedConcepts, hasLength(2));
+    expect(remoteDocumentApi.capturedInstruction, '설명을 더 자연스럽게 고쳐 줘.');
+    expect(remoteDocumentApi.capturedScope, ConceptRevisionScope.all);
+    expect(find.text('승인됨'), findsNothing);
+    expect(find.text('보류됨'), findsNWidgets(2));
+    expect(find.text('1개 개념을 수정하고 보류 상태로 변경했어요.'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -508,5 +651,41 @@ class _FakeManagedServerProcess implements ManagedServerProcess {
       unawaited(_stderr.close());
     }
     return true;
+  }
+}
+
+class _FakeRemoteDocumentApi implements RemoteDocumentApi {
+  _FakeRemoteDocumentApi({required this.revision});
+
+  final ConceptRevision revision;
+  List<StudyConcept>? capturedConcepts;
+  String? capturedInstruction;
+  ConceptRevisionScope? capturedScope;
+
+  @override
+  Future<void> deletePdf({
+    required SyncConfiguration configuration,
+    required String sourceId,
+  }) async {}
+
+  @override
+  Future<DocumentImportResult> importPdf({
+    required SyncConfiguration configuration,
+    required String fileName,
+    required Uint8List bytes,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<ConceptRevision>> reviseConcepts({
+    required SyncConfiguration configuration,
+    required StudySource source,
+    required List<StudyConcept> concepts,
+    required String instruction,
+    required ConceptRevisionScope scope,
+  }) async {
+    capturedConcepts = List.of(concepts);
+    capturedInstruction = instruction;
+    capturedScope = scope;
+    return [revision];
   }
 }

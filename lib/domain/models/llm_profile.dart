@@ -1,6 +1,6 @@
 enum LlmProviderKind {
-  ollama('ollama', 'Ollama'),
-  openAi('openai', 'OpenAI');
+  ollama('ollama', 'Ollama · 서버 컴퓨터 로컬'),
+  openAi('openai', 'OpenAI API · 서버 경유');
 
   const LlmProviderKind(this.id, this.displayName);
 
@@ -30,7 +30,6 @@ class LlmProfile {
     required this.name,
     required this.provider,
     required this.model,
-    required this.baseUrl,
     required this.updatedAt,
   });
 
@@ -38,7 +37,6 @@ class LlmProfile {
   final String name;
   final LlmProviderKind provider;
   final String model;
-  final String baseUrl;
   final DateTime updatedAt;
 
   Map<String, Object?> toJson() => {
@@ -46,8 +44,19 @@ class LlmProfile {
     'name': name,
     'provider': provider.id,
     'model': model,
-    'baseUrl': baseUrl,
   };
+}
+
+class LlmModelCatalog {
+  const LlmModelCatalog({
+    required this.provider,
+    required this.models,
+    required this.refreshedAt,
+  });
+
+  final LlmProviderKind provider;
+  final List<String> models;
+  final DateTime refreshedAt;
 }
 
 class LlmProfileSettings {

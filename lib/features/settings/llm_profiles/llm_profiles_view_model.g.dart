@@ -34,7 +34,7 @@ final class LlmProfilesControllerProvider
 }
 
 String _$llmProfilesControllerHash() =>
-    r'ab730ef6816b72dc0c9e849c790e282830c5e988';
+    r'2b80d382ac93345e78b88d89c86e8538b63e4093';
 
 abstract class _$LlmProfilesController
     extends $AsyncNotifier<LlmProfileSettings> {

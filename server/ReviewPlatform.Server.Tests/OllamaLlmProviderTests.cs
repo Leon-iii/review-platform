@@ -93,8 +93,7 @@ public sealed class OllamaLlmProviderTests
                 new
                 {
                     title = "가우스 법칙",
-                    summary = "전기선속과 내부 전하의 관계",
-                    details = "폐곡면을 기준으로 관계를 설명한다.",
+                    content = "전기선속과 내부 전하의 관계를 폐곡면을 기준으로 설명한다.",
                     pageNumbers = new[] { 2, 3 }
                 }
             }
@@ -132,6 +131,7 @@ public sealed class OllamaLlmProviderTests
 
         var concept = Assert.Single(concepts);
         Assert.Equal("가우스 법칙", concept.Title);
+        Assert.Contains("폐곡면", concept.Content);
         Assert.Equal([2, 3], concept.PageNumbers);
         var chatRequest = Assert.Single(handler.Requests,
             request => request.Path == "/api/chat");
@@ -145,6 +145,78 @@ public sealed class OllamaLlmProviderTests
         Assert.Contains("[PAGE 2]", body.RootElement.GetProperty("messages")[1]
             .GetProperty("content").GetString());
         Assert.DoesNotContain("추론", JsonSerializer.Serialize(concepts));
+    }
+
+    [Fact]
+    public async Task ReviseConcepts_SendsAllConceptsAndRestrictsEditableIds()
+    {
+        var generatedJson = JsonSerializer.Serialize(new
+        {
+            revisions = new[]
+            {
+                new
+                {
+                    id = "held-1",
+                    title = "가우스 법칙",
+                    content = "폐곡면을 기준으로 전기선속과 전하의 관계를 설명한다.",
+                    pageNumbers = new[] { 2, 3 }
+                }
+            }
+        });
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/api/tags" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                }),
+                "/api/chat" => JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new { content = generatedJson },
+                    done = true
+                }),
+                _ => throw new InvalidOperationException()
+            });
+        var provider = CreateProvider(handler);
+        var input = new ConceptRevisionInput(
+            "source-1",
+            "전자기학.pdf",
+            10,
+            "설명을 자연스럽게 고쳐 줘.",
+            ConceptRevisionScopes.Unapproved,
+            [
+                new ConceptRevisionContext(
+                    "held-1", "가우스 법칙", "전기선속과 전하의 관계", [2, 3], "held"),
+                new ConceptRevisionContext(
+                    "approved-1", "쿨롱 법칙", "두 전하 사이의 힘", [5], "approved")
+            ],
+            ["held-1"],
+            ConceptRevisionPrompt.Version);
+
+        var revisions = await provider.ReviseConceptsAsync(
+            input,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("held-1", Assert.Single(revisions).Id);
+        var chatRequest = Assert.Single(handler.Requests,
+            request => request.Path == "/api/chat");
+        using var body = JsonDocument.Parse(chatRequest.Body!);
+        var root = body.RootElement;
+        var userPrompt = root.GetProperty("messages")[1]
+            .GetProperty("content").GetString();
+        Assert.Contains("held-1", userPrompt);
+        Assert.Contains("approved-1", userPrompt);
+        var idValues = root.GetProperty("format")
+            .GetProperty("properties")
+            .GetProperty("revisions")
+            .GetProperty("items")
+            .GetProperty("properties")
+            .GetProperty("id")
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToArray();
+        Assert.Equal(["held-1"], idValues);
     }
 
     [Fact]
@@ -184,8 +256,7 @@ public sealed class OllamaLlmProviderTests
                             new
                             {
                                 title = $"개념 {pageNumber}",
-                                summary = "요약",
-                                details = "세부 설명",
+                                content = "개념의 세부 설명",
                                 pageNumbers = new[] { pageNumber }
                             }
                         }

@@ -158,6 +158,101 @@ public sealed class OllamaLlmProvider(
         }
     }
 
+    public async Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
+        ConceptRevisionInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConfiguration();
+        var stopwatch = Stopwatch.StartNew();
+        logger.LogInformation(
+            "LLM operation started. Provider={Provider} Model={Model} Operation={Operation}",
+            ProviderName,
+            ModelName,
+            "concept-revision");
+        try
+        {
+            await EnsureModelInstalledAsync(cancellationToken);
+            var schema = ConceptRevisionPrompt.BuildSchema(input);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                BuildEndpoint("api/chat"));
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["model"] = settings.Model,
+                    ["messages"] = new object[]
+                    {
+                        new
+                        {
+                            role = "system",
+                            content = ConceptRevisionPrompt.SystemPrompt
+                        },
+                        new
+                        {
+                            role = "user",
+                            content = $"""
+                                {ConceptRevisionPrompt.BuildUserPrompt(input)}
+
+                                Return JSON matching this schema exactly:
+                                {schema.ToJsonString()}
+                                """
+                        }
+                    },
+                    ["stream"] = false,
+                    ["format"] = schema,
+                    ["keep_alive"] = 0,
+                    ["options"] = new
+                    {
+                        temperature = 0,
+                        num_ctx = 32_768,
+                        num_predict = Math.Min(
+                            12_000,
+                            500 + input.EditableConceptIds.Count * 650)
+                    }
+                }, JsonOptions),
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                LogOllamaApiFailure(
+                    response.StatusCode,
+                    responseBody,
+                    "concept-revision",
+                    0);
+                throw new LlmProviderRequestException(
+                    ToSafeApiError(response.StatusCode, responseBody));
+            }
+            var revisions = ParseConceptRevisionResponse(responseBody);
+            logger.LogInformation(
+                "LLM response received and parsed. Provider={Provider} Model={Model} " +
+                "Operation={Operation} OutputCount={OutputCount} DurationMs={DurationMs}",
+                ProviderName,
+                ModelName,
+                "concept-revision",
+                revisions.Count,
+                stopwatch.ElapsedMilliseconds);
+            return revisions;
+        }
+        catch (Exception exception) when (
+            exception is LlmProviderUnavailableException or
+            LlmProviderRequestException)
+        {
+            logger.LogWarning(
+                "LLM operation failed. Provider={Provider} Model={Model} " +
+                "Operation={Operation} DurationMs={DurationMs} Failure={Failure}",
+                ProviderName,
+                ModelName,
+                "concept-revision",
+                stopwatch.ElapsedMilliseconds,
+                exception.GetType().Name);
+            throw;
+        }
+    }
+
     private async Task<IReadOnlyList<GeneratedConceptDraft>>
         ExtractConceptsWithRecoveryAsync(
             ConceptExtractionInput input,
@@ -627,6 +722,45 @@ public sealed class OllamaLlmProvider(
         }
     }
 
+    private IReadOnlyList<GeneratedConceptRevision> ParseConceptRevisionResponse(
+        string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (root.TryGetProperty("done", out var done) &&
+                done.ValueKind == JsonValueKind.False)
+            {
+                throw new LlmProviderRequestException(
+                    "Ollama가 개념 수정을 완료하지 못했습니다.");
+            }
+            if (!root.TryGetProperty("message", out var message) ||
+                !message.TryGetProperty("content", out var content) ||
+                content.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(content.GetString()))
+            {
+                throw new LlmProviderRequestException(
+                    "Ollama 응답에 구조화된 개념 수정안이 없습니다.");
+            }
+            var envelope = JsonSerializer.Deserialize<ConceptRevisionEnvelope>(
+                content.GetString()!,
+                JsonOptions);
+            return envelope?.Revisions ?? throw new LlmProviderRequestException(
+                "Ollama의 구조화된 개념 수정 응답을 해석하지 못했습니다.");
+        }
+        catch (LlmProviderRequestException)
+        {
+            throw;
+        }
+        catch (JsonException exception)
+        {
+            throw new LlmProviderRequestException(
+                "Ollama의 구조화된 개념 수정 응답을 해석하지 못했습니다.",
+                exception);
+        }
+    }
+
     private DocumentVisionResult ParseVisionResponse(string body)
     {
         try
@@ -891,6 +1025,9 @@ public sealed class OllamaLlmProvider(
 
     private sealed record ConceptEnvelope(
         IReadOnlyList<GeneratedConceptDraft>? Concepts);
+
+    private sealed record ConceptRevisionEnvelope(
+        IReadOnlyList<GeneratedConceptRevision>? Revisions);
 
     private sealed record DocumentVisionEnvelope(string? Text);
 

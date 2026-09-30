@@ -9,8 +9,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 part 'document_import_view_model.g.dart';
 
 @riverpod
-Stream<List<StudySource>> documentSources(Ref ref, String folderId) {
-  return ref.watch(sourceRepositoryProvider).watchSources(folderId);
+Future<List<StudySource>> documentSources(Ref ref, String folderId) {
+  return ref.watch(sourceRepositoryProvider).getSources(folderId);
 }
 
 @riverpod
@@ -55,61 +55,89 @@ class DocumentImportController extends _$DocumentImportController {
     );
   }
 
-  Future<void> approve(String conceptId) =>
-      _changeStatus(conceptId, ConceptStatus.approved);
-
-  Future<void> hold(String conceptId) =>
-      _changeStatus(conceptId, ConceptStatus.held);
-
-  Future<void> reject(String conceptId) =>
-      _changeStatus(conceptId, ConceptStatus.rejected);
-
-  Future<void> updateAndApprove({
-    required String conceptId,
-    required String title,
-    required String summary,
-    required String details,
-  }) async {
+  Future<void> setApproved(String conceptId, bool approved) async {
     await ref
         .read(sourceRepositoryProvider)
-        .updateAndApproveConcept(
-          id: conceptId,
-          title: title,
-          summary: summary,
-          details: details,
-        );
+        .setConceptApproval(id: conceptId, approved: approved);
     _updateConcept(
       conceptId,
       (concept) => concept.copyWith(
-        title: title.trim(),
-        summary: summary.trim(),
-        details: details.trim(),
-        status: ConceptStatus.approved,
+        status: approved ? ConceptStatus.approved : ConceptStatus.held,
         updatedAt: DateTime.now().toUtc(),
       ),
     );
   }
 
-  void showSourceList() => state = const AsyncData(null);
-
-  Future<void> _changeStatus(String conceptId, ConceptStatus status) async {
-    final repository = ref.read(sourceRepositoryProvider);
-    switch (status) {
-      case ConceptStatus.approved:
-        await repository.approveConcept(conceptId);
-      case ConceptStatus.held:
-        await repository.holdConcept(conceptId);
-      case ConceptStatus.rejected:
-        await repository.rejectConcept(conceptId);
-      case ConceptStatus.draft:
-        throw StateError('Draft is not an action status.');
-    }
+  Future<void> updateConcept({
+    required String conceptId,
+    required String title,
+    required String content,
+  }) async {
+    await ref
+        .read(sourceRepositoryProvider)
+        .updateConcept(id: conceptId, title: title, content: content);
     _updateConcept(
       conceptId,
-      (concept) =>
-          concept.copyWith(status: status, updatedAt: DateTime.now().toUtc()),
+      (concept) => concept.copyWith(
+        title: title.trim(),
+        content: content.trim(),
+        updatedAt: DateTime.now().toUtc(),
+      ),
     );
   }
+
+  Future<void> deleteConcept(String conceptId) async {
+    await ref.read(sourceRepositoryProvider).deleteConcept(conceptId);
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(
+      StudySourceWithConcepts(
+        source: current.source,
+        concepts: current.concepts
+            .where((concept) => concept.id != conceptId)
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  Future<int> requestConceptRevision({
+    required String instruction,
+    required ConceptRevisionScope scope,
+  }) async {
+    final current = state.value;
+    if (current == null) {
+      throw const ValidationFailure('수정할 PDF 강의자료를 찾을 수 없어요.');
+    }
+    final normalizedInstruction = instruction.trim();
+    if (normalizedInstruction.isEmpty) {
+      throw const ValidationFailure('수정 요청사항을 입력해 주세요.');
+    }
+    final configuration = await ref
+        .read(syncCredentialsStoreProvider)
+        .readConfiguration();
+    if (configuration == null) {
+      throw const ValidationFailure('설정에서 개인 서버 주소와 접근 토큰을 먼저 저장해 주세요.');
+    }
+    final revisions = await ref
+        .read(remoteDocumentApiProvider)
+        .reviseConcepts(
+          configuration: configuration,
+          source: current.source,
+          concepts: current.concepts,
+          instruction: normalizedInstruction,
+          scope: scope,
+        );
+    final result = await ref
+        .read(sourceRepositoryProvider)
+        .applyConceptRevisions(
+          sourceId: current.source.id,
+          revisions: revisions,
+        );
+    state = AsyncData(result.review);
+    return result.changedCount;
+  }
+
+  void showImportPrompt() => state = const AsyncData(null);
 
   void _updateConcept(
     String id,

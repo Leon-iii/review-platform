@@ -17,10 +17,17 @@ class Folder {
 }
 
 class FolderNode {
-  const FolderNode({required this.folder, required this.children});
+  const FolderNode({
+    required this.folder,
+    required this.children,
+    required this.questionCount,
+    required this.sourceCount,
+  });
 
   final Folder folder;
   final List<FolderNode> children;
+  final int questionCount;
+  final int sourceCount;
 }
 
 class FolderDeletionImpact {

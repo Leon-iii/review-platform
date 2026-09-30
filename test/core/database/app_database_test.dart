@@ -295,6 +295,187 @@ void main() {
     expect(folder.read<String>('name'), '기존 자료');
     expect(sourceTables, hasLength(3));
   });
+
+  test('v7 Concept 데이터를 비우고 title/content 스키마로 전환한다', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'review_platform_concept_v8_migration_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final databaseFile = File('${tempDirectory.path}/migration.sqlite');
+
+    final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    legacyDatabase.execute('''
+      CREATE TABLE sources (
+        id TEXT NOT NULL PRIMARY KEY,
+        folder_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        page_count INTEGER NOT NULL,
+        extraction_method TEXT NOT NULL,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE concepts (
+        id TEXT NOT NULL PRIMARY KEY,
+        source_id TEXT NOT NULL REFERENCES sources(id),
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        details TEXT NOT NULL,
+        page_numbers_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE question_sources (
+        id TEXT NOT NULL PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        source_id TEXT NOT NULL REFERENCES sources(id),
+        concept_id TEXT NULL REFERENCES concepts(id),
+        page_numbers_json TEXT NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE sync_outbox (
+        id TEXT NOT NULL PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO sources VALUES (
+        'source-1', 'folder-1', '자료.pdf', 'hash', 1, 'textLayer', 0
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO concepts VALUES (
+        'concept-1', 'source-1', '제목', '요약', '상세', '[1]', 'draft', 0, 0
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO question_sources VALUES (
+        'reference-1', 'question-1', 'source-1', 'concept-1', '[1]'
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO sync_outbox VALUES (
+        'outbox-1', 'concept', 'concept-1', 'upsert', 0, 0, NULL
+      )
+    ''');
+    legacyDatabase.execute('PRAGMA user_version = 7');
+    legacyDatabase.close();
+
+    final database = AppDatabase(NativeDatabase(databaseFile));
+    addTearDown(database.close);
+
+    final conceptColumns = await database
+        .customSelect('PRAGMA table_info(concepts)')
+        .get();
+    final conceptCount = await database
+        .customSelect('SELECT COUNT(*) AS count FROM concepts')
+        .getSingle();
+    final reference = await database
+        .customSelect('SELECT concept_id FROM question_sources')
+        .getSingle();
+
+    expect(
+      conceptColumns.map((row) => row.read<String>('name')),
+      containsAll(['title', 'content']),
+    );
+    expect(
+      conceptColumns.map((row) => row.read<String>('name')),
+      isNot(contains('summary')),
+    );
+    expect(conceptCount.read<int>('count'), 0);
+    expect(reference.readNullable<String>('concept_id'), isNull);
+  });
+
+  test('v8 Concept 상태를 보류됨과 승인됨으로 단순화한다', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'review_platform_concept_v9_migration_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final databaseFile = File('${tempDirectory.path}/migration.sqlite');
+
+    final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    legacyDatabase.execute('''
+      CREATE TABLE sources (
+        id TEXT NOT NULL PRIMARY KEY,
+        folder_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        page_count INTEGER NOT NULL,
+        extraction_method TEXT NOT NULL,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE concepts (
+        id TEXT NOT NULL PRIMARY KEY,
+        source_id TEXT NOT NULL REFERENCES sources(id),
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        page_numbers_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE question_sources (
+        id TEXT NOT NULL PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        source_id TEXT NOT NULL REFERENCES sources(id),
+        concept_id TEXT NULL REFERENCES concepts(id),
+        page_numbers_json TEXT NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO sources VALUES (
+        'source-1', 'folder-1', '자료.pdf', 'hash', 1, 'textLayer', 0
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO concepts VALUES
+        ('draft', 'source-1', '초안', '내용', '[1]', 'draft', 0, 0),
+        ('held', 'source-1', '보류', '내용', '[1]', 'held', 0, 0),
+        ('approved', 'source-1', '승인', '내용', '[1]', 'approved', 0, 0),
+        ('rejected', 'source-1', '삭제', '내용', '[1]', 'rejected', 0, 0)
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO question_sources VALUES (
+        'reference-1', 'question-1', 'source-1', 'rejected', '[1]'
+      )
+    ''');
+    legacyDatabase.execute('PRAGMA user_version = 8');
+    legacyDatabase.close();
+
+    final database = AppDatabase(NativeDatabase(databaseFile));
+    addTearDown(database.close);
+
+    final concepts = await database
+        .customSelect('SELECT id, status FROM concepts ORDER BY id')
+        .get();
+    final reference = await database
+        .customSelect('SELECT concept_id FROM question_sources')
+        .getSingle();
+
+    expect(concepts.map((row) => row.read<String>('status')).toSet(), {
+      'approved',
+      'held',
+    });
+    expect(
+      concepts.map((row) => row.read<String>('id')),
+      isNot(contains('rejected')),
+    );
+    expect(reference.readNullable<String>('concept_id'), isNull);
+  });
 }
 
 void _createV4CoreTables(sqlite.Database database) {

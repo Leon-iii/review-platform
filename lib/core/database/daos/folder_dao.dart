@@ -1,10 +1,24 @@
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/database/tables/folders.dart';
+import 'package:review_platform/core/database/tables/questions.dart';
+import 'package:review_platform/core/database/tables/study_sources.dart';
 
 part 'folder_dao.g.dart';
 
-@DriftAccessor(tables: [Folders])
+class FolderRowWithCounts {
+  const FolderRowWithCounts({
+    required this.folder,
+    required this.questionCount,
+    required this.sourceCount,
+  });
+
+  final FolderRow folder;
+  final int questionCount;
+  final int sourceCount;
+}
+
+@DriftAccessor(tables: [Folders, Questions, StudySources])
 class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   FolderDao(super.attachedDatabase);
 
@@ -13,6 +27,34 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           ..where((folder) => folder.deletedAt.isNull())
           ..orderBy([(folder) => OrderingTerm.asc(folder.name)]))
         .watch();
+  }
+
+  Stream<List<FolderRowWithCounts>> watchActiveFoldersWithCounts() {
+    final questionCount = questions.id.count(distinct: true);
+    final sourceCount = studySources.id.count(distinct: true);
+    final query = select(folders).join([
+      leftOuterJoin(
+        questions,
+        questions.folderId.equalsExp(folders.id) & questions.deletedAt.isNull(),
+      ),
+      leftOuterJoin(studySources, studySources.folderId.equalsExp(folders.id)),
+    ]);
+    query
+      ..addColumns([questionCount, sourceCount])
+      ..where(folders.deletedAt.isNull())
+      ..groupBy([folders.id])
+      ..orderBy([OrderingTerm.asc(folders.name)]);
+    return query.watch().map(
+      (rows) => rows
+          .map(
+            (row) => FolderRowWithCounts(
+              folder: row.readTable(folders),
+              questionCount: row.read(questionCount) ?? 0,
+              sourceCount: row.read(sourceCount) ?? 0,
+            ),
+          )
+          .toList(growable: false),
+    );
   }
 
   Future<FolderRow?> getActiveFolder(String id) {

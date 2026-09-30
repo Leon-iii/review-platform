@@ -16,15 +16,13 @@ public sealed record LlmProfileDto(
     string Name,
     string Provider,
     string Model,
-    string BaseUrl,
     DateTimeOffset UpdatedAt);
 
 public sealed record LlmProfileInput(
     string Id,
     string Name,
     string Provider,
-    string Model,
-    string BaseUrl);
+    string Model);
 
 public sealed record LlmProfileSettingsResponse(
     IReadOnlyList<LlmProfileDto> Profiles,
@@ -33,3 +31,8 @@ public sealed record LlmProfileSettingsResponse(
 public sealed record UpdateLlmProfileSettingsRequest(
     IReadOnlyList<LlmProfileInput>? Profiles,
     IReadOnlyDictionary<string, string>? Assignments);
+
+public sealed record LlmModelCatalogResponse(
+    string Provider,
+    IReadOnlyList<string> Models,
+    DateTimeOffset RefreshedAt);

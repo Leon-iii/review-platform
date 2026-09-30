@@ -24,13 +24,36 @@ void main() {
       name: 'Chapter 1',
       parentId: rootId,
     );
+    await DriftQuestionRepository(database).createQuestion(
+      QuestionDraft(
+        folderId: rootId,
+        type: QuestionType.shortAnswer,
+        prompt: '맥스웰 방정식은?',
+        acceptableAnswers: const ['전자기학의 기본 방정식'],
+      ),
+    );
+    await database.sourceDao.insertSource(
+      StudySourcesCompanion.insert(
+        id: 'source-1',
+        folderId: rootId,
+        fileName: '전자기학.pdf',
+        contentHash: List.filled(64, 'a').join(),
+        pageCount: 10,
+        extractionMethod: 'textLayer',
+        importedAt: DateTime.utc(2026, 10, 1),
+      ),
+    );
 
     final tree = await repository.watchFolderTree().first;
 
     expect(rootId, matches(RegExp(r'^[0-9a-f-]{36}$')));
     expect(tree, hasLength(1));
     expect(tree.single.folder.name, '전자기학');
+    expect(tree.single.questionCount, 1);
+    expect(tree.single.sourceCount, 1);
     expect(tree.single.children.single.folder.id, childId);
+    expect(tree.single.children.single.questionCount, 0);
+    expect(tree.single.children.single.sourceCount, 0);
     expect(await repository.getDescendantIds(rootId), [childId]);
   });
 

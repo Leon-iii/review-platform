@@ -20,11 +20,10 @@ public sealed record DocumentPageExtractionMetadata(
 
 public sealed record GeneratedConceptDraft(
     string Title,
-    string Summary,
-    string Details,
+    string Content,
     IReadOnlyList<int> PageNumbers)
 {
-    public string Status => "draft";
+    public string Status => "held";
 }
 
 public sealed record DocumentSourceMetadata(
@@ -55,3 +54,43 @@ public sealed record DocumentVisionInput(
     string PromptVersion);
 
 public sealed record DocumentVisionResult(string Text);
+
+public static class ConceptRevisionScopes
+{
+    public const string Unapproved = "unapproved";
+    public const string All = "all";
+}
+
+public sealed record ConceptRevisionContext(
+    string Id,
+    string Title,
+    string Content,
+    IReadOnlyList<int> PageNumbers,
+    string Status);
+
+public sealed record ReviseConceptsRequest(
+    string SourceId,
+    string FileName,
+    int PageCount,
+    string Instruction,
+    string Scope,
+    IReadOnlyList<ConceptRevisionContext> Concepts);
+
+public sealed record ConceptRevisionInput(
+    string SourceId,
+    string FileName,
+    int PageCount,
+    string Instruction,
+    string Scope,
+    IReadOnlyList<ConceptRevisionContext> Concepts,
+    IReadOnlyList<string> EditableConceptIds,
+    string PromptVersion);
+
+public sealed record GeneratedConceptRevision(
+    string Id,
+    string Title,
+    string Content,
+    IReadOnlyList<int> PageNumbers);
+
+public sealed record ReviseConceptsResponse(
+    IReadOnlyList<GeneratedConceptRevision> Revisions);

@@ -56,7 +56,6 @@ void main() {
           name: '문제 생성',
           provider: LlmProviderKind.ollama,
           model: 'qwen3:4b',
-          baseUrl: 'http://127.0.0.1:11434',
           updatedAt: DateTime.utc(2026),
         ),
         LlmProfile(
@@ -64,7 +63,6 @@ void main() {
           name: '개념 추출',
           provider: LlmProviderKind.openAi,
           model: 'gpt-test',
-          baseUrl: '',
           updatedAt: DateTime.utc(2026),
         ),
       ],
@@ -83,6 +81,35 @@ void main() {
     expect(assignments['questionGeneration'], 'question-profile');
     expect(assignments['conceptExtraction'], 'concept-profile');
     expect(assignments['documentVision'], 'question-profile');
+    final profiles = requestBody['profiles']! as List;
+    expect((profiles.first as Map).containsKey('baseUrl'), isFalse);
+  });
+
+  test('Provider별 모델 목록을 서버에서 불러온다', () async {
+    final api = HttpLlmProfileApi(
+      MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/api/llm/models');
+        expect(request.url.queryParameters['provider'], 'ollama');
+        return http.Response(
+          jsonEncode({
+            'provider': 'ollama',
+            'models': ['qwen3:8b', 'qwen3-vl:8b-instruct'],
+            'refreshedAt': '2026-09-30T00:00:00Z',
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+
+    final catalog = await api.getModels(
+      configuration: configuration,
+      provider: LlmProviderKind.ollama,
+    );
+
+    expect(catalog.provider, LlmProviderKind.ollama);
+    expect(catalog.models, ['qwen3:8b', 'qwen3-vl:8b-instruct']);
   });
 }
 
@@ -94,7 +121,6 @@ http.Response _response() => http.Response(
         'name': '문제 생성',
         'provider': 'ollama',
         'model': 'qwen3:4b',
-        'baseUrl': 'http://127.0.0.1:11434',
         'updatedAt': '2026-09-19T00:00:00Z',
       },
       {
@@ -102,7 +128,6 @@ http.Response _response() => http.Response(
         'name': '개념 추출',
         'provider': 'openai',
         'model': 'gpt-test',
-        'baseUrl': '',
         'updatedAt': '2026-09-19T00:00:00Z',
       },
     ],

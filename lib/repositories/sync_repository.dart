@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
@@ -224,47 +225,48 @@ class DriftSyncRepository implements SyncRepository {
         );
       case SyncEntityType.source:
         final row = await _database.sourceDao.getSource(entry.entityId);
-        if (row == null) {
-          throw const SyncFailure('동기화할 학습 자료를 찾을 수 없어요.');
-        }
+        final isDelete = deleteRequested || row == null;
         return PushSyncChange(
           operationId: entry.id,
           entityType: entry.entityType.name,
           entityId: entry.entityId,
-          operation: 'upsert',
-          updatedAt: row.importedAt.toUtc(),
-          payload: {
-            'id': row.id,
-            'folderId': row.folderId,
-            'fileName': row.fileName,
-            'contentHash': row.contentHash,
-            'pageCount': row.pageCount,
-            'extractionMethod': row.extractionMethod,
-            'importedAt': row.importedAt.toUtc().toIso8601String(),
-          },
+          operation: isDelete ? 'delete' : 'upsert',
+          updatedAt: entry.createdAt,
+          deletedAt: isDelete ? entry.createdAt : null,
+          payload: isDelete
+              ? null
+              : {
+                  'id': row.id,
+                  'folderId': row.folderId,
+                  'fileName': row.fileName,
+                  'contentHash': row.contentHash,
+                  'pageCount': row.pageCount,
+                  'extractionMethod': row.extractionMethod,
+                  'importedAt': row.importedAt.toUtc().toIso8601String(),
+                },
         );
       case SyncEntityType.concept:
         final row = await _database.sourceDao.getConcept(entry.entityId);
-        if (row == null) {
-          throw const SyncFailure('동기화할 학습 개념을 찾을 수 없어요.');
-        }
+        final isDelete = deleteRequested || row == null;
         return PushSyncChange(
           operationId: entry.id,
           entityType: entry.entityType.name,
           entityId: entry.entityId,
-          operation: 'upsert',
-          updatedAt: row.updatedAt.toUtc(),
-          payload: {
-            'id': row.id,
-            'sourceId': row.sourceId,
-            'title': row.title,
-            'summary': row.summary,
-            'details': row.details,
-            'pageNumbers': jsonDecode(row.pageNumbersJson),
-            'status': row.status,
-            'createdAt': row.createdAt.toUtc().toIso8601String(),
-            'updatedAt': row.updatedAt.toUtc().toIso8601String(),
-          },
+          operation: isDelete ? 'delete' : 'upsert',
+          updatedAt: row?.updatedAt.toUtc() ?? entry.createdAt,
+          deletedAt: isDelete ? entry.createdAt : null,
+          payload: isDelete
+              ? null
+              : {
+                  'id': row.id,
+                  'sourceId': row.sourceId,
+                  'title': row.title,
+                  'content': row.content,
+                  'pageNumbers': jsonDecode(row.pageNumbersJson),
+                  'status': row.status,
+                  'createdAt': row.createdAt.toUtc().toIso8601String(),
+                  'updatedAt': row.updatedAt.toUtc().toIso8601String(),
+                },
         );
       case SyncEntityType.quizSession:
         final row = await _database.quizDao.getSession(entry.entityId);
@@ -428,7 +430,10 @@ class DriftSyncRepository implements SyncRepository {
           ]);
         }
       case SyncEntityType.source:
-        if (isDelete) return;
+        if (isDelete) {
+          await _database.sourceDao.deleteSourceGraph(change.entityId);
+          return;
+        }
         final payload = _requirePayload(change);
         final existing = await _database.sourceDao.getSource(change.entityId);
         if (existing != null &&
@@ -447,8 +452,25 @@ class DriftSyncRepository implements SyncRepository {
           ),
         );
       case SyncEntityType.concept:
-        if (isDelete) return;
+        if (isDelete) {
+          await _database.sourceDao.deleteConcept(change.entityId);
+          return;
+        }
         final payload = _requirePayload(change);
+        if (payload['content'] is! String) {
+          // Concept schema v7 and earlier used summary/details. Those rows are
+          // intentionally discarded instead of being restored into v8.
+          await _database.sourceDao.deleteConcept(change.entityId);
+          return;
+        }
+        final remoteStatus = payload['status'] as String?;
+        if (remoteStatus == 'rejected') {
+          await _database.sourceDao.deleteConcept(change.entityId);
+          return;
+        }
+        final normalizedStatus = remoteStatus == 'approved'
+            ? ConceptStatus.approved.name
+            : ConceptStatus.held.name;
         final existing = await _database.sourceDao.getConcept(change.entityId);
         if (existing != null &&
             existing.updatedAt.toUtc().isAfter(change.updatedAt)) {
@@ -459,10 +481,9 @@ class DriftSyncRepository implements SyncRepository {
             id: change.entityId,
             sourceId: payload['sourceId']! as String,
             title: payload['title']! as String,
-            summary: payload['summary']! as String,
-            details: payload['details']! as String,
+            content: payload['content']! as String,
             pageNumbersJson: jsonEncode(payload['pageNumbers']),
-            status: payload['status']! as String,
+            status: normalizedStatus,
             createdAt: _date(payload, 'createdAt'),
             updatedAt: change.updatedAt,
           ),

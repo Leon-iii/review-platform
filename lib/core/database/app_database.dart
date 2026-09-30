@@ -54,7 +54,7 @@ final class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'review_platform'));
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -84,6 +84,27 @@ final class AppDatabase extends _$AppDatabase {
         await migrator.createTable(studySources);
         await migrator.createTable(concepts);
         await migrator.createTable(questionSources);
+      }
+      if (from >= 7 && from < 8) {
+        await customStatement('UPDATE question_sources SET concept_id = NULL');
+        await customStatement(
+          "DELETE FROM sync_outbox WHERE entity_type = 'concept'",
+        );
+        await migrator.deleteTable('concepts');
+        await migrator.createTable(concepts);
+      }
+      if (from >= 8 && from < 9) {
+        await customStatement('''
+          UPDATE question_sources
+          SET concept_id = NULL
+          WHERE concept_id IN (
+            SELECT id FROM concepts WHERE status = 'rejected'
+          )
+        ''');
+        await customStatement("DELETE FROM concepts WHERE status = 'rejected'");
+        await customStatement(
+          "UPDATE concepts SET status = 'held' WHERE status != 'approved'",
+        );
       }
     },
     beforeOpen: (details) async {

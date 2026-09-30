@@ -17,21 +17,29 @@ abstract interface class SourceRepository {
 
   Stream<List<StudySource>> watchSources(String folderId);
 
+  Future<List<StudySource>> getSources(String folderId);
+
   Stream<List<StudyConcept>> watchConcepts(String sourceId);
 
   Future<StudySourceWithConcepts> getSourceWithConcepts(String sourceId);
 
-  Future<void> approveConcept(String id);
+  Future<void> renameSource({required String id, required String fileName});
 
-  Future<void> holdConcept(String id);
+  Future<void> deleteSource(String id);
 
-  Future<void> rejectConcept(String id);
+  Future<void> setConceptApproval({required String id, required bool approved});
 
-  Future<void> updateAndApproveConcept({
+  Future<void> updateConcept({
     required String id,
     required String title,
-    required String summary,
-    required String details,
+    required String content,
+  });
+
+  Future<void> deleteConcept(String id);
+
+  Future<ConceptRevisionApplyResult> applyConceptRevisions({
+    required String sourceId,
+    required List<ConceptRevision> revisions,
   });
 
   Future<ConceptGenerationSeed> getConceptGenerationSeed(String conceptId);
@@ -62,10 +70,9 @@ class DriftSourceRepository implements SourceRepository {
             id: _uuid.v4(),
             sourceId: result.source.id,
             title: imported.title.trim(),
-            summary: imported.summary.trim(),
-            details: imported.details.trim(),
+            content: imported.content.trim(),
             pageNumbers: imported.pageNumbers.toSet().toList()..sort(),
-            status: ConceptStatus.draft,
+            status: ConceptStatus.held,
             createdAt: now,
             updatedAt: now,
           ),
@@ -73,8 +80,7 @@ class DriftSourceRepository implements SourceRepository {
       if (concepts.any(
         (concept) =>
             concept.title.isEmpty ||
-            concept.summary.isEmpty ||
-            concept.details.isEmpty ||
+            concept.content.isEmpty ||
             concept.pageNumbers.isEmpty,
       )) {
         throw const ValidationFailure('추출된 개념 정보가 올바르지 않아요.');
@@ -98,8 +104,7 @@ class DriftSourceRepository implements SourceRepository {
               id: concept.id,
               sourceId: concept.sourceId,
               title: concept.title,
-              summary: concept.summary,
-              details: concept.details,
+              content: concept.content,
               pageNumbersJson: jsonEncode(concept.pageNumbers),
               status: concept.status.name,
               createdAt: concept.createdAt,
@@ -133,7 +138,7 @@ class DriftSourceRepository implements SourceRepository {
           extractionMethod: result.source.extractionMethod,
           importedAt: result.source.importedAt,
         ),
-        concepts: concepts,
+        concepts: _sortConcepts(concepts),
       );
     }, 'PDF 추출 결과를 저장하지 못했어요.');
   }
@@ -143,6 +148,17 @@ class DriftSourceRepository implements SourceRepository {
     return _database.sourceDao
         .watchSources(folderId)
         .map((rows) => rows.map(_sourceFromRow).toList(growable: false));
+  }
+
+  @override
+  Future<List<StudySource>> getSources(String folderId) {
+    return _guard(
+      () async =>
+          (await _database.sourceDao.getSources(folderId))
+              .map(_sourceFromRow)
+              .toList(growable: false),
+      '학습 자료 목록을 불러오지 못했어요.',
+    );
   }
 
   @override
@@ -162,37 +178,90 @@ class DriftSourceRepository implements SourceRepository {
       final conceptRows = await _database.sourceDao.getConcepts(sourceId);
       return StudySourceWithConcepts(
         source: _sourceFromRow(sourceRow),
-        concepts: conceptRows.map(_conceptFromRow).toList(growable: false),
+        concepts: _sortConcepts(conceptRows.map(_conceptFromRow)),
       );
     }, '학습 자료를 불러오지 못했어요.');
   }
 
   @override
-  Future<void> approveConcept(String id) =>
-      _setStatus(id, ConceptStatus.approved);
+  Future<void> renameSource({required String id, required String fileName}) {
+    return _guard(() async {
+      final source = await _database.sourceDao.getSource(id);
+      if (source == null) {
+        throw const ValidationFailure('학습 자료를 찾을 수 없어요.');
+      }
+      var normalized = fileName.trim();
+      if (normalized.isEmpty) {
+        throw const ValidationFailure('자료 이름을 입력해 주세요.');
+      }
+      if (!normalized.toLowerCase().endsWith('.pdf')) {
+        normalized = '$normalized.pdf';
+      }
+      if (normalized.length > 200) {
+        throw const ValidationFailure('자료 이름은 200자 이하로 입력해 주세요.');
+      }
+      final now = DateTime.now().toUtc();
+      await _database.transaction(() async {
+        await _database.sourceDao.updateSource(
+          id,
+          StudySourcesCompanion(fileName: Value(normalized)),
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.source.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      });
+    }, '학습 자료 이름을 변경하지 못했어요.');
+  }
 
   @override
-  Future<void> holdConcept(String id) => _setStatus(id, ConceptStatus.held);
+  Future<void> deleteSource(String id) {
+    return _guard(() async {
+      final source = await _database.sourceDao.getSource(id);
+      if (source == null) {
+        throw const ValidationFailure('학습 자료를 찾을 수 없어요.');
+      }
+      final concepts = await _database.sourceDao.getConcepts(id);
+      final now = DateTime.now().toUtc();
+      await _database.transaction(() async {
+        for (var index = 0; index < concepts.length; index++) {
+          await _database.syncDao.enqueue(
+            entityType: SyncEntityType.concept.name,
+            entityId: concepts[index].id,
+            operation: SyncOperation.delete.name,
+            createdAt: now.add(Duration(microseconds: index)),
+          );
+        }
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.source.name,
+          entityId: id,
+          operation: SyncOperation.delete.name,
+          createdAt: now.add(Duration(microseconds: concepts.length)),
+        );
+        await _database.sourceDao.deleteSourceGraph(id);
+      });
+    }, '학습 자료를 삭제하지 못했어요.');
+  }
 
   @override
-  Future<void> rejectConcept(String id) =>
-      _setStatus(id, ConceptStatus.rejected);
+  Future<void> setConceptApproval({
+    required String id,
+    required bool approved,
+  }) => _setStatus(id, approved ? ConceptStatus.approved : ConceptStatus.held);
 
   @override
-  Future<void> updateAndApproveConcept({
+  Future<void> updateConcept({
     required String id,
     required String title,
-    required String summary,
-    required String details,
+    required String content,
   }) {
     return _guard(() async {
       final normalizedTitle = title.trim();
-      final normalizedSummary = summary.trim();
-      final normalizedDetails = details.trim();
-      if (normalizedTitle.isEmpty ||
-          normalizedSummary.isEmpty ||
-          normalizedDetails.isEmpty) {
-        throw const ValidationFailure('제목, 요약, 상세 내용을 모두 입력해 주세요.');
+      final normalizedContent = content.trim();
+      if (normalizedTitle.isEmpty || normalizedContent.isEmpty) {
+        throw const ValidationFailure('제목과 내용을 모두 입력해 주세요.');
       }
       await _requireConcept(id);
       final now = DateTime.now().toUtc();
@@ -201,9 +270,7 @@ class DriftSourceRepository implements SourceRepository {
           id,
           ConceptsCompanion(
             title: Value(normalizedTitle),
-            summary: Value(normalizedSummary),
-            details: Value(normalizedDetails),
-            status: Value(ConceptStatus.approved.name),
+            content: Value(normalizedContent),
             updatedAt: Value(now),
           ),
         );
@@ -215,6 +282,109 @@ class DriftSourceRepository implements SourceRepository {
         );
       });
     }, '개념을 수정하지 못했어요.');
+  }
+
+  @override
+  Future<void> deleteConcept(String id) {
+    return _guard(() async {
+      await _requireConcept(id);
+      final now = DateTime.now().toUtc();
+      await _database.transaction(() async {
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.concept.name,
+          entityId: id,
+          operation: SyncOperation.delete.name,
+          createdAt: now,
+        );
+        await _database.sourceDao.deleteConcept(id);
+      });
+    }, '개념을 삭제하지 못했어요.');
+  }
+
+  @override
+  Future<ConceptRevisionApplyResult> applyConceptRevisions({
+    required String sourceId,
+    required List<ConceptRevision> revisions,
+  }) {
+    return _guard(() async {
+      final source = await _database.sourceDao.getSource(sourceId);
+      if (source == null) {
+        throw const ValidationFailure('학습 자료를 찾을 수 없어요.');
+      }
+      final rows = await _database.sourceDao.getConcepts(sourceId);
+      final rowsById = {for (final row in rows) row.id: row};
+      final seen = <String>{};
+      final normalized = <ConceptRevision>[];
+      for (final revision in revisions) {
+        final title = revision.title.trim();
+        final content = revision.content.trim();
+        final pages = revision.pageNumbers.toSet().toList()..sort();
+        if (!seen.add(revision.id) ||
+            !rowsById.containsKey(revision.id) ||
+            title.isEmpty ||
+            title.length > 200 ||
+            content.isEmpty ||
+            content.length > 8000 ||
+            pages.isEmpty ||
+            pages.any((page) => page < 1 || page > source.pageCount)) {
+          throw const ValidationFailure('AI 개념 수정 결과가 올바르지 않아요.');
+        }
+        normalized.add(
+          ConceptRevision(
+            id: revision.id,
+            title: title,
+            content: content,
+            pageNumbers: pages,
+          ),
+        );
+      }
+
+      var changedCount = 0;
+      final now = DateTime.now().toUtc();
+      await _database.transaction(() async {
+        for (final revision in normalized) {
+          final row = rowsById[revision.id]!;
+          final currentPages =
+              (jsonDecode(row.pageNumbersJson) as List)
+                  .map((value) => (value as num).toInt())
+                  .toSet()
+                  .toList()
+                ..sort();
+          if (row.title == revision.title &&
+              row.content == revision.content &&
+              _samePages(currentPages, revision.pageNumbers)) {
+            continue;
+          }
+          changedCount++;
+          final updatedAt = now.add(Duration(microseconds: changedCount));
+          await _database.sourceDao.updateConcept(
+            revision.id,
+            ConceptsCompanion(
+              title: Value(revision.title),
+              content: Value(revision.content),
+              pageNumbersJson: Value(jsonEncode(revision.pageNumbers)),
+              status: Value(ConceptStatus.held.name),
+              updatedAt: Value(updatedAt),
+            ),
+          );
+          await _database.syncDao.enqueue(
+            entityType: SyncEntityType.concept.name,
+            entityId: revision.id,
+            operation: SyncOperation.upsert.name,
+            createdAt: updatedAt,
+          );
+        }
+      });
+
+      final updatedRows = await _database.sourceDao.getConcepts(sourceId);
+      return ConceptRevisionApplyResult(
+        review: StudySourceWithConcepts(
+          source: _sourceFromRow(source),
+          concepts: _sortConcepts(updatedRows.map(_conceptFromRow)),
+        ),
+        changedCount: changedCount,
+      );
+    }, 'AI 개념 수정 결과를 저장하지 못했어요.');
   }
 
   @override
@@ -280,8 +450,7 @@ class DriftSourceRepository implements SourceRepository {
     id: row.id,
     sourceId: row.sourceId,
     title: row.title,
-    summary: row.summary,
-    details: row.details,
+    content: row.content,
     pageNumbers: (jsonDecode(row.pageNumbersJson) as List)
         .map((value) => (value as num).toInt())
         .toList(growable: false),
@@ -289,6 +458,26 @@ class DriftSourceRepository implements SourceRepository {
     createdAt: row.createdAt.toUtc(),
     updatedAt: row.updatedAt.toUtc(),
   );
+
+  List<StudyConcept> _sortConcepts(Iterable<StudyConcept> concepts) {
+    final sorted = concepts.toList();
+    sorted.sort((left, right) {
+      final pageComparison = left.pageNumbers.first.compareTo(
+        right.pageNumbers.first,
+      );
+      if (pageComparison != 0) return pageComparison;
+      return left.title.compareTo(right.title);
+    });
+    return List.unmodifiable(sorted);
+  }
+
+  bool _samePages(List<int> left, List<int> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
 
   Future<T> _guard<T>(Future<T> Function() action, String message) async {
     try {

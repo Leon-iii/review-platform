@@ -17,11 +17,11 @@ final class DocumentSourcesProvider
         $FunctionalProvider<
           AsyncValue<List<StudySource>>,
           List<StudySource>,
-          Stream<List<StudySource>>
+          FutureOr<List<StudySource>>
         >
     with
         $FutureModifier<List<StudySource>>,
-        $StreamProvider<List<StudySource>> {
+        $FutureProvider<List<StudySource>> {
   DocumentSourcesProvider._({
     required DocumentSourcesFamily super.from,
     required String super.argument,
@@ -45,12 +45,12 @@ final class DocumentSourcesProvider
 
   @$internal
   @override
-  $StreamProviderElement<List<StudySource>> $createElement(
+  $FutureProviderElement<List<StudySource>> $createElement(
     $ProviderPointer pointer,
-  ) => $StreamProviderElement(pointer);
+  ) => $FutureProviderElement(pointer);
 
   @override
-  Stream<List<StudySource>> create(Ref ref) {
+  FutureOr<List<StudySource>> create(Ref ref) {
     final argument = this.argument as String;
     return documentSources(ref, argument);
   }
@@ -66,10 +66,10 @@ final class DocumentSourcesProvider
   }
 }
 
-String _$documentSourcesHash() => r'1b5595fadd590ec1eeabdf211aeb1be8f7175e88';
+String _$documentSourcesHash() => r'34fa3f2605643d0a093d9e3154524de8a59c7cb6';
 
 final class DocumentSourcesFamily extends $Family
-    with $FunctionalFamilyOverride<Stream<List<StudySource>>, String> {
+    with $FunctionalFamilyOverride<FutureOr<List<StudySource>>, String> {
   DocumentSourcesFamily._()
     : super(
         retry: null,
@@ -133,7 +133,7 @@ final class DocumentImportControllerProvider
 }
 
 String _$documentImportControllerHash() =>
-    r'894aac184bdf23fe5ff06828f592727f36ff0db9';
+    r'0e66d8c099049e4cdabb09e0eb5e71020a5c4ad5';
 
 final class DocumentImportControllerFamily extends $Family
     with

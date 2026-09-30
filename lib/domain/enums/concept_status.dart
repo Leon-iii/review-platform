@@ -1,11 +1,10 @@
 enum ConceptStatus {
-  draft,
-  approved,
   held,
-  rejected;
+  approved;
 
-  static ConceptStatus fromStorage(String value) => values.firstWhere(
-    (status) => status.name == value,
-    orElse: () => throw FormatException('Unknown concept status: $value'),
-  );
+  static ConceptStatus fromStorage(String value) => switch (value) {
+    'held' || 'draft' => held,
+    'approved' => approved,
+    _ => throw FormatException('Unknown concept status: $value'),
+  };
 }

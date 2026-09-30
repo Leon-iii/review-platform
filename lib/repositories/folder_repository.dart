@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
+import 'package:review_platform/core/database/daos/folder_dao.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
@@ -175,7 +176,8 @@ class DriftFolderRepository implements FolderRepository {
   @override
   Stream<List<FolderNode>> watchFolderTree() async* {
     try {
-      await for (final rows in _database.folderDao.watchActiveFolders()) {
+      await for (final rows
+          in _database.folderDao.watchActiveFoldersWithCounts()) {
         yield _buildTree(rows);
       }
     } on AppFailure {
@@ -212,21 +214,26 @@ class DriftFolderRepository implements FolderRepository {
     return normalizedName;
   }
 
-  List<FolderNode> _buildTree(List<FolderRow> rows) {
-    final foldersByParent = <String?, List<FolderRow>>{};
-    for (final row in rows) {
-      foldersByParent.putIfAbsent(row.parentId, () => []).add(row);
+  List<FolderNode> _buildTree(List<FolderRowWithCounts> rows) {
+    final foldersByParent = <String?, List<FolderRowWithCounts>>{};
+    for (final summary in rows) {
+      foldersByParent
+          .putIfAbsent(summary.folder.parentId, () => [])
+          .add(summary);
     }
 
-    FolderNode buildNode(FolderRow row) {
-      final children = foldersByParent[row.id] ?? const <FolderRow>[];
+    FolderNode buildNode(FolderRowWithCounts summary) {
+      final children =
+          foldersByParent[summary.folder.id] ?? const <FolderRowWithCounts>[];
       return FolderNode(
-        folder: _toDomain(row),
+        folder: _toDomain(summary.folder),
         children: List.unmodifiable(children.map(buildNode)),
+        questionCount: summary.questionCount,
+        sourceCount: summary.sourceCount,
       );
     }
 
-    final roots = foldersByParent[null] ?? const <FolderRow>[];
+    final roots = foldersByParent[null] ?? const <FolderRowWithCounts>[];
     return List.unmodifiable(roots.map(buildNode));
   }
 

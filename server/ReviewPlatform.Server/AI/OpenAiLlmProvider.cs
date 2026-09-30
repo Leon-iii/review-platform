@@ -111,6 +111,50 @@ public sealed class OpenAiLlmProvider(
         }
     }
 
+    public async Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
+        ConceptRevisionInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConfiguration();
+        using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            settings.ApiKey);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(BuildConceptRevisionRequest(input), JsonOptions),
+            Encoding.UTF8,
+            "application/json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await httpClient.SendAsync(request, cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI 개념 수정 요청 시간이 초과되었습니다.");
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI API에 연결하지 못했습니다.",
+                exception);
+        }
+
+        using (response)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new LlmProviderRequestException(
+                    ToSafeApiError(response.StatusCode, responseBody));
+            }
+            return ParseConceptRevisionResponse(responseBody);
+        }
+    }
+
     private void ValidateConfiguration()
     {
         if (string.IsNullOrWhiteSpace(settings.ApiKey))
@@ -187,9 +231,45 @@ public sealed class OpenAiLlmProvider(
                 {
                     ["type"] = "json_schema",
                     ["name"] = "review_concept_extraction",
-                    ["description"] = "Draft study concepts grounded in PDF pages",
+                    ["description"] = "Held study concepts grounded in PDF pages",
                     ["strict"] = true,
                     ["schema"] = ConceptExtractionPrompt.BuildSchema(input)
+                }
+            }
+        };
+    }
+
+    private object BuildConceptRevisionRequest(ConceptRevisionInput input)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["model"] = settings.Model,
+            ["store"] = false,
+            ["max_output_tokens"] = Math.Min(
+                12_000,
+                500 + input.EditableConceptIds.Count * 650),
+            ["input"] = new object[]
+            {
+                new
+                {
+                    role = "system",
+                    content = ConceptRevisionPrompt.SystemPrompt
+                },
+                new
+                {
+                    role = "user",
+                    content = ConceptRevisionPrompt.BuildUserPrompt(input)
+                }
+            },
+            ["text"] = new
+            {
+                format = new Dictionary<string, object?>
+                {
+                    ["type"] = "json_schema",
+                    ["name"] = "review_concept_revision",
+                    ["description"] = "Requested revisions to existing PDF concepts",
+                    ["strict"] = true,
+                    ["schema"] = ConceptRevisionPrompt.BuildSchema(input)
                 }
             }
         };
@@ -238,6 +318,30 @@ public sealed class OpenAiLlmProvider(
         {
             throw new LlmProviderRequestException(
                 "OpenAI의 구조화된 개념 응답을 해석하지 못했습니다.",
+                exception);
+        }
+    }
+
+    private static IReadOnlyList<GeneratedConceptRevision>
+        ParseConceptRevisionResponse(string body)
+    {
+        try
+        {
+            var outputText = ExtractOutputText(body, "개념 수정");
+            var envelope = JsonSerializer.Deserialize<ConceptRevisionEnvelope>(
+                outputText,
+                JsonOptions);
+            return envelope?.Revisions ?? throw new LlmProviderRequestException(
+                "OpenAI의 구조화된 개념 수정 응답을 해석하지 못했습니다.");
+        }
+        catch (LlmProviderRequestException)
+        {
+            throw;
+        }
+        catch (JsonException exception)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI의 구조화된 개념 수정 응답을 해석하지 못했습니다.",
                 exception);
         }
     }
@@ -327,4 +431,7 @@ public sealed class OpenAiLlmProvider(
 
     private sealed record ConceptEnvelope(
         IReadOnlyList<GeneratedConceptDraft>? Concepts);
+
+    private sealed record ConceptRevisionEnvelope(
+        IReadOnlyList<GeneratedConceptRevision>? Revisions);
 }

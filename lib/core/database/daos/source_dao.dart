@@ -17,6 +17,13 @@ class SourceDao extends DatabaseAccessor<AppDatabase> with _$SourceDaoMixin {
         .watch();
   }
 
+  Future<List<StudySourceRow>> getSources(String folderId) {
+    return (select(studySources)
+          ..where((source) => source.folderId.equals(folderId))
+          ..orderBy([(source) => OrderingTerm.desc(source.importedAt)]))
+        .get();
+  }
+
   Future<StudySourceRow?> getSource(String id) {
     return (select(
       studySources,
@@ -29,6 +36,31 @@ class SourceDao extends DatabaseAccessor<AppDatabase> with _$SourceDaoMixin {
 
   Future<void> upsertSource(StudySourcesCompanion source) {
     return into(studySources).insertOnConflictUpdate(source);
+  }
+
+  Future<void> updateSource(String id, StudySourcesCompanion value) {
+    return (update(
+      studySources,
+    )..where((source) => source.id.equals(id))).write(value);
+  }
+
+  Future<void> deleteSourceGraph(String sourceId) async {
+    await (delete(
+      questionSources,
+    )..where((reference) => reference.sourceId.equals(sourceId))).go();
+    await (delete(
+      concepts,
+    )..where((concept) => concept.sourceId.equals(sourceId))).go();
+    await (delete(
+      studySources,
+    )..where((source) => source.id.equals(sourceId))).go();
+  }
+
+  Future<void> deleteConcept(String id) async {
+    await (update(questionSources)
+          ..where((reference) => reference.conceptId.equals(id)))
+        .write(const QuestionSourcesCompanion(conceptId: Value(null)));
+    await (delete(concepts)..where((concept) => concept.id.equals(id))).go();
   }
 
   Stream<List<ConceptRow>> watchConcepts(String sourceId) {

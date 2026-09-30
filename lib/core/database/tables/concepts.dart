@@ -9,9 +9,7 @@ class Concepts extends Table {
 
   TextColumn get title => text()();
 
-  TextColumn get summary => text()();
-
-  TextColumn get details => text()();
+  TextColumn get content => text()();
 
   TextColumn get pageNumbersJson => text()();
 

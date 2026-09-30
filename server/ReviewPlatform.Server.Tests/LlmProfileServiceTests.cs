@@ -57,6 +57,25 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task BootstrapOllamaAddress_IsAlwaysServerLocal()
+    {
+        var customService = new LlmProfileService(
+            database,
+            Options.Create(new LlmOptions
+            {
+                Provider = "ollama",
+                Model = "qwen3:8b",
+                BaseUrl = "http://remote-computer:11434"
+            }));
+
+        await customService.GetSettingsAsync(TestContext.Current.CancellationToken);
+
+        var stored = await database.LlmProfiles.SingleAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(LlmOptions.LocalOllamaBaseUrl, stored.BaseUrl);
+    }
+
+    [Fact]
     public async Task Update_AllowsDifferentProfilesPerPurposeAtRuntime()
     {
         var request = new UpdateLlmProfileSettingsRequest(
@@ -65,14 +84,12 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
                     "fast",
                     "빠른 문제 생성",
                     "ollama",
-                    "qwen3:4b",
-                    "http://127.0.0.1:11434"),
+                    "qwen3:4b"),
                 new LlmProfileInput(
                     "quality",
                     "정밀 개념 추출",
                     "ollama",
-                    "qwen3:8b",
-                    "http://127.0.0.1:11434")
+                    "qwen3:8b")
             ],
             new Dictionary<string, string>
             {
@@ -108,8 +125,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
                     "only",
                     "유일한 프로필",
                     "ollama",
-                    "qwen3:8b",
-                    "http://127.0.0.1:11434")
+                    "qwen3:8b")
             ],
             new Dictionary<string, string>
             {
@@ -194,8 +210,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
                     "reasoning-vision",
                     "추론형 비전",
                     "ollama",
-                    "qwen3-vl:8b",
-                    "http://127.0.0.1:11434")
+                    "qwen3-vl:8b")
             ],
             new Dictionary<string, string>
             {

@@ -7,6 +7,7 @@ import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/study_source.dart';
+import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
 
 class QuestionListView extends ConsumerWidget {
@@ -18,6 +19,7 @@ class QuestionListView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final provider = questionListViewModelProvider(folderId);
     final questions = ref.watch(provider);
+    final sources = ref.watch(documentSourcesProvider(folderId));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 24, 4, 96),
@@ -28,19 +30,69 @@ class QuestionListView extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
+                  'PDF 강의자료',
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              FilledButton.tonalIcon(
+                key: const Key('import-pdf-nav-button'),
+                onPressed: () =>
+                    context.push(AppRoutes.documentsForFolder(folderId)),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('PDF 가져오기'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          sources.when(
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (error, stackTrace) => _QuestionError(
+              message: error is AppFailure
+                  ? error.message
+                  : 'PDF 강의자료를 불러오지 못했어요.',
+              onRetry: () => ref.invalidate(documentSourcesProvider(folderId)),
+            ),
+            data: (items) => items.isEmpty
+                ? const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text('이 폴더에 가져온 PDF가 없어요.')),
+                    ),
+                  )
+                : Column(
+                    children: [
+                      for (final source in items) ...[
+                        _PdfSourceCard(
+                          source: source,
+                          onOpen: () => context.push(
+                            AppRoutes.documentsForSource(folderId, source.id),
+                          ),
+                          onEdit: () =>
+                              _renameSource(context, ref, provider, source),
+                          onDelete: () =>
+                              _deleteSource(context, ref, provider, source),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
                   '문제',
                   style: Theme.of(context).textTheme.titleLarge
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              IconButton(
-                key: const Key('import-pdf-nav-button'),
-                tooltip: 'PDF 학습자료',
-                onPressed: () =>
-                    context.push(AppRoutes.documentsForFolder(folderId)),
-                icon: const Icon(Icons.picture_as_pdf_rounded),
-              ),
-              const SizedBox(width: 4),
               IconButton(
                 key: const Key('generate-ai-questions-nav-button'),
                 tooltip: 'AI 문제 생성',
@@ -162,6 +214,161 @@ class QuestionListView extends ConsumerWidget {
           .showSnackBar(SnackBar(content: Text(message)));
     }
   }
+
+  Future<void> _renameSource(
+    BuildContext context,
+    WidgetRef ref,
+    QuestionListViewModelProvider provider,
+    StudySource source,
+  ) async {
+    var draftName = source.fileName;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('PDF 강의자료 이름 변경'),
+        content: TextFormField(
+          key: const Key('pdf-source-name-field'),
+          initialValue: source.fileName,
+          autofocus: true,
+          maxLength: 200,
+          decoration: const InputDecoration(
+            labelText: '자료 이름',
+            hintText: '강의자료.pdf',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (value) => draftName = value,
+          onFieldSubmitted: (value) {
+            if (value.trim().isNotEmpty) Navigator.of(context).pop(value);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            key: const Key('save-pdf-source-button'),
+            onPressed: () {
+              final value = draftName.trim();
+              if (value.isNotEmpty) Navigator.of(context).pop(value);
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || !context.mounted) return;
+
+    try {
+      await ref
+          .read(provider.notifier)
+          .renameSource(id: source.id, fileName: name);
+      ref.invalidate(documentSourcesProvider(folderId));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('PDF 강의자료 이름을 변경했어요.')));
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error is AppFailure
+          ? error.message
+          : 'PDF 강의자료 이름을 변경하지 못했어요.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _deleteSource(
+    BuildContext context,
+    WidgetRef ref,
+    QuestionListViewModelProvider provider,
+    StudySource source,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('PDF 강의자료 삭제'),
+        content: Text(
+          '${source.fileName}을(를) 삭제하시겠습니까?\n\n'
+          '추출한 개념과 문제의 출처 연결은 제거되지만, 이미 생성된 문제는 유지됩니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            key: const Key('confirm-delete-pdf-source-button'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(provider.notifier).deleteSource(source.id);
+      ref.invalidate(documentSourcesProvider(folderId));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('PDF 강의자료를 삭제했어요.')));
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error is AppFailure
+          ? error.message
+          : 'PDF 강의자료를 삭제하지 못했어요.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+}
+
+class _PdfSourceCard extends StatelessWidget {
+  const _PdfSourceCard({
+    required this.source,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final StudySource source;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        key: ValueKey('pdf-source-${source.id}'),
+        leading: const Icon(Icons.description_outlined),
+        title: Text(
+          source.fileName,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          '${source.pageCount}페이지 · ${_extractionLabel(source.extractionMethod)}',
+        ),
+        onTap: onOpen,
+        trailing: PopupMenuButton<_PdfSourceAction>(
+          tooltip: 'PDF 강의자료 메뉴',
+          onSelected: (action) {
+            switch (action) {
+              case _PdfSourceAction.edit:
+                onEdit();
+              case _PdfSourceAction.delete:
+                onDelete();
+            }
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(value: _PdfSourceAction.edit, child: Text('이름 변경')),
+            PopupMenuItem(value: _PdfSourceAction.delete, child: Text('삭제')),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _QuestionCard extends StatelessWidget {
@@ -258,6 +465,8 @@ class _QuestionError extends StatelessWidget {
 
 enum _QuestionAction { approve, edit, delete }
 
+enum _PdfSourceAction { edit, delete }
+
 String _sourceLabel(QuestionSourceReference reference) {
   final pages = reference.pageNumbers.isEmpty
       ? ''
@@ -267,3 +476,10 @@ String _sourceLabel(QuestionSourceReference reference) {
       : ' · ${reference.conceptTitle}';
   return '출처: ${reference.fileName}$pages$concept';
 }
+
+String _extractionLabel(String method) => switch (method) {
+  'textLayer' => '텍스트 레이어',
+  'visionOcr' || 'ocr' => 'OCR',
+  'hybrid' => '텍스트 + OCR',
+  _ => method,
+};

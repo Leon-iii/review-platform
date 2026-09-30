@@ -12,6 +12,19 @@ abstract interface class RemoteDocumentApi {
     required String fileName,
     required Uint8List bytes,
   });
+
+  Future<void> deletePdf({
+    required SyncConfiguration configuration,
+    required String sourceId,
+  });
+
+  Future<List<ConceptRevision>> reviseConcepts({
+    required SyncConfiguration configuration,
+    required StudySource source,
+    required List<StudyConcept> concepts,
+    required String instruction,
+    required ConceptRevisionScope scope,
+  });
 }
 
 class HttpRemoteDocumentApi implements RemoteDocumentApi {
@@ -71,21 +84,132 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
     }
   }
 
+  @override
+  Future<void> deletePdf({
+    required SyncConfiguration configuration,
+    required String sourceId,
+  }) async {
+    http.Response response;
+    try {
+      response = await _client
+          .delete(
+            _sourceEndpoint(configuration.serverUrl, sourceId),
+            headers: {'x-sync-token': configuration.accessToken},
+          )
+          .timeout(const Duration(seconds: 30));
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        NetworkFailure('PDF 처리 서버에 연결할 수 없어요.', cause: error),
+        stackTrace,
+      );
+    }
+    if (response.statusCode == 401) {
+      throw const NetworkFailure('서버 접근 토큰이 올바르지 않아요.');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String? message;
+      try {
+        final body = Map<String, Object?>.from(
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map,
+        );
+        message = body['error'] as String?;
+      } catch (_) {
+        // Use the safe fallback below.
+      }
+      throw NetworkFailure(
+        message?.isNotEmpty == true
+            ? message!
+            : 'PDF 삭제에 실패했어요. (${response.statusCode})',
+      );
+    }
+  }
+
+  @override
+  Future<List<ConceptRevision>> reviseConcepts({
+    required SyncConfiguration configuration,
+    required StudySource source,
+    required List<StudyConcept> concepts,
+    required String instruction,
+    required ConceptRevisionScope scope,
+  }) async {
+    http.Response response;
+    try {
+      response = await _client
+          .post(
+            _revisionEndpoint(configuration.serverUrl),
+            headers: {
+              'content-type': 'application/json; charset=utf-8',
+              'x-sync-token': configuration.accessToken,
+            },
+            body: jsonEncode({
+              'sourceId': source.id,
+              'fileName': source.fileName,
+              'pageCount': source.pageCount,
+              'instruction': instruction,
+              'scope': scope.wireValue,
+              'concepts': [
+                for (final concept in concepts)
+                  {
+                    'id': concept.id,
+                    'title': concept.title,
+                    'content': concept.content,
+                    'pageNumbers': concept.pageNumbers,
+                    'status': concept.status.name,
+                  },
+              ],
+            }),
+          )
+          .timeout(const Duration(minutes: 10));
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        NetworkFailure('개념 수정 서버에 연결할 수 없어요.', cause: error),
+        stackTrace,
+      );
+    }
+
+    final body = _decode(
+      response,
+      invalidSuccessMessage: '개념 수정 응답 형식이 올바르지 않아요.',
+    );
+    try {
+      return [
+        for (final raw in body['revisions']! as List)
+          _revision(Map<String, Object?>.from(raw as Map)),
+      ];
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        NetworkFailure('개념 수정 응답 형식이 올바르지 않아요.', cause: error),
+        stackTrace,
+      );
+    }
+  }
+
   ImportedConcept _concept(Map<String, Object?> json) {
-    if (json['status'] != 'draft') {
-      throw const FormatException('Imported concept is not a draft.');
+    if (json['status'] != 'held') {
+      throw const FormatException('Imported concept is not held.');
     }
     return ImportedConcept(
       title: json['title']! as String,
-      summary: json['summary']! as String,
-      details: json['details']! as String,
+      content: json['content']! as String,
       pageNumbers: [
         for (final page in json['pageNumbers']! as List) (page as num).toInt(),
       ],
     );
   }
 
-  Map<String, Object?> _decode(http.Response response) {
+  ConceptRevision _revision(Map<String, Object?> json) => ConceptRevision(
+    id: json['id']! as String,
+    title: json['title']! as String,
+    content: json['content']! as String,
+    pageNumbers: [
+      for (final page in json['pageNumbers']! as List) (page as num).toInt(),
+    ],
+  );
+
+  Map<String, Object?> _decode(
+    http.Response response, {
+    String invalidSuccessMessage = 'PDF 처리 응답 형식이 올바르지 않아요.',
+  }) {
     Map<String, Object?>? body;
     try {
       body = Map<String, Object?>.from(
@@ -93,7 +217,7 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
       );
     } catch (_) {
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        throw const NetworkFailure('PDF 처리 응답 형식이 올바르지 않아요.');
+        throw NetworkFailure(invalidSuccessMessage);
       }
     }
     if (response.statusCode == 401) {
@@ -115,5 +239,21 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
         ? serverUrl.substring(0, serverUrl.length - 1)
         : serverUrl;
     return Uri.parse('$normalized/api/documents/import');
+  }
+
+  Uri _sourceEndpoint(String serverUrl, String sourceId) {
+    final normalized = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
+    return Uri.parse(
+      '$normalized/api/documents/${Uri.encodeComponent(sourceId)}',
+    );
+  }
+
+  Uri _revisionEndpoint(String serverUrl) {
+    final normalized = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
+    return Uri.parse('$normalized/api/documents/concepts/revise');
   }
 }

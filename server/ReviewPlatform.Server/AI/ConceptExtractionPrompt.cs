@@ -5,18 +5,18 @@ namespace ReviewPlatform.Server.AI;
 
 public static class ConceptExtractionPrompt
 {
-    public const string Version = "concept-extraction-v3-korean";
+    public const string Version = "concept-extraction-v4-title-content-korean";
     public const int MaximumConceptsPerRequest = 8;
 
     public const string SystemPrompt = """
         Extract distinct, study-worthy concepts using only the supplied PDF page text.
         Do not add facts that are absent from the source. Each concept needs a concise title,
-        a self-contained summary, useful study details, and every page number that directly
+        self-contained study content, and every page number that directly
         supports it. Merge repeated explanations of the same concept, but keep unrelated
         concepts separate. Ignore headers, footers, page numbers, and table-of-contents noise.
         Return at most 8 of the most study-worthy concepts for this page batch. Keep each
-        summary concise and keep details focused on the supplied pages.
-        Write every title, summary, and details field in natural Korean regardless of the
+        content concise and focused on the supplied pages.
+        Write every title and content field in natural Korean regardless of the
         source language. For an important technical term, use "한국어 (original term)" on
         its first occurrence. Preserve proper nouns, standard acronyms, code, identifiers,
         formulas, and symbols in their original form. Do not guess or freely paraphrase an
@@ -34,7 +34,7 @@ public static class ConceptExtractionPrompt
             Prompt version: {input.PromptVersion}
 
             OUTPUT LANGUAGE:
-            - Write title, summary, and details in Korean.
+            - Write title and content in Korean.
             - Preserve important original technical terms in parentheses on first use.
             - Keep proper nouns, acronyms, code, identifiers, formulas, and symbols unchanged.
 
@@ -72,15 +72,10 @@ public static class ConceptExtractionPrompt
                                 ["type"] = "string",
                                 ["maxLength"] = 200
                             },
-                            ["summary"] = new JsonObject
+                            ["content"] = new JsonObject
                             {
                                 ["type"] = "string",
-                                ["maxLength"] = 800
-                            },
-                            ["details"] = new JsonObject
-                            {
-                                ["type"] = "string",
-                                ["maxLength"] = 2_000
+                                ["maxLength"] = 8_000
                             },
                             ["pageNumbers"] = new JsonObject
                             {
@@ -96,8 +91,7 @@ public static class ConceptExtractionPrompt
                         },
                         ["required"] = new JsonArray(
                             "title",
-                            "summary",
-                            "details",
+                            "content",
                             "pageNumbers")
                     }
                 }
