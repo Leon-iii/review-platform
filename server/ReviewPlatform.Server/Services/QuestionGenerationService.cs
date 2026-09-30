@@ -11,7 +11,7 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v5-multiple-choice";
+    public const string PromptVersion = "question-generation-v6-scoped-knowledge";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [

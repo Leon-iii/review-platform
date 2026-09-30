@@ -121,6 +121,18 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public void SystemPrompt_AllowsScopedGeneralKnowledgeWithoutNewConcepts()
+    {
+        Assert.Contains("You may use general knowledge", QuestionGenerationPrompt.SystemPrompt);
+        Assert.Contains("subject and conceptual scope established by SOURCE",
+            QuestionGenerationPrompt.SystemPrompt);
+        Assert.Contains("entirely new concept that SOURCE does not cover",
+            QuestionGenerationPrompt.SystemPrompt);
+        Assert.DoesNotContain("using only information explicitly present",
+            QuestionGenerationPrompt.SystemPrompt);
+    }
+
+    [Fact]
     public async Task InvalidAutomaticDensity_IsRejectedBeforeProviderCall()
     {
         var provider = new FakeLlmProvider([ShortAnswerQuestion()]);

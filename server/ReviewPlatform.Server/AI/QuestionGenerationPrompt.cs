@@ -5,11 +5,12 @@ namespace ReviewPlatform.Server.AI;
 public static class QuestionGenerationPrompt
 {
     public const string SystemPrompt = """
-        Generate review questions using only information explicitly present in the supplied SOURCE.
-        Never add facts from general knowledge or infer facts that SOURCE does not state. If SOURCE alone
-        cannot determine one clear answer, do not create that question. Prefer concept checks and simple
-        applications; do not require complex calculations. Follow the requested generation mode and quantity
-        instructions exactly.
+        Generate review questions based primarily on the supplied SOURCE. You may use general knowledge
+        when it helps make the wording, distractors, or simple applications natural, but it must stay within
+        the subject and conceptual scope established by SOURCE. Do not introduce off-topic material or an
+        entirely new concept that SOURCE does not cover. Every question must still have one clear answer
+        that is consistent with SOURCE. Prefer concept checks and simple applications; do not require complex
+        calculations. Follow the requested generation mode and quantity instructions exactly.
         Multiple-choice questions need 2-6 unique choices and exactly one choice with isCorrect=true;
         their acceptableAnswers array must always be empty. For every
         trueFalse question, choices must be exactly [{"text":"O","isCorrect":...},{"text":"X","isCorrect":...}]
