@@ -53,6 +53,8 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
         Assert.Equal(profile.Id,
             settings.Assignments[LlmPurposes.ConceptExtraction]);
         Assert.Equal(profile.Id,
+            settings.Assignments[LlmPurposes.ConceptRevision]);
+        Assert.Equal(profile.Id,
             settings.Assignments[LlmPurposes.DocumentVision]);
     }
 
@@ -95,6 +97,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
             {
                 [LlmPurposes.QuestionGeneration] = "fast",
                 [LlmPurposes.ConceptExtraction] = "quality",
+                [LlmPurposes.ConceptRevision] = "fast",
                 [LlmPurposes.DocumentVision] = "quality"
             });
 
@@ -108,8 +111,12 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
         var concepts = await service.GetActiveProfileAsync(
             LlmPurposes.ConceptExtraction,
             TestContext.Current.CancellationToken);
+        var revisions = await service.GetActiveProfileAsync(
+            LlmPurposes.ConceptRevision,
+            TestContext.Current.CancellationToken);
         Assert.Equal("qwen3:4b", questions.Model);
         Assert.Equal("qwen3:8b", concepts.Model);
+        Assert.Equal("qwen3:4b", revisions.Model);
         var vision = await service.GetActiveProfileAsync(
             LlmPurposes.DocumentVision,
             TestContext.Current.CancellationToken);
@@ -131,6 +138,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
             {
                 [LlmPurposes.QuestionGeneration] = "missing",
                 [LlmPurposes.ConceptExtraction] = "only",
+                [LlmPurposes.ConceptRevision] = "only",
                 [LlmPurposes.DocumentVision] = "only"
             });
 
@@ -216,6 +224,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
             {
                 [LlmPurposes.QuestionGeneration] = "reasoning-vision",
                 [LlmPurposes.ConceptExtraction] = "reasoning-vision",
+                [LlmPurposes.ConceptRevision] = "reasoning-vision",
                 [LlmPurposes.DocumentVision] = "reasoning-vision"
             });
 

@@ -5,7 +5,7 @@ namespace ReviewPlatform.Server.AI;
 
 public static class ConceptExtractionPrompt
 {
-    public const string Version = "concept-extraction-v4-title-content-korean";
+    public const string Version = "concept-extraction-v6-memorization-importance";
     public const int MaximumConceptsPerRequest = 8;
 
     public const string SystemPrompt = """
@@ -16,6 +16,17 @@ public static class ConceptExtractionPrompt
         concepts separate. Ignore headers, footers, page numbers, and table-of-contents noise.
         Return at most 8 of the most study-worthy concepts for this page batch. Keep each
         content concise and focused on the supplied pages.
+        Evaluate importance in this strict priority order:
+        1. Memorization load: the number of independent facts, entries, mappings, rules,
+           formulas, cases, symbols, or steps that must be retained.
+        2. Required recall precision: how exactly those elements must be reproduced for a
+           correct answer, including notation, order, wording, conditions, and table mappings.
+        3. Only after those two, use suitability and likelihood for testing learner competence
+           as a secondary tie-breaker. Do not make exam likelihood the primary criterion.
+        Assign "high" when there are many independent memorization elements, when exact recall of
+        notation, sequence, conditions, or mappings is critical, or both. Do not rate content high
+        merely because it is lengthy when approximate recall is sufficient. Use "medium" for
+        moderate load or precision, and "low" when both are low.
         Write every title and content field in natural Korean regardless of the
         source language. For an important technical term, use "한국어 (original term)" on
         its first occurrence. Preserve proper nouns, standard acronyms, code, identifiers,
@@ -87,12 +98,19 @@ public static class ConceptExtractionPrompt
                                     ["type"] = "integer",
                                     ["enum"] = new JsonArray(pageNumbers)
                                 }
+                            },
+                            ["importance"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["enum"] = new JsonArray("low", "medium", "high"),
+                                ["description"] = "Importance prioritized by memorization element count and required recall precision; exam suitability is secondary."
                             }
                         },
                         ["required"] = new JsonArray(
                             "title",
                             "content",
-                            "pageNumbers")
+                            "pageNumbers",
+                            "importance")
                     }
                 }
             },

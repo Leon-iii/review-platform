@@ -507,6 +507,7 @@ class _ReviewCard extends ConsumerWidget {
               children: [
                 Chip(label: Text(_typeLabel(question.type))),
                 Chip(label: Text(_statusLabel(item.status))),
+                Chip(label: Text('난이도 ${question.difficulty}/5')),
               ],
             ),
             const SizedBox(height: 10),

@@ -469,10 +469,12 @@ public sealed class DocumentProcessingService
                 .Distinct()
                 .Order()
                 .ToList();
+            var importance = concept.Importance.Trim().ToLowerInvariant();
             if (title.Length is < 1 or > 200 ||
                 content.Length is < 1 or > 8_000 ||
                 pageNumbers.Count == 0 ||
-                pageNumbers.Any(page => !allowedPages.Contains(page)))
+                pageNumbers.Any(page => !allowedPages.Contains(page)) ||
+                importance is not "low" and not "medium" and not "high")
             {
                 throw new LlmProviderRequestException(
                     "LLM이 올바르지 않은 개념 추출 결과를 반환했습니다.");
@@ -481,7 +483,8 @@ public sealed class DocumentProcessingService
             {
                 Title = title,
                 Content = content,
-                PageNumbers = pageNumbers
+                PageNumbers = pageNumbers,
+                Importance = importance
             });
         }
         return validated;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
@@ -33,6 +34,7 @@ abstract interface class SourceRepository {
     required String id,
     required String title,
     required String content,
+    required ConceptImportance importance,
   });
 
   Future<void> deleteConcept(String id);
@@ -73,6 +75,7 @@ class DriftSourceRepository implements SourceRepository {
             content: imported.content.trim(),
             pageNumbers: imported.pageNumbers.toSet().toList()..sort(),
             status: ConceptStatus.held,
+            importance: imported.importance,
             createdAt: now,
             updatedAt: now,
           ),
@@ -107,6 +110,7 @@ class DriftSourceRepository implements SourceRepository {
               content: concept.content,
               pageNumbersJson: jsonEncode(concept.pageNumbers),
               status: concept.status.name,
+              importance: Value(concept.importance.name),
               createdAt: concept.createdAt,
               updatedAt: concept.updatedAt,
             ),
@@ -256,6 +260,7 @@ class DriftSourceRepository implements SourceRepository {
     required String id,
     required String title,
     required String content,
+    required ConceptImportance importance,
   }) {
     return _guard(() async {
       final normalizedTitle = title.trim();
@@ -271,6 +276,7 @@ class DriftSourceRepository implements SourceRepository {
           ConceptsCompanion(
             title: Value(normalizedTitle),
             content: Value(normalizedContent),
+            importance: Value(importance.name),
             updatedAt: Value(now),
           ),
         );
@@ -335,6 +341,7 @@ class DriftSourceRepository implements SourceRepository {
             title: title,
             content: content,
             pageNumbers: pages,
+            importance: revision.importance,
           ),
         );
       }
@@ -352,6 +359,7 @@ class DriftSourceRepository implements SourceRepository {
                 ..sort();
           if (row.title == revision.title &&
               row.content == revision.content &&
+              row.importance == revision.importance.name &&
               _samePages(currentPages, revision.pageNumbers)) {
             continue;
           }
@@ -364,6 +372,7 @@ class DriftSourceRepository implements SourceRepository {
               content: Value(revision.content),
               pageNumbersJson: Value(jsonEncode(revision.pageNumbers)),
               status: Value(ConceptStatus.held.name),
+              importance: Value(revision.importance.name),
               updatedAt: Value(updatedAt),
             ),
           );
@@ -455,6 +464,7 @@ class DriftSourceRepository implements SourceRepository {
         .map((value) => (value as num).toInt())
         .toList(growable: false),
     status: ConceptStatus.fromStorage(row.status),
+    importance: ConceptImportance.fromStorage(row.importance),
     createdAt: row.createdAt.toUtc(),
     updatedAt: row.updatedAt.toUtc(),
   );

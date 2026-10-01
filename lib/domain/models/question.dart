@@ -14,7 +14,7 @@ class Question {
     required this.createdAt,
     required this.updatedAt,
     this.explanation,
-    this.difficulty,
+    this.difficulty = 3,
     this.deletedAt,
     this.sourceReferences = const [],
   });
@@ -25,7 +25,7 @@ class Question {
   final QuestionStatus status;
   final String prompt;
   final String? explanation;
-  final int? difficulty;
+  final int difficulty;
   final List<QuestionChoice> choices;
   final List<AcceptableAnswer> acceptableAnswers;
   final DateTime createdAt;
@@ -63,7 +63,7 @@ class QuestionDraft {
     this.choices = const [],
     this.acceptableAnswers = const [],
     this.explanation,
-    this.difficulty,
+    this.difficulty = 3,
     this.status = QuestionStatus.approved,
   });
 
@@ -72,7 +72,7 @@ class QuestionDraft {
   final QuestionStatus status;
   final String prompt;
   final String? explanation;
-  final int? difficulty;
+  final int difficulty;
   final List<QuestionChoiceDraft> choices;
   final List<String> acceptableAnswers;
 }

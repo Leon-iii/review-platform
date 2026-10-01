@@ -12,7 +12,7 @@ abstract final class QuestionValidator {
       throw const ValidationFailure('문제 내용을 입력해 주세요.');
     }
     final difficulty = draft.difficulty;
-    if (difficulty != null && (difficulty < 1 || difficulty > 5)) {
+    if (difficulty < 1 || difficulty > 5) {
       throw const ValidationFailure('난이도는 1부터 5 사이여야 해요.');
     }
 

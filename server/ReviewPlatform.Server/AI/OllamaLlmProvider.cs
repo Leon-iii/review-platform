@@ -173,6 +173,13 @@ public sealed class OllamaLlmProvider(
         {
             await EnsureModelInstalledAsync(cancellationToken);
             var schema = ConceptRevisionPrompt.BuildSchema(input);
+            var userPrompt = ConceptRevisionPrompt.BuildUserPrompt(input);
+            var outputTokenBudget = Math.Min(
+                6_000,
+                2_048 + input.EditableConceptIds.Count * 384);
+            var contextWindow = SelectRevisionContextWindow(
+                ConceptRevisionPrompt.SystemPrompt.Length + userPrompt.Length,
+                outputTokenBudget);
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 BuildEndpoint("api/chat"));
@@ -190,24 +197,18 @@ public sealed class OllamaLlmProvider(
                         new
                         {
                             role = "user",
-                            content = $"""
-                                {ConceptRevisionPrompt.BuildUserPrompt(input)}
-
-                                Return JSON matching this schema exactly:
-                                {schema.ToJsonString()}
-                                """
+                            content = userPrompt
                         }
                     },
                     ["stream"] = false,
+                    ["think"] = false,
                     ["format"] = schema,
-                    ["keep_alive"] = 0,
+                    ["keep_alive"] = "10m",
                     ["options"] = new
                     {
                         temperature = 0,
-                        num_ctx = 32_768,
-                        num_predict = Math.Min(
-                            12_000,
-                            500 + input.EditableConceptIds.Count * 650)
+                        num_ctx = contextWindow,
+                        num_predict = outputTokenBudget
                     }
                 }, JsonOptions),
                 Encoding.UTF8,
@@ -971,6 +972,20 @@ public sealed class OllamaLlmProvider(
     {
         var baseUri = new Uri(settings.BaseUrl.Trim().TrimEnd('/') + "/");
         return new Uri(baseUri, path);
+    }
+
+    private static int SelectRevisionContextWindow(
+        int inputCharacterCount,
+        int outputTokenBudget)
+    {
+        // Korean and JSON commonly use more tokens per character than plain
+        // English. This intentionally conservative estimate still avoids the
+        // large KV-cache cost of forcing 32K for every small edit request.
+        var estimatedInputTokens = (inputCharacterCount + 1) / 2;
+        var requiredTokens = estimatedInputTokens + outputTokenBudget;
+        if (requiredTokens <= 8_192) return 8_192;
+        if (requiredTokens <= 16_384) return 16_384;
+        return 32_768;
     }
 
     private static string ToSafeApiError(HttpStatusCode statusCode) =>

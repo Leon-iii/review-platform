@@ -4781,6 +4781,18 @@ class $ConceptsTable extends Concepts
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _importanceMeta = const VerificationMeta(
+    'importance',
+  );
+  @override
+  late final GeneratedColumn<String> importance = GeneratedColumn<String>(
+    'importance',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('medium'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -4811,6 +4823,7 @@ class $ConceptsTable extends Concepts
     content,
     pageNumbersJson,
     status,
+    importance,
     createdAt,
     updatedAt,
   ];
@@ -4874,6 +4887,12 @@ class $ConceptsTable extends Concepts
     } else if (isInserting) {
       context.missing(_statusMeta);
     }
+    if (data.containsKey('importance')) {
+      context.handle(
+        _importanceMeta,
+        importance.isAcceptableOrUnknown(data['importance']!, _importanceMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4923,6 +4942,10 @@ class $ConceptsTable extends Concepts
         DriftSqlType.string,
         data['${effectivePrefix}status'],
       )!,
+      importance: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}importance'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4947,6 +4970,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
   final String content;
   final String pageNumbersJson;
   final String status;
+  final String importance;
   final DateTime createdAt;
   final DateTime updatedAt;
   const ConceptRow({
@@ -4956,6 +4980,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
     required this.content,
     required this.pageNumbersJson,
     required this.status,
+    required this.importance,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -4968,6 +4993,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
     map['content'] = Variable<String>(content);
     map['page_numbers_json'] = Variable<String>(pageNumbersJson);
     map['status'] = Variable<String>(status);
+    map['importance'] = Variable<String>(importance);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -4981,6 +5007,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
       content: Value(content),
       pageNumbersJson: Value(pageNumbersJson),
       status: Value(status),
+      importance: Value(importance),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -4998,6 +5025,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
       content: serializer.fromJson<String>(json['content']),
       pageNumbersJson: serializer.fromJson<String>(json['pageNumbersJson']),
       status: serializer.fromJson<String>(json['status']),
+      importance: serializer.fromJson<String>(json['importance']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -5012,6 +5040,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
       'content': serializer.toJson<String>(content),
       'pageNumbersJson': serializer.toJson<String>(pageNumbersJson),
       'status': serializer.toJson<String>(status),
+      'importance': serializer.toJson<String>(importance),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -5024,6 +5053,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
     String? content,
     String? pageNumbersJson,
     String? status,
+    String? importance,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => ConceptRow(
@@ -5033,6 +5063,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
     content: content ?? this.content,
     pageNumbersJson: pageNumbersJson ?? this.pageNumbersJson,
     status: status ?? this.status,
+    importance: importance ?? this.importance,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -5046,6 +5077,9 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
           ? data.pageNumbersJson.value
           : this.pageNumbersJson,
       status: data.status.present ? data.status.value : this.status,
+      importance: data.importance.present
+          ? data.importance.value
+          : this.importance,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -5060,6 +5094,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
           ..write('content: $content, ')
           ..write('pageNumbersJson: $pageNumbersJson, ')
           ..write('status: $status, ')
+          ..write('importance: $importance, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -5074,6 +5109,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
     content,
     pageNumbersJson,
     status,
+    importance,
     createdAt,
     updatedAt,
   );
@@ -5087,6 +5123,7 @@ class ConceptRow extends DataClass implements Insertable<ConceptRow> {
           other.content == this.content &&
           other.pageNumbersJson == this.pageNumbersJson &&
           other.status == this.status &&
+          other.importance == this.importance &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -5098,6 +5135,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
   final Value<String> content;
   final Value<String> pageNumbersJson;
   final Value<String> status;
+  final Value<String> importance;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -5108,6 +5146,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
     this.content = const Value.absent(),
     this.pageNumbersJson = const Value.absent(),
     this.status = const Value.absent(),
+    this.importance = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -5119,6 +5158,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
     required String content,
     required String pageNumbersJson,
     required String status,
+    this.importance = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -5137,6 +5177,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
     Expression<String>? content,
     Expression<String>? pageNumbersJson,
     Expression<String>? status,
+    Expression<String>? importance,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -5148,6 +5189,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
       if (content != null) 'content': content,
       if (pageNumbersJson != null) 'page_numbers_json': pageNumbersJson,
       if (status != null) 'status': status,
+      if (importance != null) 'importance': importance,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -5161,6 +5203,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
     Value<String>? content,
     Value<String>? pageNumbersJson,
     Value<String>? status,
+    Value<String>? importance,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -5172,6 +5215,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
       content: content ?? this.content,
       pageNumbersJson: pageNumbersJson ?? this.pageNumbersJson,
       status: status ?? this.status,
+      importance: importance ?? this.importance,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -5199,6 +5243,9 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
+    if (importance.present) {
+      map['importance'] = Variable<String>(importance.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -5220,6 +5267,7 @@ class ConceptsCompanion extends UpdateCompanion<ConceptRow> {
           ..write('content: $content, ')
           ..write('pageNumbersJson: $pageNumbersJson, ')
           ..write('status: $status, ')
+          ..write('importance: $importance, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -10370,6 +10418,7 @@ typedef $$ConceptsTableCreateCompanionBuilder = ConceptsCompanion Function({
   required String content,
   required String pageNumbersJson,
   required String status,
+  Value<String> importance,
   required DateTime createdAt,
   required DateTime updatedAt,
   Value<int> rowid,
@@ -10381,6 +10430,7 @@ typedef $$ConceptsTableUpdateCompanionBuilder = ConceptsCompanion Function({
   Value<String> content,
   Value<String> pageNumbersJson,
   Value<String> status,
+  Value<String> importance,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
   Value<int> rowid,
@@ -10459,6 +10509,11 @@ class $$ConceptsTableFilterComposer
 
   ColumnFilters<String> get status => $composableBuilder(
     column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importance => $composableBuilder(
+    column: $table.importance,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10555,6 +10610,11 @@ class $$ConceptsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get importance => $composableBuilder(
+    column: $table.importance,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -10614,6 +10674,11 @@ class $$ConceptsTableAnnotationComposer
 
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get importance => $composableBuilder(
+    column: $table.importance,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -10704,6 +10769,7 @@ class $$ConceptsTableTableManager
                 Value<String> content = const Value.absent(),
                 Value<String> pageNumbersJson = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String> importance = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -10714,6 +10780,7 @@ class $$ConceptsTableTableManager
                 content: content,
                 pageNumbersJson: pageNumbersJson,
                 status: status,
+                importance: importance,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -10726,6 +10793,7 @@ class $$ConceptsTableTableManager
                 required String content,
                 required String pageNumbersJson,
                 required String status,
+                Value<String> importance = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -10736,6 +10804,7 @@ class $$ConceptsTableTableManager
                 content: content,
                 pageNumbersJson: pageNumbersJson,
                 status: status,
+                importance: importance,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

@@ -35,6 +35,10 @@ void main() {
       settings.assignments[LlmPurpose.conceptExtraction],
       'concept-profile',
     );
+    expect(
+      settings.assignments[LlmPurpose.conceptRevision],
+      'question-profile',
+    );
     expect(settings.assignments[LlmPurpose.documentVision], 'question-profile');
   });
 
@@ -69,6 +73,7 @@ void main() {
       assignments: const {
         LlmPurpose.questionGeneration: 'question-profile',
         LlmPurpose.conceptExtraction: 'concept-profile',
+        LlmPurpose.conceptRevision: 'question-profile',
         LlmPurpose.documentVision: 'question-profile',
       },
     );
@@ -80,6 +85,7 @@ void main() {
     );
     expect(assignments['questionGeneration'], 'question-profile');
     expect(assignments['conceptExtraction'], 'concept-profile');
+    expect(assignments['conceptRevision'], 'question-profile');
     expect(assignments['documentVision'], 'question-profile');
     final profiles = requestBody['profiles']! as List;
     expect((profiles.first as Map).containsKey('baseUrl'), isFalse);
@@ -134,6 +140,7 @@ http.Response _response() => http.Response(
     'assignments': {
       'questionGeneration': 'question-profile',
       'conceptExtraction': 'concept-profile',
+      'conceptRevision': 'question-profile',
       'documentVision': 'question-profile',
     },
   }),

@@ -4,10 +4,11 @@ public static class LlmPurposes
 {
     public const string QuestionGeneration = "questionGeneration";
     public const string ConceptExtraction = "conceptExtraction";
+    public const string ConceptRevision = "conceptRevision";
     public const string DocumentVision = "documentVision";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(
-        [QuestionGeneration, ConceptExtraction, DocumentVision],
+        [QuestionGeneration, ConceptExtraction, ConceptRevision, DocumentVision],
         StringComparer.Ordinal);
 }
 

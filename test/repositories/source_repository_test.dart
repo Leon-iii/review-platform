@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/study_source.dart';
@@ -37,6 +38,7 @@ void main() {
     expect(saved.source.fileName, '전자기학.pdf');
     final concept = saved.concepts.single;
     expect(concept.status, ConceptStatus.held);
+    expect(concept.importance, ConceptImportance.medium);
     expect(concept.pageNumbers, [3, 4]);
 
     await sourceRepository.setConceptApproval(id: concept.id, approved: true);
@@ -207,12 +209,14 @@ void main() {
           title: '가우스 법칙',
           content: '폐곡면의 전기선속과 내부 전하의 관계를 설명한다.',
           pageNumbers: const [4, 3, 3],
+          importance: ConceptImportance.high,
         ),
         ConceptRevision(
           id: second.id,
           title: second.title,
           content: second.content,
           pageNumbers: second.pageNumbers,
+          importance: second.importance,
         ),
       ],
     );
@@ -227,6 +231,7 @@ void main() {
     expect(revised.content, contains('폐곡면'));
     expect(revised.pageNumbers, [3, 4]);
     expect(revised.status, ConceptStatus.held);
+    expect(revised.importance, ConceptImportance.high);
     expect(unchanged.status, ConceptStatus.approved);
 
     final changes = await DriftSyncRepository(database).buildPushBatch();

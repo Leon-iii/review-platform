@@ -16,6 +16,7 @@ enum LlmProviderKind {
 enum LlmPurpose {
   questionGeneration('questionGeneration', '문제 생성'),
   conceptExtraction('conceptExtraction', 'PDF 개념 추출'),
+  conceptRevision('conceptRevision', '개념 수정'),
   documentVision('documentVision', 'PDF 이미지 OCR');
 
   const LlmPurpose(this.id, this.displayName);

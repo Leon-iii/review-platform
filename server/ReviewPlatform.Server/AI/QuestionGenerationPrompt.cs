@@ -17,6 +17,10 @@ public static class QuestionGenerationPrompt
         in that order, exactly one isCorrect value must be true, and acceptableAnswers must be an empty
         array. Never translate or replace the O and X labels. Short-answer questions need one or more concise
         acceptable answers. Keep every explanation grounded in SOURCE.
+        After drafting each question, evaluate its difficulty from the question itself,
+        including the cognitive demand, reasoning steps, answer ambiguity, and distractor
+        plausibility. Always assign an integer difficulty from 1 (very easy) to 5 (very hard).
+        Do not rate difficulty from the source topic alone.
         Every question must contain the exact supplied source reference. Do not generate essay questions.
         Respond in the primary language used by SOURCE and output only data matching the JSON schema.
         """;
@@ -117,9 +121,10 @@ public static class QuestionGenerationPrompt
                             },
                             ["difficulty"] = new JsonObject
                             {
-                                ["type"] = new JsonArray("integer", "null"),
+                                ["type"] = "integer",
                                 ["minimum"] = 1,
-                                ["maximum"] = 5
+                                ["maximum"] = 5,
+                                ["description"] = "Difficulty assessed after drafting this question: 1 very easy through 5 very hard."
                             },
                             ["sourceIds"] = new JsonObject
                             {

@@ -13,14 +13,13 @@ public sealed class ConceptRevisionService(
     {
         var input = Validate(request);
         var provider = await providerResolver.ResolveAsync(
-            LlmPurposes.ConceptExtraction,
+            LlmPurposes.ConceptRevision,
             cancellationToken);
         logger.LogInformation(
-            "Concept revision started. SourceId={SourceId} Scope={Scope} " +
-            "ConceptCount={ConceptCount} EditableCount={EditableCount} " +
+            "Concept revision started. SourceId={SourceId} " +
+            "ConceptCount={ConceptCount} TargetCount={TargetCount} " +
             "Provider={Provider} Model={Model}",
             input.SourceId,
-            input.Scope,
             input.Concepts.Count,
             input.EditableConceptIds.Count,
             provider.ProviderName,
@@ -43,7 +42,6 @@ public sealed class ConceptRevisionService(
         var sourceId = request.SourceId?.Trim() ?? string.Empty;
         var fileName = request.FileName?.Trim() ?? string.Empty;
         var instruction = request.Instruction?.Trim() ?? string.Empty;
-        var scope = request.Scope?.Trim() ?? string.Empty;
         if (sourceId.Length is < 1 or > 100 || fileName.Length is < 1 or > 300)
         {
             throw new ConceptRevisionRequestException(
@@ -59,12 +57,6 @@ public sealed class ConceptRevisionService(
             throw new ConceptRevisionRequestException(
                 "수정 요청사항은 1자에서 4,000자 사이여야 합니다.");
         }
-        if (scope is not ConceptRevisionScopes.Unapproved and
-            not ConceptRevisionScopes.All)
-        {
-            throw new ConceptRevisionRequestException(
-                "수정 범위가 올바르지 않습니다.");
-        }
         if (request.Concepts is null || request.Concepts.Count is < 1 or > 200)
         {
             throw new ConceptRevisionRequestException(
@@ -79,11 +71,13 @@ public sealed class ConceptRevisionService(
             var id = concept.Id?.Trim() ?? string.Empty;
             var title = concept.Title?.Trim() ?? string.Empty;
             var content = concept.Content?.Trim() ?? string.Empty;
+            var importance = concept.Importance?.Trim().ToLowerInvariant() ?? string.Empty;
             var pages = concept.PageNumbers?.Distinct().Order().ToList() ?? [];
             if (id.Length is < 1 or > 100 || !ids.Add(id) ||
                 title.Length is < 1 or > 200 || content.Length is < 1 or > 8_000 ||
                 pages.Count == 0 || pages.Any(page => page < 1 || page > request.PageCount) ||
-                concept.Status is not "held" and not "approved")
+                concept.Status is not "held" and not "approved" ||
+                importance is not "low" and not "medium" and not "high")
             {
                 throw new ConceptRevisionRequestException(
                     "수정할 개념 정보가 올바르지 않습니다.");
@@ -94,7 +88,8 @@ public sealed class ConceptRevisionService(
                 title,
                 content,
                 pages,
-                concept.Status));
+                concept.Status,
+                importance));
         }
         if (totalCharacters > 300_000)
         {
@@ -102,23 +97,33 @@ public sealed class ConceptRevisionService(
                 "수정 요청에 포함된 개념 내용이 너무 깁니다.");
         }
 
-        var editableIds = normalized
-            .Where(concept => scope == ConceptRevisionScopes.All ||
-                concept.Status == "held")
-            .Select(concept => concept.Id)
-            .ToList();
-        if (editableIds.Count == 0)
+        if (request.TargetConceptIds is null ||
+            request.TargetConceptIds.Count is < 1 or > 200)
         {
             throw new ConceptRevisionRequestException(
-                "수정할 미승인 개념이 없습니다. 수정 범위를 '모두'로 변경해 주세요.");
+                "수정할 개념을 하나 이상 선택해 주세요.");
         }
+        var requestedIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var requestedId in request.TargetConceptIds)
+        {
+            var id = requestedId?.Trim() ?? string.Empty;
+            if (id.Length is < 1 or > 100 || !requestedIds.Add(id) ||
+                !ids.Contains(id))
+            {
+                throw new ConceptRevisionRequestException(
+                    "선택한 수정 대상 개념이 올바르지 않습니다.");
+            }
+        }
+        var editableIds = normalized
+            .Where(concept => requestedIds.Contains(concept.Id))
+            .Select(concept => concept.Id)
+            .ToList();
 
         return new ConceptRevisionInput(
             sourceId,
             fileName,
             request.PageCount,
             instruction,
-            scope,
             normalized,
             editableIds,
             ConceptRevisionPrompt.Version);
@@ -144,21 +149,23 @@ public sealed class ConceptRevisionService(
             var id = revision.Id?.Trim() ?? string.Empty;
             var title = revision.Title?.Trim() ?? string.Empty;
             var content = revision.Content?.Trim() ?? string.Empty;
+            var importance = revision.Importance?.Trim().ToLowerInvariant() ?? string.Empty;
             var pages = revision.PageNumbers?.Distinct().Order().ToList() ?? [];
             if (!editable.Contains(id) || !seen.Add(id) ||
                 title.Length is < 1 or > 200 || content.Length is < 1 or > 8_000 ||
-                pages.Count == 0 || pages.Any(page => page < 1 || page > input.PageCount))
+                pages.Count == 0 || pages.Any(page => page < 1 || page > input.PageCount) ||
+                importance is not "low" and not "medium" and not "high")
             {
                 throw new LlmProviderRequestException(
                     "LLM이 올바르지 않은 개념 수정안을 반환했습니다.");
             }
             var original = originals[id];
             if (title == original.Title && content == original.Content &&
-                pages.SequenceEqual(original.PageNumbers))
+                pages.SequenceEqual(original.PageNumbers) && importance == original.Importance)
             {
                 continue;
             }
-            result.Add(new GeneratedConceptRevision(id, title, content, pages));
+            result.Add(new GeneratedConceptRevision(id, title, content, pages, importance));
         }
         return result;
     }

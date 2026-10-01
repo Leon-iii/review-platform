@@ -11,7 +11,7 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v6-scoped-knowledge";
+    public const string PromptVersion = "question-generation-v7-difficulty-assessment";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [
@@ -320,7 +320,7 @@ public sealed class QuestionGenerationService
                     questionNumber);
             }
             if (question.Explanation?.Length > 4_000 ||
-                question.Difficulty is < 1 or > 5)
+                question.Difficulty is null or < 1 or > 5)
             {
                 throw new LlmOutputValidationException(
                     "생성된 문제의 설명 또는 난이도가 올바르지 않습니다.",

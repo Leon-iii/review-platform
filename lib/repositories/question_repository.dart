@@ -290,7 +290,7 @@ class DriftQuestionRepository implements QuestionRepository {
       status: QuestionStatus.fromStorage(row.status),
       prompt: row.prompt,
       explanation: row.explanation,
-      difficulty: row.difficulty,
+      difficulty: row.difficulty ?? 3,
       choices: List.unmodifiable(
         choices.map(
           (choice) => QuestionChoice(

@@ -68,6 +68,12 @@ public sealed class LlmProfileService(
             assignments,
             LlmPurposes.ConceptExtraction,
             fallbackProfile.Id);
+        EnsureAssignment(
+            assignments,
+            LlmPurposes.ConceptRevision,
+            assignments.FirstOrDefault(assignment =>
+                assignment.Purpose == LlmPurposes.QuestionGeneration)?.ProfileId ??
+            fallbackProfile.Id);
 
         var visionProfile = profiles.FirstOrDefault(profile =>
             profile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase) &&

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
@@ -143,7 +144,11 @@ class _ConceptReview extends ConsumerWidget {
                         const SizedBox(height: 16),
                         OutlinedButton.icon(
                           key: const Key('request-concept-revision-button'),
-                          onPressed: () => _requestRevision(context, ref),
+                          onPressed: () => _requestRevision(
+                            context,
+                            ref,
+                            initialSelectedIds: const {},
+                          ),
                           icon: const Icon(Icons.auto_fix_high_rounded),
                           label: const Text('수정 요청'),
                         ),
@@ -162,6 +167,11 @@ class _ConceptReview extends ConsumerWidget {
                     concept: review.concepts[index],
                     folderId: review.source.folderId,
                     provider: provider,
+                    onRequestRevision: () => _requestRevision(
+                      context,
+                      ref,
+                      initialSelectedIds: {review.concepts[index].id},
+                    ),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -173,12 +183,16 @@ class _ConceptReview extends ConsumerWidget {
     );
   }
 
-  Future<void> _requestRevision(BuildContext context, WidgetRef ref) async {
+  Future<void> _requestRevision(
+    BuildContext context,
+    WidgetRef ref, {
+    required Set<String> initialSelectedIds,
+  }) async {
     var instruction = '';
-    var scope = ConceptRevisionScope.unapproved;
+    final selectedIds = Set<String>.of(initialSelectedIds);
     var isSending = false;
     String? errorMessage;
-    final changedCount = await showDialog<int>(
+    final revisions = await showDialog<List<ConceptRevision>>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
@@ -205,32 +219,75 @@ class _ConceptReview extends ConsumerWidget {
                     onChanged: (value) => instruction = value,
                   ),
                   const SizedBox(height: 8),
-                  Text('수정 범위', style: Theme.of(context).textTheme.titleSmall),
-                  RadioGroup<ConceptRevisionScope>(
-                    groupValue: scope,
-                    onChanged: isSending
-                        ? (_) {}
-                        : (value) {
-                            if (value == null) return;
-                            setDialogState(() => scope = value);
-                          },
-                    child: Column(
-                      children: const [
-                        RadioListTile<ConceptRevisionScope>(
-                          key: Key('concept-revision-scope-unapproved'),
-                          contentPadding: EdgeInsets.zero,
-                          title: Text('미승인'),
-                          subtitle: Text('보류된 개념만 수정'),
-                          value: ConceptRevisionScope.unapproved,
+                  Text(
+                    '수정할 개념 (${selectedIds.length}/${review.concepts.length})',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Wrap(
+                      spacing: 4,
+                      children: [
+                        TextButton(
+                          onPressed: isSending
+                              ? null
+                              : () => setDialogState(() {
+                                  selectedIds
+                                    ..clear()
+                                    ..addAll(
+                                      review.concepts.map(
+                                        (concept) => concept.id,
+                                      ),
+                                    );
+                                }),
+                          child: const Text('전체 선택'),
                         ),
-                        RadioListTile<ConceptRevisionScope>(
-                          key: Key('concept-revision-scope-all'),
-                          contentPadding: EdgeInsets.zero,
-                          title: Text('모두'),
-                          subtitle: Text('승인 여부와 관계없이 모든 개념을 수정'),
-                          value: ConceptRevisionScope.all,
+                        TextButton(
+                          onPressed: isSending || selectedIds.isEmpty
+                              ? null
+                              : () => setDialogState(selectedIds.clear),
+                          child: const Text('선택 해제'),
                         ),
                       ],
+                    ),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: review.concepts.length,
+                      itemBuilder: (context, index) {
+                        final concept = review.concepts[index];
+                        return CheckboxListTile(
+                          key: ValueKey(
+                            'concept-revision-target-${concept.id}',
+                          ),
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: Text('${index + 1}. ${concept.title}'),
+                          subtitle: Text(
+                            '${concept.status == ConceptStatus.approved ? '승인됨' : '보류됨'}'
+                            ' · 중요도 ${concept.importance.label}'
+                            ' · p.${concept.pageNumbers.join(', ')}',
+                          ),
+                          value: selectedIds.contains(concept.id),
+                          onChanged: isSending
+                              ? null
+                              : (selected) => setDialogState(() {
+                                  if (selected == true) {
+                                    selectedIds.add(concept.id);
+                                  } else {
+                                    selectedIds.remove(concept.id);
+                                  }
+                                }),
+                        );
+                      },
                     ),
                   ),
                   if (errorMessage != null) ...[
@@ -262,19 +319,25 @@ class _ConceptReview extends ConsumerWidget {
                         );
                         return;
                       }
+                      if (selectedIds.isEmpty) {
+                        setDialogState(
+                          () => errorMessage = '수정할 개념을 하나 이상 선택해 주세요.',
+                        );
+                        return;
+                      }
                       setDialogState(() {
                         isSending = true;
                         errorMessage = null;
                       });
                       try {
-                        final count = await ref
+                        final generated = await ref
                             .read(provider.notifier)
                             .requestConceptRevision(
                               instruction: instruction,
-                              scope: scope,
+                              targetConceptIds: Set<String>.of(selectedIds),
                             );
                         if (dialogContext.mounted) {
-                          Navigator.pop(dialogContext, count);
+                          Navigator.pop(dialogContext, generated);
                         }
                       } catch (error) {
                         if (!dialogContext.mounted) return;
@@ -298,13 +361,233 @@ class _ConceptReview extends ConsumerWidget {
         ),
       ),
     );
-    if (changedCount == null || !context.mounted) return;
+    if (revisions == null || !context.mounted) return;
+    if (revisions.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('수정된 개념이 없어요.')));
+      return;
+    }
+    final shouldApply = await _confirmRevisions(context, revisions);
+    if (shouldApply != true || !context.mounted) return;
+    int changedCount;
+    try {
+      changedCount = await ref
+          .read(provider.notifier)
+          .applyConceptRevisions(revisions);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is AppFailure ? error.message : '개념 수정안을 적용하지 못했어요.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           changedCount == 0
               ? '수정된 개념이 없어요.'
               : '$changedCount개 개념을 수정하고 보류 상태로 변경했어요.',
+        ),
+      ),
+    );
+  }
+
+  Future<bool?> _confirmRevisions(
+    BuildContext context,
+    List<ConceptRevision> revisions,
+  ) {
+    final originals = {
+      for (final concept in review.concepts) concept.id: concept,
+    };
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('AI 수정안 검토'),
+        content: SizedBox(
+          width: 680,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 560),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: revisions.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final revision = revisions[index];
+                final original = originals[revision.id];
+                if (original == null) return const SizedBox.shrink();
+                final originalNumber = review.concepts.indexWhere(
+                  (concept) => concept.id == revision.id,
+                );
+                return _ConceptRevisionPreview(
+                  number: originalNumber + 1,
+                  original: original,
+                  revision: revision,
+                );
+              },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('cancel-concept-revisions-button'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton.icon(
+            key: const Key('apply-concept-revisions-button'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.check_rounded),
+            label: const Text('수정안 적용'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConceptRevisionPreview extends StatelessWidget {
+  const _ConceptRevisionPreview({
+    required this.number,
+    required this.original,
+    required this.revision,
+  });
+
+  final int number;
+  final StudyConcept original;
+  final ConceptRevision revision;
+
+  @override
+  Widget build(BuildContext context) {
+    final changes = <Widget>[];
+    if (original.title != revision.title) {
+      changes.add(
+        _RevisionField(
+          label: '제목',
+          before: original.title,
+          after: revision.title,
+        ),
+      );
+    }
+    if (original.content != revision.content) {
+      changes.add(
+        _RevisionField(
+          label: '내용',
+          before: original.content,
+          after: revision.content,
+        ),
+      );
+    }
+    final originalPages = original.pageNumbers.join(', ');
+    final revisedPages = revision.pageNumbers.join(', ');
+    if (originalPages != revisedPages) {
+      changes.add(
+        _RevisionField(
+          label: '페이지',
+          before: originalPages,
+          after: revisedPages,
+        ),
+      );
+    }
+    if (original.importance != revision.importance) {
+      changes.add(
+        _RevisionField(
+          label: '중요도',
+          before: original.importance.label,
+          after: revision.importance.label,
+        ),
+      );
+    }
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '$number. ${original.title}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < changes.length; index++) ...[
+              changes[index],
+              if (index != changes.length - 1) const SizedBox(height: 12),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RevisionField extends StatelessWidget {
+  const _RevisionField({
+    required this.label,
+    required this.before,
+    required this.after,
+  });
+
+  final String label;
+  final String before;
+  final String after;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 6),
+        _RevisionValue(
+          label: '변경 전',
+          value: before,
+          color: colorScheme.errorContainer.withValues(alpha: 0.45),
+        ),
+        const SizedBox(height: 6),
+        _RevisionValue(
+          label: '변경 후',
+          value: after,
+          color: colorScheme.primaryContainer.withValues(alpha: 0.55),
+        ),
+      ],
+    );
+  }
+}
+
+class _RevisionValue extends StatelessWidget {
+  const _RevisionValue({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.labelMedium),
+            const SizedBox(height: 4),
+            SelectableText(value),
+          ],
         ),
       ),
     );
@@ -317,12 +600,14 @@ class _ConceptCard extends ConsumerWidget {
     required this.concept,
     required this.folderId,
     required this.provider,
+    required this.onRequestRevision,
   });
 
   final int number;
   final StudyConcept concept;
   final String folderId;
   final DocumentImportControllerProvider provider;
+  final VoidCallback onRequestRevision;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -344,6 +629,7 @@ class _ConceptCard extends ConsumerWidget {
                         key: ValueKey('concept-status-${concept.id}'),
                         status: concept.status,
                       ),
+                      Chip(label: Text('중요도 ${concept.importance.label}')),
                       Chip(label: Text('p.${concept.pageNumbers.join(', ')}')),
                     ],
                   ),
@@ -390,6 +676,13 @@ class _ConceptCard extends ConsumerWidget {
                 ref.read(provider.notifier).setApproved(concept.id, value);
               },
             ),
+            OutlinedButton.icon(
+              key: ValueKey('request-concept-revision-${concept.id}'),
+              onPressed: onRequestRevision,
+              icon: const Icon(Icons.auto_fix_high_rounded),
+              label: const Text('AI 수정 요청'),
+            ),
+            const SizedBox(height: 8),
             if (concept.status == ConceptStatus.approved)
               FilledButton.icon(
                 onPressed: () => context.push(
@@ -407,49 +700,75 @@ class _ConceptCard extends ConsumerWidget {
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
     var title = concept.title;
     var content = concept.content;
+    var importance = concept.importance;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('개념 수정'),
-        content: SizedBox(
-          width: 560,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  initialValue: concept.title,
-                  decoration: const InputDecoration(labelText: '제목'),
-                  onChanged: (value) => title = value,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  initialValue: concept.content,
-                  minLines: 4,
-                  maxLines: 10,
-                  decoration: const InputDecoration(labelText: '내용'),
-                  onChanged: (value) => content = value,
-                ),
-              ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('개념 수정'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    initialValue: concept.title,
+                    decoration: const InputDecoration(labelText: '제목'),
+                    onChanged: (value) => title = value,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    initialValue: concept.content,
+                    minLines: 4,
+                    maxLines: 10,
+                    decoration: const InputDecoration(labelText: '내용'),
+                    onChanged: (value) => content = value,
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<ConceptImportance>(
+                    key: const Key('concept-importance-field'),
+                    initialValue: importance,
+                    decoration: const InputDecoration(labelText: '중요도'),
+                    items: [
+                      for (final value in ConceptImportance.values)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setDialogState(() => importance = value);
+                      }
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('저장'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('저장'),
-          ),
-        ],
       ),
     );
     if (confirmed == true) {
       await ref
           .read(provider.notifier)
-          .updateConcept(conceptId: concept.id, title: title, content: content);
+          .updateConcept(
+            conceptId: concept.id,
+            title: title,
+            content: content,
+            importance: importance,
+          );
     }
   }
 
@@ -495,7 +814,7 @@ class _ConceptStatusBadge extends StatelessWidget {
             ? const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xFF43A047), Color(0xFF1B5E20)],
+                colors: [Color(0xFF66BB6A), Color(0xFF388E3C)],
               )
             : null,
         borderRadius: BorderRadius.circular(999),

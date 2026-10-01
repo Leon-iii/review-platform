@@ -52,7 +52,7 @@ builder.Services.AddHttpClient("openai", client =>
 });
 builder.Services.AddHttpClient("ollama", client =>
 {
-    client.Timeout = TimeSpan.FromMinutes(5);
+    client.Timeout = TimeSpan.FromMinutes(10);
 });
 
 var app = builder.Build();

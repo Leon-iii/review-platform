@@ -15,6 +15,7 @@ import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/domain/models/study_source.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/core/server/local_server_config.dart';
 import 'package:review_platform/core/server/local_server_service.dart';
@@ -257,6 +258,7 @@ void main() {
       find.byKey(const Key('question-prompt-field')),
       '전기장의 SI 단위는?',
     );
+    expect(find.byKey(const Key('question-difficulty-field')), findsOneWidget);
     await tester.enterText(find.byKey(const Key('choice-field-0')), 'V/m');
     await tester.enterText(find.byKey(const Key('choice-field-1')), 'A/m');
     await tester.enterText(find.byKey(const Key('choice-field-2')), 'T');
@@ -425,6 +427,7 @@ void main() {
         title: saved.concepts.first.title,
         content: '전기장과 자기장의 관계를 더 자연스럽게 설명한다.',
         pageNumbers: saved.concepts.first.pageNumbers,
+        importance: ConceptImportance.high,
       ),
     );
     await tester.pumpWidget(buildApp(remoteDocumentApi: remoteDocumentApi));
@@ -462,9 +465,11 @@ void main() {
     expect(find.text('2. 전자기파'), findsOneWidget);
     expect(find.text('자료 목록'), findsNothing);
     expect(find.text('보류됨'), findsNWidgets(2));
+    expect(find.text('중요도 보통'), findsNWidgets(2));
     expect(find.text('Draft'), findsNothing);
     expect(find.text('수정 후 승인'), findsNothing);
     expect(find.byTooltip('개념 메뉴'), findsNWidgets(2));
+    expect(find.text('AI 수정 요청'), findsNWidgets(2));
 
     await tester.tap(find.byTooltip('개념 메뉴').first);
     await tester.pumpAndSettle();
@@ -491,24 +496,57 @@ void main() {
     );
     final approvedDecoration = approvedBadge.decoration as BoxDecoration;
     expect(approvedDecoration.gradient, isA<LinearGradient>());
+    expect((approvedDecoration.gradient! as LinearGradient).colors, const [
+      Color(0xFF66BB6A),
+      Color(0xFF388E3C),
+    ]);
 
+    final perConceptRevisionButton = find.byKey(
+      ValueKey('request-concept-revision-$firstConceptId'),
+    );
+    await tester.ensureVisible(perConceptRevisionButton);
+    await tester.tap(perConceptRevisionButton);
+    await tester.pumpAndSettle();
+    var targetTile = tester.widget<CheckboxListTile>(
+      find.byKey(ValueKey('concept-revision-target-$firstConceptId')),
+    );
+    expect(targetTile.value, isTrue);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('request-concept-revision-button')),
+    );
     await tester.tap(find.byKey(const Key('request-concept-revision-button')));
     await tester.pumpAndSettle();
-    final scopeGroup = tester.widget<RadioGroup<ConceptRevisionScope>>(
-      find.byType(RadioGroup<ConceptRevisionScope>),
+    expect(find.text('미승인'), findsNothing);
+    expect(find.text('모두'), findsNothing);
+    targetTile = tester.widget<CheckboxListTile>(
+      find.byKey(ValueKey('concept-revision-target-$firstConceptId')),
     );
-    expect(scopeGroup.groupValue, ConceptRevisionScope.unapproved);
+    expect(targetTile.value, isFalse);
     await tester.enterText(
       find.byKey(const Key('concept-revision-instruction-field')),
       '설명을 더 자연스럽게 고쳐 줘.',
     );
-    await tester.tap(find.byKey(const Key('concept-revision-scope-all')));
+    await tester.tap(
+      find.byKey(ValueKey('concept-revision-target-$firstConceptId')),
+    );
     await tester.tap(find.byKey(const Key('send-concept-revision-button')));
     await tester.pumpAndSettle();
 
     expect(remoteDocumentApi.capturedConcepts, hasLength(2));
     expect(remoteDocumentApi.capturedInstruction, '설명을 더 자연스럽게 고쳐 줘.');
-    expect(remoteDocumentApi.capturedScope, ConceptRevisionScope.all);
+    expect(remoteDocumentApi.capturedTargetConceptIds, {firstConceptId});
+    expect(find.text('AI 수정안 검토'), findsOneWidget);
+    expect(find.text('변경 전'), findsNWidgets(2));
+    expect(find.text('변경 후'), findsNWidgets(2));
+    expect(find.text('승인됨'), findsOneWidget);
+    expect(find.text('수정안 적용'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('apply-concept-revisions-button')));
+    await tester.pumpAndSettle();
+
     expect(find.text('승인됨'), findsNothing);
     expect(find.text('보류됨'), findsNWidgets(2));
     expect(find.text('1개 개념을 수정하고 보류 상태로 변경했어요.'), findsOneWidget);
@@ -571,6 +609,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('✓ 정답'), findsWidgets);
+    expect(find.text('난이도 2/5'), findsWidgets);
     expect(find.text('오답'), findsWidgets);
     expect(find.text('○ 오답'), findsNothing);
     expect(find.text('✓ O'), findsOneWidget);
@@ -660,7 +699,7 @@ class _FakeRemoteDocumentApi implements RemoteDocumentApi {
   final ConceptRevision revision;
   List<StudyConcept>? capturedConcepts;
   String? capturedInstruction;
-  ConceptRevisionScope? capturedScope;
+  Set<String>? capturedTargetConceptIds;
 
   @override
   Future<void> deletePdf({
@@ -681,11 +720,11 @@ class _FakeRemoteDocumentApi implements RemoteDocumentApi {
     required StudySource source,
     required List<StudyConcept> concepts,
     required String instruction,
-    required ConceptRevisionScope scope,
+    required Set<String> targetConceptIds,
   }) async {
     capturedConcepts = List.of(concepts);
     capturedInstruction = instruction;
-    capturedScope = scope;
+    capturedTargetConceptIds = Set.of(targetConceptIds);
     return [revision];
   }
 }

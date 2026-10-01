@@ -68,8 +68,8 @@ class AiGeneratedQuestion {
     required this.choices,
     required this.acceptableAnswers,
     required this.sourceIds,
+    required this.difficulty,
     this.explanation,
-    this.difficulty,
   });
 
   final QuestionType type;
@@ -77,7 +77,7 @@ class AiGeneratedQuestion {
   final List<AiGeneratedChoice> choices;
   final List<String> acceptableAnswers;
   final String? explanation;
-  final int? difficulty;
+  final int difficulty;
   final List<String> sourceIds;
 }
 

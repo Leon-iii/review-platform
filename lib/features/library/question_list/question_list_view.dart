@@ -399,17 +399,24 @@ class _QuestionCard extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        subtitle: Text(
-          '${switch (question.type) {
-            QuestionType.multipleChoice => '객관식',
-            QuestionType.trueFalse => 'O/X',
-            QuestionType.shortAnswer => '단답형',
-            QuestionType.essay => '서술형',
-          }}'
-          '${question.status.name == 'draft' ? ' · Draft' : ''}'
-          '${question.sourceReferences.isEmpty ? '' : '\n${_sourceLabel(question.sourceReferences.first)}'}',
+        subtitle: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${switch (question.type) {
+                QuestionType.multipleChoice => '객관식',
+                QuestionType.trueFalse => 'O/X',
+                QuestionType.shortAnswer => '단답형',
+                QuestionType.essay => '서술형',
+              }}${question.status.name == 'draft' ? ' · Draft' : ''}',
+            ),
+            Text('난이도 ${question.difficulty}/5'),
+            if (question.sourceReferences.isNotEmpty)
+              Text(_sourceLabel(question.sourceReferences.first)),
+          ],
         ),
-        isThreeLine: question.sourceReferences.isNotEmpty,
+        isThreeLine: true,
         trailing: PopupMenuButton<_QuestionAction>(
           tooltip: '문제 메뉴',
           onSelected: (action) {

@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
@@ -264,6 +265,7 @@ class DriftSyncRepository implements SyncRepository {
                   'content': row.content,
                   'pageNumbers': jsonDecode(row.pageNumbersJson),
                   'status': row.status,
+                  'importance': row.importance,
                   'createdAt': row.createdAt.toUtc().toIso8601String(),
                   'updatedAt': row.updatedAt.toUtc().toIso8601String(),
                 },
@@ -471,6 +473,9 @@ class DriftSyncRepository implements SyncRepository {
         final normalizedStatus = remoteStatus == 'approved'
             ? ConceptStatus.approved.name
             : ConceptStatus.held.name;
+        final normalizedImportance = ConceptImportance.fromStorage(
+          payload['importance'] as String?,
+        ).name;
         final existing = await _database.sourceDao.getConcept(change.entityId);
         if (existing != null &&
             existing.updatedAt.toUtc().isAfter(change.updatedAt)) {
@@ -484,6 +489,7 @@ class DriftSyncRepository implements SyncRepository {
             content: payload['content']! as String,
             pageNumbersJson: jsonEncode(payload['pageNumbers']),
             status: normalizedStatus,
+            importance: Value(normalizedImportance),
             createdAt: _date(payload, 'createdAt'),
             updatedAt: change.updatedAt,
           ),

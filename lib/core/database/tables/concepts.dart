@@ -15,6 +15,8 @@ class Concepts extends Table {
 
   TextColumn get status => text()();
 
+  TextColumn get importance => text().withDefault(const Constant('medium'))();
+
   DateTimeColumn get createdAt => dateTime()();
 
   DateTimeColumn get updatedAt => dateTime()();

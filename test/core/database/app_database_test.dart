@@ -476,6 +476,59 @@ void main() {
     );
     expect(reference.readNullable<String>('concept_id'), isNull);
   });
+
+  test('v9 Concept에 기본 중요도 보통을 추가한다', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'review_platform_concept_v10_migration_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final databaseFile = File('${tempDirectory.path}/migration.sqlite');
+
+    final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    legacyDatabase.execute('''
+      CREATE TABLE sources (
+        id TEXT NOT NULL PRIMARY KEY,
+        folder_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        page_count INTEGER NOT NULL,
+        extraction_method TEXT NOT NULL,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      CREATE TABLE concepts (
+        id TEXT NOT NULL PRIMARY KEY,
+        source_id TEXT NOT NULL REFERENCES sources(id),
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        page_numbers_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO sources VALUES (
+        'source-1', 'folder-1', '자료.pdf', 'hash', 1, 'textLayer', 0
+      )
+    ''');
+    legacyDatabase.execute('''
+      INSERT INTO concepts VALUES (
+        'concept-1', 'source-1', '핵심 개념', '내용', '[1]', 'approved', 0, 0
+      )
+    ''');
+    legacyDatabase.execute('PRAGMA user_version = 9');
+    legacyDatabase.close();
+
+    final database = AppDatabase(NativeDatabase(databaseFile));
+    addTearDown(database.close);
+
+    final concept = await database
+        .customSelect('SELECT importance FROM concepts')
+        .getSingle();
+    expect(concept.read<String>('importance'), 'medium');
+  });
 }
 
 void _createV4CoreTables(sqlite.Database database) {

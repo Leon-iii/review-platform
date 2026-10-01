@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 
@@ -23,7 +24,7 @@ abstract interface class RemoteDocumentApi {
     required StudySource source,
     required List<StudyConcept> concepts,
     required String instruction,
-    required ConceptRevisionScope scope,
+    required Set<String> targetConceptIds,
   });
 }
 
@@ -130,7 +131,7 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
     required StudySource source,
     required List<StudyConcept> concepts,
     required String instruction,
-    required ConceptRevisionScope scope,
+    required Set<String> targetConceptIds,
   }) async {
     http.Response response;
     try {
@@ -146,7 +147,7 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
               'fileName': source.fileName,
               'pageCount': source.pageCount,
               'instruction': instruction,
-              'scope': scope.wireValue,
+              'targetConceptIds': targetConceptIds.toList(growable: false),
               'concepts': [
                 for (final concept in concepts)
                   {
@@ -155,11 +156,12 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
                     'content': concept.content,
                     'pageNumbers': concept.pageNumbers,
                     'status': concept.status.name,
+                    'importance': concept.importance.name,
                   },
               ],
             }),
           )
-          .timeout(const Duration(minutes: 10));
+          .timeout(const Duration(minutes: 12));
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
         NetworkFailure('개념 수정 서버에 연결할 수 없어요.', cause: error),
@@ -194,6 +196,7 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
       pageNumbers: [
         for (final page in json['pageNumbers']! as List) (page as num).toInt(),
       ],
+      importance: ConceptImportance.fromStorage(json['importance'] as String?),
     );
   }
 
@@ -204,6 +207,7 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
     pageNumbers: [
       for (final page in json['pageNumbers']! as List) (page as num).toInt(),
     ],
+    importance: ConceptImportance.fromStorage(json['importance'] as String?),
   );
 
   Map<String, Object?> _decode(

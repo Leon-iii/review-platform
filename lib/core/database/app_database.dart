@@ -54,7 +54,7 @@ final class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'review_platform'));
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -105,6 +105,9 @@ final class AppDatabase extends _$AppDatabase {
         await customStatement(
           "UPDATE concepts SET status = 'held' WHERE status != 'approved'",
         );
+      }
+      if (from >= 8 && from < 10) {
+        await migrator.addColumn(concepts, concepts.importance);
       }
     },
     beforeOpen: (details) async {

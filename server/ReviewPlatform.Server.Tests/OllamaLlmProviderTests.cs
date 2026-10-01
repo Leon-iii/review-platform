@@ -78,6 +78,15 @@ public sealed class OllamaLlmProviderTests
             .GetProperty("properties")
             .GetProperty("questions")
             .GetProperty("minItems").GetInt32());
+        var questionSchema = root.GetProperty("format")
+            .GetProperty("properties")
+            .GetProperty("questions")
+            .GetProperty("items")
+            .GetProperty("properties");
+        Assert.Equal("integer", questionSchema.GetProperty("difficulty")
+            .GetProperty("type").GetString());
+        Assert.Contains("After drafting each question", root.GetProperty("messages")[0]
+            .GetProperty("content").GetString());
         Assert.Contains("가우스 법칙", root.GetProperty("messages")[1]
             .GetProperty("content").GetString());
         Assert.DoesNotContain("추론", JsonSerializer.Serialize(questions));
@@ -94,7 +103,8 @@ public sealed class OllamaLlmProviderTests
                 {
                     title = "가우스 법칙",
                     content = "전기선속과 내부 전하의 관계를 폐곡면을 기준으로 설명한다.",
-                    pageNumbers = new[] { 2, 3 }
+                    pageNumbers = new[] { 2, 3 },
+                    importance = "high"
                 }
             }
         });
@@ -133,6 +143,7 @@ public sealed class OllamaLlmProviderTests
         Assert.Equal("가우스 법칙", concept.Title);
         Assert.Contains("폐곡면", concept.Content);
         Assert.Equal([2, 3], concept.PageNumbers);
+        Assert.Equal("high", concept.Importance);
         var chatRequest = Assert.Single(handler.Requests,
             request => request.Path == "/api/chat");
         using var body = JsonDocument.Parse(chatRequest.Body!);
@@ -144,12 +155,31 @@ public sealed class OllamaLlmProviderTests
             .GetProperty("content").GetString());
         Assert.Contains("[PAGE 2]", body.RootElement.GetProperty("messages")[1]
             .GetProperty("content").GetString());
+        Assert.Contains("Memorization load", systemPrompt);
+        Assert.Contains("Required recall precision", systemPrompt);
+        Assert.Contains("independent memorization elements", systemPrompt);
+        Assert.DoesNotContain("MIPS", systemPrompt);
+        Assert.Equal("string", body.RootElement.GetProperty("format")
+            .GetProperty("properties")
+            .GetProperty("concepts")
+            .GetProperty("items")
+            .GetProperty("properties")
+            .GetProperty("importance")
+            .GetProperty("type")
+            .GetString());
         Assert.DoesNotContain("추론", JsonSerializer.Serialize(concepts));
     }
 
     [Fact]
     public async Task ReviseConcepts_SendsAllConceptsAndRestrictsEditableIds()
     {
+        Assert.DoesNotContain("MIPS", ConceptRevisionPrompt.SystemPrompt);
+        Assert.DoesNotContain("differential", ConceptRevisionPrompt.SystemPrompt);
+        Assert.Contains("smallest possible change", ConceptRevisionPrompt.SystemPrompt);
+        Assert.Contains("Preserve pageNumbers and importance exactly",
+            ConceptRevisionPrompt.SystemPrompt);
+        Assert.DoesNotContain("MIPS", ConceptExtractionPrompt.SystemPrompt);
+
         var generatedJson = JsonSerializer.Serialize(new
         {
             revisions = new[]
@@ -159,7 +189,8 @@ public sealed class OllamaLlmProviderTests
                     id = "held-1",
                     title = "가우스 법칙",
                     content = "폐곡면을 기준으로 전기선속과 전하의 관계를 설명한다.",
-                    pageNumbers = new[] { 2, 3 }
+                    pageNumbers = new[] { 2, 3 },
+                    importance = "high"
                 }
             }
         });
@@ -183,7 +214,6 @@ public sealed class OllamaLlmProviderTests
             "전자기학.pdf",
             10,
             "설명을 자연스럽게 고쳐 줘.",
-            ConceptRevisionScopes.Unapproved,
             [
                 new ConceptRevisionContext(
                     "held-1", "가우스 법칙", "전기선속과 전하의 관계", [2, 3], "held"),
@@ -197,7 +227,9 @@ public sealed class OllamaLlmProviderTests
             input,
             TestContext.Current.CancellationToken);
 
-        Assert.Equal("held-1", Assert.Single(revisions).Id);
+        var revision = Assert.Single(revisions);
+        Assert.Equal("held-1", revision.Id);
+        Assert.Equal("high", revision.Importance);
         var chatRequest = Assert.Single(handler.Requests,
             request => request.Path == "/api/chat");
         using var body = JsonDocument.Parse(chatRequest.Body!);
@@ -206,6 +238,15 @@ public sealed class OllamaLlmProviderTests
             .GetProperty("content").GetString();
         Assert.Contains("held-1", userPrompt);
         Assert.Contains("approved-1", userPrompt);
+        Assert.Contains("\"number\":1", userPrompt);
+        Assert.DoesNotContain("두 전하 사이의 힘", userPrompt);
+        Assert.DoesNotContain("Return JSON matching this schema", userPrompt);
+        Assert.False(root.GetProperty("think").GetBoolean());
+        Assert.Equal("10m", root.GetProperty("keep_alive").GetString());
+        Assert.Equal(8_192,
+            root.GetProperty("options").GetProperty("num_ctx").GetInt32());
+        Assert.Equal(2_432,
+            root.GetProperty("options").GetProperty("num_predict").GetInt32());
         var idValues = root.GetProperty("format")
             .GetProperty("properties")
             .GetProperty("revisions")

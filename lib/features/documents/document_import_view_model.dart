@@ -2,6 +2,7 @@ import 'package:review_platform/core/documents/document_providers.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -72,15 +73,22 @@ class DocumentImportController extends _$DocumentImportController {
     required String conceptId,
     required String title,
     required String content,
+    required ConceptImportance importance,
   }) async {
     await ref
         .read(sourceRepositoryProvider)
-        .updateConcept(id: conceptId, title: title, content: content);
+        .updateConcept(
+          id: conceptId,
+          title: title,
+          content: content,
+          importance: importance,
+        );
     _updateConcept(
       conceptId,
       (concept) => concept.copyWith(
         title: title.trim(),
         content: content.trim(),
+        importance: importance,
         updatedAt: DateTime.now().toUtc(),
       ),
     );
@@ -100,9 +108,9 @@ class DocumentImportController extends _$DocumentImportController {
     );
   }
 
-  Future<int> requestConceptRevision({
+  Future<List<ConceptRevision>> requestConceptRevision({
     required String instruction,
-    required ConceptRevisionScope scope,
+    required Set<String> targetConceptIds,
   }) async {
     final current = state.value;
     if (current == null) {
@@ -112,21 +120,31 @@ class DocumentImportController extends _$DocumentImportController {
     if (normalizedInstruction.isEmpty) {
       throw const ValidationFailure('수정 요청사항을 입력해 주세요.');
     }
+    if (targetConceptIds.isEmpty) {
+      throw const ValidationFailure('수정할 개념을 하나 이상 선택해 주세요.');
+    }
     final configuration = await ref
         .read(syncCredentialsStoreProvider)
         .readConfiguration();
     if (configuration == null) {
       throw const ValidationFailure('설정에서 개인 서버 주소와 접근 토큰을 먼저 저장해 주세요.');
     }
-    final revisions = await ref
+    return ref
         .read(remoteDocumentApiProvider)
         .reviseConcepts(
           configuration: configuration,
           source: current.source,
           concepts: current.concepts,
           instruction: normalizedInstruction,
-          scope: scope,
+          targetConceptIds: targetConceptIds,
         );
+  }
+
+  Future<int> applyConceptRevisions(List<ConceptRevision> revisions) async {
+    final current = state.value;
+    if (current == null) {
+      throw const ValidationFailure('수정할 PDF 강의자료를 찾을 수 없어요.');
+    }
     final result = await ref
         .read(sourceRepositoryProvider)
         .applyConceptRevisions(

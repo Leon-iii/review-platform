@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 
@@ -36,6 +37,7 @@ void main() {
                 'title': '가우스 법칙',
                 'content': '전기선속과 전하의 관계를 폐곡면을 기준으로 설명한다.',
                 'pageNumbers': [3, 4],
+                'importance': 'high',
                 'status': 'held',
               },
             ],
@@ -59,6 +61,7 @@ void main() {
     expect(result.source.pageCount, 12);
     expect(result.concepts.single.content, contains('폐곡면'));
     expect(result.concepts.single.pageNumbers, [3, 4]);
+    expect(result.concepts.single.importance, ConceptImportance.high);
   });
 
   test('PDF 처리 오류의 안전한 서버 메시지를 전달한다', () async {
@@ -117,6 +120,7 @@ void main() {
                 'title': '수정된 가우스 법칙',
                 'content': '폐곡면을 기준으로 전기선속과 전하의 관계를 설명한다.',
                 'pageNumbers': [3, 4],
+                'importance': 'high',
               },
             ],
           }),
@@ -163,18 +167,20 @@ void main() {
       source: source,
       concepts: concepts,
       instruction: '설명을 더 자연스럽게 고쳐 줘.',
-      scope: ConceptRevisionScope.unapproved,
+      targetConceptIds: const {'concept-1'},
     );
 
     expect(captured.method, 'POST');
     expect(captured.url.path, '/api/documents/concepts/revise');
     expect(captured.headers['x-sync-token'], 'private-token');
     final body = jsonDecode(captured.body) as Map<String, dynamic>;
-    expect(body['scope'], 'unapproved');
+    expect(body.containsKey('scope'), isFalse);
+    expect(body['targetConceptIds'], ['concept-1']);
     expect(body['instruction'], '설명을 더 자연스럽게 고쳐 줘.');
     expect(body['concepts'], hasLength(2));
     expect((body['concepts'] as List).last['status'], 'approved');
     expect(revisions.single.title, '수정된 가우스 법칙');
     expect(revisions.single.pageNumbers, [3, 4]);
+    expect(revisions.single.importance, ConceptImportance.high);
   });
 }

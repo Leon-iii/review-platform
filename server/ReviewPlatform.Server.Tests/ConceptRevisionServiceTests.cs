@@ -9,7 +9,7 @@ namespace ReviewPlatform.Server.Tests;
 public sealed class ConceptRevisionServiceTests
 {
     [Fact]
-    public async Task Revise_UnapprovedScopeSendsAllConceptsAndReturnsOnlyActualChanges()
+    public async Task Revise_SelectedTargetsSendAllConceptsAndReturnOnlyActualChanges()
     {
         var provider = new FakeProvider(input =>
         [
@@ -17,7 +17,8 @@ public sealed class ConceptRevisionServiceTests
                 "held-1",
                 "가우스 법칙",
                 "폐곡면의 전기선속과 내부 전하의 관계를 설명한다.",
-                [4, 3]),
+                [4, 3],
+                "high"),
             new GeneratedConceptRevision(
                 "held-2",
                 "전위",
@@ -36,10 +37,11 @@ public sealed class ConceptRevisionServiceTests
         var revision = Assert.Single(response.Revisions);
         Assert.Equal("held-1", revision.Id);
         Assert.Equal([3, 4], revision.PageNumbers);
+        Assert.Equal("high", revision.Importance);
     }
 
     [Fact]
-    public async Task Revise_RejectsRevisionForApprovedConceptInUnapprovedScope()
+    public async Task Revise_RejectsRevisionForUnselectedConcept()
     {
         var provider = new FakeProvider(_ =>
         [
@@ -69,7 +71,7 @@ public sealed class ConceptRevisionServiceTests
         "전자기학.pdf",
         10,
         "설명을 더 자연스럽게 수정해 줘.",
-        ConceptRevisionScopes.Unapproved,
+        ["held-1", "held-2"],
         [
             new ConceptRevisionContext(
                 "held-1",
@@ -90,6 +92,21 @@ public sealed class ConceptRevisionServiceTests
                 [5],
                 "approved")
         ]);
+
+    [Fact]
+    public async Task Revise_RejectsUnknownTargetConcept()
+    {
+        var provider = new FakeProvider(_ => []);
+        var service = CreateService(provider);
+        var request = Request() with { TargetConceptIds = ["missing"] };
+
+        var exception = await Assert.ThrowsAsync<ConceptRevisionRequestException>(
+            () => service.ReviseAsync(
+                request,
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains("수정 대상", exception.Message);
+    }
 
     private sealed class FakeProvider(
         Func<ConceptRevisionInput, IReadOnlyList<GeneratedConceptRevision>> result)

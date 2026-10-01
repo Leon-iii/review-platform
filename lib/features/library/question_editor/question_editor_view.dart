@@ -68,6 +68,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
   late final List<TextEditingController> _answerControllers;
   late QuestionType _type;
   late int _correctChoiceIndex;
+  late int _difficulty;
   bool _isSaving = false;
 
   @override
@@ -75,6 +76,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
     super.initState();
     final question = widget.initialQuestion;
     _type = question?.type ?? QuestionType.multipleChoice;
+    _difficulty = question?.difficulty ?? 3;
     _promptController = TextEditingController(text: question?.prompt ?? '');
     _explanationController = TextEditingController(
       text: question?.explanation ?? '',
@@ -178,6 +180,25 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                     QuestionType.shortAnswer => _buildShortAnswerFields(),
                     QuestionType.essay => const Text('서술형 문제는 아직 지원하지 않아요.'),
                   },
+                  const SizedBox(height: 24),
+                  DropdownButtonFormField<int>(
+                    key: const Key('question-difficulty-field'),
+                    initialValue: _difficulty,
+                    decoration: const InputDecoration(
+                      labelText: '난이도',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 1, child: Text('1 · 매우 쉬움')),
+                      DropdownMenuItem(value: 2, child: Text('2 · 쉬움')),
+                      DropdownMenuItem(value: 3, child: Text('3 · 보통')),
+                      DropdownMenuItem(value: 4, child: Text('4 · 어려움')),
+                      DropdownMenuItem(value: 5, child: Text('5 · 매우 어려움')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => _difficulty = value);
+                    },
+                  ),
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _explanationController,
@@ -376,6 +397,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       type: _type,
       prompt: _promptController.text,
       explanation: _explanationController.text,
+      difficulty: _difficulty,
       choices: switch (_type) {
         QuestionType.multipleChoice => [
           for (var index = 0; index < _choiceControllers.length; index++)

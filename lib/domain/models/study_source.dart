@@ -1,4 +1,5 @@
 import 'package:review_platform/domain/enums/concept_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 
 class StudySource {
   const StudySource({
@@ -30,6 +31,7 @@ class StudyConcept {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    this.importance = ConceptImportance.medium,
   });
 
   final String id;
@@ -38,6 +40,7 @@ class StudyConcept {
   final String content;
   final List<int> pageNumbers;
   final ConceptStatus status;
+  final ConceptImportance importance;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -46,6 +49,7 @@ class StudyConcept {
     String? content,
     List<int>? pageNumbers,
     ConceptStatus? status,
+    ConceptImportance? importance,
     DateTime? updatedAt,
   }) {
     return StudyConcept(
@@ -55,6 +59,7 @@ class StudyConcept {
       content: content ?? this.content,
       pageNumbers: pageNumbers ?? this.pageNumbers,
       status: status ?? this.status,
+      importance: importance ?? this.importance,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -68,27 +73,20 @@ class StudySourceWithConcepts {
   final List<StudyConcept> concepts;
 }
 
-enum ConceptRevisionScope {
-  unapproved('unapproved'),
-  all('all');
-
-  const ConceptRevisionScope(this.wireValue);
-
-  final String wireValue;
-}
-
 class ConceptRevision {
   const ConceptRevision({
     required this.id,
     required this.title,
     required this.content,
     required this.pageNumbers,
+    required this.importance,
   });
 
   final String id;
   final String title;
   final String content;
   final List<int> pageNumbers;
+  final ConceptImportance importance;
 }
 
 class ConceptRevisionApplyResult {
@@ -182,9 +180,11 @@ class ImportedConcept {
     required this.title,
     required this.content,
     required this.pageNumbers,
+    this.importance = ConceptImportance.medium,
   });
 
   final String title;
   final String content;
   final List<int> pageNumbers;
+  final ConceptImportance importance;
 }
