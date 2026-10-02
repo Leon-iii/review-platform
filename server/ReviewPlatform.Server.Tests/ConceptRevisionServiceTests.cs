@@ -149,6 +149,92 @@ public sealed class ConceptRevisionServiceTests
         Assert.Null(provider.LastInput);
     }
 
+    [Fact]
+    public async Task Revise_AdditionsOnlyWorksForEmptyMaterialAndDoesNotInventIdsOrPages()
+    {
+        var provider = new FakeProvider(_ => [new GeneratedConceptRevision(
+            "", "새 개념", "요청한 새로운 주제의 내용", [], "veryHigh", Kind: "add")]);
+        var request = Request() with { Concepts = [], TargetConceptIds = [], PageCount = 0, AllowAdditions = true };
+        var response = await CreateService(provider).ReviseAsync(request, TestContext.Current.CancellationToken);
+        Assert.Empty(response.Revisions);
+        Assert.Empty(response.Deletions);
+        Assert.Empty(Assert.Single(response.Additions).PageNumbers);
+        Assert.True(provider.LastInput!.AllowAdditions);
+        var schema = ConceptRevisionPrompt.BuildSchema(provider.LastInput);
+        Assert.Equal(0, schema["properties"]!["revisions"]!["maxItems"]!.GetValue<int>());
+        Assert.Equal(20, schema["properties"]!["additions"]!["maxItems"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("delete")]
+    public async Task Revise_RejectsUnpermittedStructuralChanges(string kind)
+    {
+        var provider = new FakeProvider(_ => [new GeneratedConceptRevision(
+            kind == "add" ? "" : "held-1", "새 제목", "새 내용", [], Kind: kind, Reason: "요청한 변경")]);
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateService(provider).ReviseAsync(Request(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Revise_ReturnsReplacementGroupAndExplicitDeletionReason()
+    {
+        var provider = new FakeProvider(_ => [
+            new GeneratedConceptRevision("held-1", "", "", [], GroupId: "split", Kind: "delete", Reason: "개념 분할 요청"),
+            new GeneratedConceptRevision("", "분할 개념 A", "내용 A", [3], "high", "split", "add", "개념 분할 요청"),
+            new GeneratedConceptRevision("", "분할 개념 B", "내용 B", [4], "low", "split", "add", "개념 분할 요청")
+        ]);
+        var response = await CreateService(provider).ReviseAsync(
+            Request() with { AllowAdditions = true, AllowDeletions = true }, TestContext.Current.CancellationToken);
+        Assert.Equal(2, response.Additions.Count);
+        Assert.All(response.Additions, item => Assert.Equal("split", item.GroupId));
+        Assert.Equal("개념 분할 요청", Assert.Single(response.Deletions).Reason);
+        Assert.Empty(response.Revisions);
+    }
+
+    [Theory]
+    [InlineData("approved-1", "요청한 삭제")]
+    [InlineData("held-1", "")]
+    public async Task Revise_RejectsUnselectedOrUnexplainedDeletion(string id, string reason)
+    {
+        var provider = new FakeProvider(_ => [new GeneratedConceptRevision(id, "", "", [], Kind: "delete", Reason: reason)]);
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(provider).ReviseAsync(
+            Request() with { AllowDeletions = true }, TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(11)]
+    public async Task Revise_RejectsAdditionPagesWithoutSelectedEvidence(int page)
+    {
+        var provider = new FakeProvider(_ => [new GeneratedConceptRevision("", "새 개념", "내용", [page], Kind: "add")]);
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(provider).ReviseAsync(
+            Request() with { AllowAdditions = true }, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Revise_RejectsDuplicateOperationsAndDuplicateNewTitles()
+    {
+        var provider = new FakeProvider(_ => [
+            new GeneratedConceptRevision("held-1", "새 제목", "새 내용", [3]),
+            new GeneratedConceptRevision("held-1", "", "", [], Kind: "delete", Reason: "중복")
+        ]);
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(provider).ReviseAsync(
+            Request() with { AllowDeletions = true }, TestContext.Current.CancellationToken));
+        provider = new FakeProvider(_ => [new GeneratedConceptRevision("", "가우스 법칙", "중복", [], Kind: "add")]);
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(provider).ReviseAsync(
+            Request() with { AllowAdditions = true }, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Revise_EnforcesAdditionLimit()
+    {
+        var provider = new FakeProvider(_ => Enumerable.Range(0, 21).Select(index =>
+            new GeneratedConceptRevision("", $"개념 {index}", "내용", [], Kind: "add")).ToList());
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(provider).ReviseAsync(
+            Request() with { AllowAdditions = true }, TestContext.Current.CancellationToken));
+    }
+
     private static ConceptRevisionService CreateService(ILLMProvider provider) =>
         new(
             new FixedLlmProviderResolver(provider),

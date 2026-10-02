@@ -17,6 +17,63 @@ void main() {
     accessToken: 'private-token',
   );
 
+  test('추가·삭제 권한을 보내고 세 변경 목록과 연결 그룹을 해석한다', () async {
+    final api = HttpRemoteDocumentApi(
+      MockClient((request) async {
+        final body = jsonDecode(request.body) as Map;
+        expect(body['allowAdditions'], isTrue);
+        expect(body['allowDeletions'], isTrue);
+        expect(body['targetConceptIds'], isEmpty);
+        return http.Response(
+          jsonEncode({
+            'revisions': [],
+            'additions': [
+              {
+                'title': '새 개념',
+                'content': '새 내용',
+                'pageNumbers': [],
+                'importance': 'veryHigh',
+                'groupId': 'replace',
+                'reason': '추가',
+              },
+            ],
+            'deletions': [
+              {'id': 'old', 'reason': '교체 요청', 'groupId': 'replace'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    final changes = await api.reviseConcepts(
+      configuration: configuration,
+      source: StudySource(
+        id: 'source',
+        folderId: 'folder',
+        fileName: '자료',
+        contentHash: '',
+        pageCount: 0,
+        extractionMethod: 'manual',
+        importedAt: DateTime.utc(2026),
+      ),
+      concepts: const [],
+      instruction: '교체',
+      targetConceptIds: const {},
+      allowAdditions: true,
+      allowDeletions: true,
+    );
+    expect(changes.map((item) => item.kind), [
+      ConceptChangeKind.add,
+      ConceptChangeKind.delete,
+    ]);
+    expect(changes.every((item) => item.groupId == 'replace'), isTrue);
+    expect(changes.first.importance, ConceptImportance.veryHigh);
+    expect(changes.first.pageNumbers, isEmpty);
+    expect(changes.last.id, 'old');
+    expect(changes.last.reason, '교체 요청');
+  });
+
   for (final importance in ConceptImportance.values) {
     test('수동 자료 AI 수정의 중요도 ${importance.label} 송수신과 빈 출처를 보존한다', () async {
       late Map<String, dynamic> payload;

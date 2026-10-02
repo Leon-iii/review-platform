@@ -115,6 +115,253 @@ void main() {
     expect(tester.widget<Slider>(finder).value, importance.index.toDouble());
   }
 
+  for (final mode in ['independent', 'group', 'cancel']) {
+    testWidgets(
+      'AI 추가·삭제 확인, 기본 선택과 연결 그룹: $mode',
+      (tester) async {
+        await tester.binding.setSurfaceSize(
+          defaultTargetPlatform == TargetPlatform.windows
+              ? const Size(1100, 1000)
+              : const Size(390, 800),
+        );
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+        final first = saved.concepts.first;
+        final second = saved.concepts[1];
+        await sources.setConceptApproval(id: first.id, approved: true);
+        final group = mode == 'group' ? 'replace' : '';
+        documentApi.changes = [
+          ConceptRevision(
+            id: first.id,
+            title: first.title,
+            content: '${first.content} 수정',
+            pageNumbers: first.pageNumbers,
+            importance: first.importance,
+          ),
+          ConceptRevision(
+            id: 'new',
+            title: '새 개념',
+            content: '추가 요청한 개념',
+            pageNumbers: const [],
+            importance: ConceptImportance.high,
+            kind: ConceptChangeKind.add,
+            groupId: group,
+            reason: '요청한 추가',
+          ),
+          ConceptRevision(
+            id: second.id,
+            title: '',
+            content: '',
+            pageNumbers: const [],
+            importance: ConceptImportance.medium,
+            kind: ConceptChangeKind.delete,
+            groupId: group,
+            reason: '요청한 삭제',
+          ),
+        ];
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('home-view'))),
+        );
+        container
+            .read(routerProvider)
+            .go(
+              AppRoutes.documentsForSource(
+                saved.source.folderId,
+                saved.source.id,
+              ),
+            );
+        await tester.pumpAndSettle();
+        await tapVisible(
+          tester,
+          find.byKey(const Key('request-concept-revision-button')),
+        );
+        expect(
+          tester
+              .widget<SwitchListTile>(
+                find.byKey(const Key('allow-concept-additions')),
+              )
+              .value,
+          isFalse,
+        );
+        expect(
+          tester
+              .widget<SwitchListTile>(
+                find.byKey(const Key('allow-concept-deletions')),
+              )
+              .value,
+          isFalse,
+        );
+        await tester.enterText(
+          find.byKey(const Key('concept-revision-instruction-field')),
+          '개념을 수정·추가·삭제해 줘.',
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('allow-concept-additions')),
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('allow-concept-deletions')),
+        );
+        for (final id in [first.id, second.id]) {
+          await tapVisible(
+            tester,
+            find.byKey(Key('concept-revision-target-$id')),
+          );
+        }
+        await tapVisible(
+          tester,
+          find.byKey(const Key('send-concept-revision-button')),
+        );
+        expect(documentApi.lastAllowAdditions, isTrue);
+        expect(documentApi.lastAllowDeletions, isTrue);
+        expect(find.text('수정 1개 · 추가 1개 · 삭제 1개'), findsOneWidget);
+        bool selected(int i) => tester
+            .widget<CheckboxListTile>(
+              find.byKey(Key('select-concept-change-$i')),
+            )
+            .value!;
+        Future<void> reveal(int index, double delta) async {
+          await tester.scrollUntilVisible(
+            find.byKey(Key('select-concept-change-$index')),
+            delta,
+            scrollable: find
+                .descendant(
+                  of: find.byKey(const Key('concept-changes-list')),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
+          await tester.pumpAndSettle();
+        }
+
+        await reveal(2, 120);
+        expect(selected(2), isFalse);
+        await reveal(1, -120);
+        expect(selected(1), mode != 'group');
+        final before = await sources.getSourceWithConcepts(saved.source.id);
+        expect(before.concepts, hasLength(3));
+        expect(before.concepts.first.content, first.content);
+        if (mode == 'group') {
+          await tapVisible(
+            tester,
+            find.byKey(const Key('select-concept-change-1')),
+          );
+          await reveal(2, 120);
+          expect(selected(2), isTrue);
+          await reveal(0, -120);
+          await tapVisible(
+            tester,
+            find.byKey(const Key('select-concept-change-0')),
+          );
+        }
+        await tapVisible(
+          tester,
+          find.byKey(
+            Key(
+              mode == 'cancel'
+                  ? 'cancel-concept-revisions-button'
+                  : 'apply-concept-revisions-button',
+            ),
+          ),
+        );
+        final after = await sources.getSourceWithConcepts(saved.source.id);
+        if (mode == 'cancel') {
+          expect(
+            after.concepts.map((item) => item.id),
+            before.concepts.map((item) => item.id),
+          );
+          expect(after.concepts.first.content, first.content);
+        } else {
+          final added = after.concepts.singleWhere(
+            (item) => item.title == '새 개념',
+          );
+          expect(added.status, ConceptStatus.held);
+          expect(added.pageNumbers, isEmpty);
+          expect(added.id, isNot('new'));
+          expect(
+            after.concepts.any((item) => item.id == second.id),
+            mode != 'group',
+          );
+          final updated = after.concepts.singleWhere(
+            (item) => item.id == first.id,
+          );
+          expect(
+            updated.content,
+            mode == 'group' ? first.content : '${first.content} 수정',
+          );
+          expect(
+            updated.status,
+            mode == 'group' ? ConceptStatus.approved : ConceptStatus.held,
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  testWidgets('빈 자료에서 기존 대상 없이 AI 개념을 추가한다', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+    final material = await sources.createSource(
+      folderId: saved.source.folderId,
+      name: '빈 자료',
+    );
+    documentApi.changes = const [
+      ConceptRevision(
+        id: 'new',
+        title: '새 개념',
+        content: '새 내용',
+        pageNumbers: [],
+        importance: ConceptImportance.high,
+        kind: ConceptChangeKind.add,
+      ),
+    ];
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('home-view'))),
+    );
+    container
+        .read(routerProvider)
+        .go(
+          AppRoutes.documentsForSource(
+            material.source.folderId,
+            material.source.id,
+          ),
+        );
+    await tester.pumpAndSettle();
+    await tapVisible(
+      tester,
+      find.byKey(const Key('request-concept-revision-button')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('concept-revision-instruction-field')),
+      '새 개념을 추가해 줘.',
+    );
+    await tapVisible(tester, find.byKey(const Key('allow-concept-additions')));
+    await tapVisible(
+      tester,
+      find.byKey(const Key('send-concept-revision-button')),
+    );
+    expect(documentApi.lastConcepts, isEmpty);
+    await tapVisible(
+      tester,
+      find.byKey(const Key('apply-and-review-concept-revisions-button')),
+    );
+    final created = (await sources.getSourceWithConcepts(material.source.id))
+        .concepts
+        .single;
+    expect(created.status, ConceptStatus.approved);
+    expect(find.byKey(Key('concept-page-source-${created.id}')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final scale in [1.0, 1.6]) {
     testWidgets(
       '개념별/전체 접기와 배지 위치, 접힌 개념 편집 상태를 유지한다 ($scale)',
@@ -208,7 +455,7 @@ void main() {
         expect(
           tester.getTopLeft(find.byKey(Key('concept-status-${second.id}'))).dx -
               tester.getTopRight(shortTitle).dx,
-          closeTo(4, 0.1),
+          closeTo(8, 0.1),
         );
         final manualTitle = find.byKey(Key('concept-title-${manual.id}'));
         final manualParagraph = tester.renderObject<RenderParagraph>(
@@ -224,11 +471,11 @@ void main() {
         expect(
           tester.getTopLeft(find.byKey(Key('concept-status-${manual.id}'))).dx -
               tester.getTopRight(manualTitle).dx,
-          closeTo(4, 0.1),
+          closeTo(8, 0.1),
         );
         expect(
           tester.getTopLeft(status).dx - tester.getTopRight(title).dx,
-          closeTo(4, 0.1),
+          closeTo(8, 0.1),
         );
         expect(
           tester.getTopRight(title).dx,
@@ -661,7 +908,7 @@ void main() {
               find.byKey(const Key('request-concept-revision-button')),
             )
             .onPressed,
-        isNull,
+        isNotNull,
       );
       expect(
         tester
@@ -978,8 +1225,8 @@ void main() {
           expect(
             find.text(
               reviewed
-                  ? '1개 개념을 수정하고 검토 완료로 표시했어요.'
-                  : '1개 개념을 수정하고 검토 필요로 변경했어요.',
+                  ? '1개 변경을 적용했어요. 추가·수정 개념을 검토 완료로 표시했어요.'
+                  : '1개 변경을 적용했어요. 추가·수정 개념은 검토 필요 상태예요.',
             ),
             findsOneWidget,
           );

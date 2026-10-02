@@ -10,6 +10,7 @@ import 'package:review_platform/features/documents/document_import_view_model.da
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:review_platform/shared/widgets/concept_status_badge.dart';
+import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
 
 class DocumentImportView extends ConsumerStatefulWidget {
   const DocumentImportView({
@@ -57,35 +58,46 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: state.when(
-        loading: () => const _ImportProgress(),
-        error: (error, stackTrace) => _ImportError(
-          message: error is AppFailure ? error.message : '자료를 처리하지 못했어요.',
-          onBack: () =>
-              ref.read(controllerProvider.notifier).showImportPrompt(),
-          onRetry: () => widget.initialSourceId == null
-              ? ref.read(controllerProvider.notifier).pickAndImport()
-              : ref
-                    .read(controllerProvider.notifier)
-                    .loadSource(widget.initialSourceId!),
+      body: PdfDropZone(
+        key: const Key('pdf-import-drop-zone'),
+        routePath: AppRoutes.documents,
+        enabled:
+            !state.isLoading &&
+            state.value == null &&
+            widget.initialSourceId == null,
+        onPdfDropped: (document) async {
+          await ref.read(controllerProvider.notifier).importPdf(document);
+        },
+        child: state.when(
+          loading: () => const _ImportProgress(),
+          error: (error, stackTrace) => _ImportError(
+            message: error is AppFailure ? error.message : '자료를 처리하지 못했어요.',
+            onBack: () =>
+                ref.read(controllerProvider.notifier).showImportPrompt(),
+            onRetry: () => widget.initialSourceId == null
+                ? ref.read(controllerProvider.notifier).pickAndImport()
+                : ref
+                      .read(controllerProvider.notifier)
+                      .loadSource(widget.initialSourceId!),
+          ),
+          data: (review) => review == null
+              ? _ImportPrompt(provider: controllerProvider)
+              : _ConceptReview(
+                  review: review,
+                  provider: controllerProvider,
+                  expandedConceptIds: {
+                    for (final concept in review.concepts)
+                      if (_isExpanded(concept.id)) concept.id,
+                  },
+                  onToggleConcept: (id) => setState(() {
+                    _conceptExpansion[id] = !_isExpanded(id);
+                  }),
+                  onSetAllExpanded: (expanded) => setState(() {
+                    _defaultExpanded = expanded;
+                    _conceptExpansion.clear();
+                  }),
+                ),
         ),
-        data: (review) => review == null
-            ? _ImportPrompt(provider: controllerProvider)
-            : _ConceptReview(
-                review: review,
-                provider: controllerProvider,
-                expandedConceptIds: {
-                  for (final concept in review.concepts)
-                    if (_isExpanded(concept.id)) concept.id,
-                },
-                onToggleConcept: (id) => setState(() {
-                  _conceptExpansion[id] = !_isExpanded(id);
-                }),
-                onSetAllExpanded: (expanded) => setState(() {
-                  _defaultExpanded = expanded;
-                  _conceptExpansion.clear();
-                }),
-              ),
       ),
     );
   }
@@ -122,6 +134,12 @@ class _ImportPrompt extends ConsumerWidget {
                           'PDF를 서버에서 분석하고, 페이지 근거가 포함된 검토 필요 상태의 개념을 만듭니다.',
                         ),
                         const SizedBox(height: 16),
+                        if (supportsPdfDrop) ...[
+                          const Text(
+                            '이 화면에 PDF 파일을 끌어다 놓거나 아래 버튼으로 선택해 주세요. (1개 · 최대 25MB)',
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         FilledButton.icon(
                           key: const Key('pick-pdf-button'),
                           onPressed: () =>
@@ -238,13 +256,11 @@ class _ConceptReview extends ConsumerWidget {
                                       'request-concept-revision-button',
                                     ),
                                     style: style,
-                                    onPressed: review.concepts.isEmpty
-                                        ? null
-                                        : () => _requestRevision(
-                                            context,
-                                            ref,
-                                            initialSelectedIds: const {},
-                                          ),
+                                    onPressed: () => _requestRevision(
+                                      context,
+                                      ref,
+                                      initialSelectedIds: const {},
+                                    ),
                                     icon: showIcons
                                         ? const Icon(
                                             Icons.auto_fix_high_rounded,
@@ -375,8 +391,10 @@ class _ConceptReview extends ConsumerWidget {
     var instruction = '';
     final selectedIds = Set<String>.of(initialSelectedIds);
     var isSending = false;
+    var allowAdditions = false;
+    var allowDeletions = false;
     String? errorMessage;
-    final revisions = await showDialog<List<ConceptRevision>>(
+    final proposal = await showDialog<ConceptRevisionProposal>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
@@ -403,8 +421,33 @@ class _ConceptReview extends ConsumerWidget {
                     onChanged: (value) => instruction = value,
                   ),
                   const SizedBox(height: 8),
+                  SwitchListTile(
+                    key: const Key('allow-concept-additions'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('새 개념 추가 허용'),
+                    subtitle: const Text('추가만 요청할 때는 기존 개념을 선택하지 않아도 됩니다.'),
+                    value: allowAdditions,
+                    onChanged: isSending
+                        ? null
+                        : (value) =>
+                              setDialogState(() => allowAdditions = value),
+                  ),
+                  SwitchListTile(
+                    key: const Key('allow-concept-deletions'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('기존 개념 삭제 허용'),
+                    subtitle: const Text(
+                      '선택한 개념에 한해 삭제안을 제안합니다. 확인 전에는 삭제하지 않습니다.',
+                    ),
+                    value: allowDeletions,
+                    onChanged: isSending
+                        ? null
+                        : (value) =>
+                              setDialogState(() => allowDeletions = value),
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    '수정할 개념 (${selectedIds.length}/${review.concepts.length})',
+                    '수정·삭제할 개념 (${selectedIds.length}/${review.concepts.length})',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   Align(
@@ -503,7 +546,7 @@ class _ConceptReview extends ConsumerWidget {
                         );
                         return;
                       }
-                      if (selectedIds.isEmpty) {
+                      if (selectedIds.isEmpty && !allowAdditions) {
                         setDialogState(
                           () => errorMessage = '수정할 개념을 하나 이상 선택해 주세요.',
                         );
@@ -519,6 +562,8 @@ class _ConceptReview extends ConsumerWidget {
                             .requestConceptRevision(
                               instruction: instruction,
                               targetConceptIds: Set<String>.of(selectedIds),
+                              allowAdditions: allowAdditions,
+                              allowDeletions: allowDeletions,
                             );
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext, generated);
@@ -545,20 +590,25 @@ class _ConceptReview extends ConsumerWidget {
         ),
       ),
     );
-    if (revisions == null || !context.mounted) return;
-    if (revisions.isEmpty) {
+    if (proposal == null || !context.mounted) return;
+    if (proposal.changes.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('수정된 개념이 없어요.')));
       return;
     }
-    final action = await _confirmRevisions(context, revisions);
-    if (action == null || !context.mounted) return;
-    final markReviewed = action == _RevisionApplyAction.applyAndReview;
+    final selection = await _confirmRevisions(context, proposal);
+    if (selection == null || !context.mounted) return;
+    final markReviewed =
+        selection.action == _RevisionApplyAction.applyAndReview;
     int changedCount;
     try {
       changedCount = await ref
           .read(provider.notifier)
-          .applyConceptRevisions(revisions, markReviewed: markReviewed);
+          .applyConceptRevisions(
+            proposal,
+            selection.changes,
+            markReviewed: markReviewed,
+          );
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -577,70 +627,197 @@ class _ConceptReview extends ConsumerWidget {
           changedCount == 0
               ? '수정된 개념이 없어요.'
               : markReviewed
-              ? '$changedCount개 개념을 수정하고 검토 완료로 표시했어요.'
-              : '$changedCount개 개념을 수정하고 검토 필요로 변경했어요.',
+              ? '$changedCount개 변경을 적용했어요. 추가·수정 개념을 검토 완료로 표시했어요.'
+              : '$changedCount개 변경을 적용했어요. 추가·수정 개념은 검토 필요 상태예요.',
         ),
       ),
     );
   }
 
-  Future<_RevisionApplyAction?> _confirmRevisions(
+  Future<_RevisionSelection?> _confirmRevisions(
     BuildContext context,
-    List<ConceptRevision> revisions,
+    ConceptRevisionProposal proposal,
   ) {
+    final revisions = proposal.changes;
     final originals = {
-      for (final concept in review.concepts) concept.id: concept,
+      for (final concept in proposal.original.concepts) concept.id: concept,
     };
-    return showDialog<_RevisionApplyAction>(
+    final deletionGroups = revisions
+        .where((item) => item.kind == ConceptChangeKind.delete)
+        .map((item) => item.groupId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final selected = <int>{
+      for (var index = 0; index < revisions.length; index++)
+        if (revisions[index].kind != ConceptChangeKind.delete &&
+            !deletionGroups.contains(revisions[index].groupId))
+          index,
+    };
+    String label(ConceptChangeKind kind) => switch (kind) {
+      ConceptChangeKind.update => '수정',
+      ConceptChangeKind.add => '추가',
+      ConceptChangeKind.delete => '삭제',
+    };
+    void apply(BuildContext dialogContext, _RevisionApplyAction action) =>
+        Navigator.pop(
+          dialogContext,
+          _RevisionSelection(action, [
+            for (var i = 0; i < revisions.length; i++)
+              if (selected.contains(i)) revisions[i],
+          ]),
+        );
+    return showDialog<_RevisionSelection>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('AI 수정안 검토'),
-        content: SizedBox(
-          width: 680,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 560),
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: revisions.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final revision = revisions[index];
-                final original = originals[revision.id];
-                if (original == null) return const SizedBox.shrink();
-                final originalNumber = review.concepts.indexWhere(
-                  (concept) => concept.id == revision.id,
-                );
-                return _ConceptRevisionPreview(
-                  number: originalNumber + 1,
-                  original: original,
-                  revision: revision,
-                );
-              },
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('AI 수정안 검토'),
+          content: SizedBox(
+            width: 680,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 560),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    ConceptChangeKind.values
+                        .map(
+                          (kind) =>
+                              '${label(kind)} ${revisions.where((item) => item.kind == kind).length}개',
+                        )
+                        .join(' · '),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '적용할 변경을 선택해 주세요. (${selected.length}/${revisions.length})\n삭제 및 삭제가 포함된 연결 그룹은 기본 미선택입니다.',
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView.separated(
+                      key: const Key('concept-changes-list'),
+                      shrinkWrap: true,
+                      itemCount: revisions.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final revision = revisions[index];
+                        final original = originals[revision.id];
+                        final originalNumber = proposal.original.concepts
+                            .indexWhere((concept) => concept.id == revision.id);
+                        return Card(
+                          margin: EdgeInsets.zero,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              CheckboxListTile(
+                                key: ValueKey('select-concept-change-$index'),
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                value: selected.contains(index),
+                                title: Text(
+                                  '${label(revision.kind)} · ${original?.title ?? revision.title}',
+                                ),
+                                subtitle: revision.groupId.isEmpty
+                                    ? null
+                                    : Text(
+                                        '연결된 변경: ${revision.groupId} · 그룹 전체가 함께 선택됩니다.',
+                                      ),
+                                onChanged: (value) => setDialogState(() {
+                                  for (var i = 0; i < revisions.length; i++) {
+                                    if (i == index ||
+                                        (revision.groupId.isNotEmpty &&
+                                            revisions[i].groupId ==
+                                                revision.groupId)) {
+                                      if (value == true) {
+                                        selected.add(i);
+                                      } else {
+                                        selected.remove(i);
+                                      }
+                                    }
+                                  }
+                                }),
+                              ),
+                              if (revision.kind == ConceptChangeKind.update &&
+                                  original != null)
+                                _ConceptRevisionPreview(
+                                  number: originalNumber + 1,
+                                  original: original,
+                                  revision: revision,
+                                )
+                              else
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    16,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      SelectableText(
+                                        revision.kind ==
+                                                ConceptChangeKind.delete
+                                            ? original?.content ?? ''
+                                            : revision.content,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      if (revision.kind ==
+                                          ConceptChangeKind.add) ...[
+                                        Text(
+                                          '중요도 ${revision.importance.label}',
+                                        ),
+                                        Text(
+                                          revision.pageNumbers.isEmpty
+                                              ? 'PDF 페이지 출처 없음'
+                                              : 'p.${revision.pageNumbers.join(', ')}',
+                                        ),
+                                      ],
+                                      if (revision.reason.isNotEmpty)
+                                        Text('이유: ${revision.reason}'),
+                                      if (revision.kind ==
+                                          ConceptChangeKind.delete)
+                                        const Text('기존 문제와 풀이 기록은 유지됩니다.'),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              key: const Key('cancel-concept-revisions-button'),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            OutlinedButton(
+              key: const Key('apply-concept-revisions-button'),
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => apply(dialogContext, _RevisionApplyAction.apply),
+              child: const Text('적용'),
+            ),
+            FilledButton(
+              key: const Key('apply-and-review-concept-revisions-button'),
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => apply(
+                      dialogContext,
+                      _RevisionApplyAction.applyAndReview,
+                    ),
+              child: const Text('적용 후 검토 완료'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            key: const Key('cancel-concept-revisions-button'),
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('취소'),
-          ),
-          OutlinedButton(
-            key: const Key('apply-concept-revisions-button'),
-            onPressed: () =>
-                Navigator.pop(dialogContext, _RevisionApplyAction.apply),
-            child: const Text('적용'),
-          ),
-          FilledButton(
-            key: const Key('apply-and-review-concept-revisions-button'),
-            onPressed: () => Navigator.pop(
-              dialogContext,
-              _RevisionApplyAction.applyAndReview,
-            ),
-            child: const Text('적용 후 검토 완료'),
-          ),
-        ],
       ),
     );
   }
@@ -991,7 +1168,7 @@ class _ConceptCard extends ConsumerWidget {
                   ),
                 ),
                 if (!expanded) ...[
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 8),
                   ConstrainedBox(
                     constraints: BoxConstraints(
                       maxWidth: constraints.maxWidth * 0.65,
@@ -1254,6 +1431,12 @@ Future<void> _showConceptEditor(
 enum _ConceptAction { edit, delete }
 
 enum _RevisionApplyAction { apply, applyAndReview }
+
+class _RevisionSelection {
+  const _RevisionSelection(this.action, this.changes);
+  final _RevisionApplyAction action;
+  final List<ConceptRevision> changes;
+}
 
 class _ImportProgress extends StatelessWidget {
   const _ImportProgress();

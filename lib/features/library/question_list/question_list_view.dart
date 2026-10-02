@@ -12,6 +12,7 @@ import 'package:review_platform/features/library/folder_browser/folder_browser_v
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
+import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
 
 class QuestionListView extends ConsumerWidget {
   const QuestionListView({required this.folderId, super.key});
@@ -29,79 +30,123 @@ class QuestionListView extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '자료',
-                  key: const Key('source-section-header'),
-                  style: Theme.of(context).textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-              ),
-              IconButton(
-                key: const Key('import-pdf-nav-button'),
-                tooltip: 'PDF 가져오기',
-                onPressed: () =>
-                    context.push(AppRoutes.documentsForFolder(folderId)),
-                icon: const Icon(Icons.upload_file_rounded),
-              ),
-              const SizedBox(width: 4),
-              FilledButton.tonalIcon(
-                key: const Key('create-source-button'),
-                onPressed: () => _createSource(context, ref),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('새 자료'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          sources.when(
-            loading: () => const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              ),
-            ),
-            error: (error, stackTrace) => _QuestionError(
-              message: error is AppFailure ? error.message : '자료를 불러오지 못했어요.',
-              onRetry: () => ref.invalidate(documentSourcesProvider(folderId)),
-            ),
-            data: (items) => items.isEmpty
-                ? const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(
-                        child: Text('이 폴더에 자료가 없어요. 새 자료를 만들거나 PDF를 가져와 주세요.'),
+          PdfDropZone(
+            key: const Key('folder-pdf-drop-zone'),
+            routePath: AppRoutes.folder(folderId),
+            onPdfDropped: (document) async {
+              // Start on the next frame, after the destination watches the
+              // auto-disposed controller, so the dropped import stays alive.
+              context.push(AppRoutes.documentsForFolder(folderId));
+              await WidgetsBinding.instance.endOfFrame;
+              if (!context.mounted) return;
+              await ref
+                  .read(documentImportControllerProvider(folderId).notifier)
+                  .importPdf(document);
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '자료',
+                        key: const Key('source-section-header'),
+                        style: Theme.of(context).textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
-                  )
-                : Column(
-                    children: [
-                      for (final source in items) ...[
-                        _PdfSourceCard(
-                          source: source,
-                          onOpen: () => context.push(
-                            AppRoutes.documentsForSource(folderId, source.id),
-                          ),
-                          onEdit: () =>
-                              _renameSource(context, ref, provider, source),
-                          onMove: () => _moveItem(
-                            context,
-                            ref,
-                            title: '자료 이동',
-                            itemLabel: '자료',
-                            move: (targetId) => ref
-                                .read(provider.notifier)
-                                .moveSource(id: source.id, folderId: targetId),
-                          ),
-                          onDelete: () =>
-                              _deleteSource(context, ref, provider, source),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ],
+                    IconButton(
+                      key: const Key('import-pdf-nav-button'),
+                      tooltip: 'PDF 가져오기',
+                      onPressed: () =>
+                          context.push(AppRoutes.documentsForFolder(folderId)),
+                      icon: const Icon(Icons.upload_file_rounded),
+                    ),
+                    const SizedBox(width: 4),
+                    FilledButton.tonalIcon(
+                      key: const Key('create-source-button'),
+                      onPressed: () => _createSource(context, ref),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('새 자료'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (supportsPdfDrop) ...[
+                  const Text(
+                    '이 자료 영역에 PDF 파일을 끌어다 놓아 가져올 수 있어요. (1개 · 최대 25MB)',
                   ),
+                  const SizedBox(height: 12),
+                ],
+                sources.when(
+                  loading: () => const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  error: (error, stackTrace) => _QuestionError(
+                    message: error is AppFailure
+                        ? error.message
+                        : '자료를 불러오지 못했어요.',
+                    onRetry: () =>
+                        ref.invalidate(documentSourcesProvider(folderId)),
+                  ),
+                  data: (items) => items.isEmpty
+                      ? const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(
+                              child: Text(
+                                '이 폴더에 자료가 없어요. 새 자료를 만들거나 PDF를 가져와 주세요.',
+                              ),
+                            ),
+                          ),
+                        )
+                      : Column(
+                          children: [
+                            for (final source in items) ...[
+                              _PdfSourceCard(
+                                source: source,
+                                onOpen: () => context.push(
+                                  AppRoutes.documentsForSource(
+                                    folderId,
+                                    source.id,
+                                  ),
+                                ),
+                                onEdit: () => _renameSource(
+                                  context,
+                                  ref,
+                                  provider,
+                                  source,
+                                ),
+                                onMove: () => _moveItem(
+                                  context,
+                                  ref,
+                                  title: '자료 이동',
+                                  itemLabel: '자료',
+                                  move: (targetId) => ref
+                                      .read(provider.notifier)
+                                      .moveSource(
+                                        id: source.id,
+                                        folderId: targetId,
+                                      ),
+                                ),
+                                onDelete: () => _deleteSource(
+                                  context,
+                                  ref,
+                                  provider,
+                                  source,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ],
+                        ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 28),
           Row(

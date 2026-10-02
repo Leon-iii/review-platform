@@ -1643,7 +1643,7 @@ void main() {
 
     expect(reviewedBadgeText, findsNothing);
     expect(find.text('검토 필요'), findsNWidgets(2));
-    expect(find.text('1개 개념을 수정하고 검토 필요로 변경했어요.'), findsOneWidget);
+    expect(find.text('1개 변경을 적용했어요. 추가·수정 개념은 검토 필요 상태예요.'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -1987,6 +1987,8 @@ class _FakeRemoteDocumentApi implements RemoteDocumentApi {
     required List<StudyConcept> concepts,
     required String instruction,
     required Set<String> targetConceptIds,
+    bool allowAdditions = false,
+    bool allowDeletions = false,
   }) async {
     capturedConcepts = List.of(concepts);
     capturedInstruction = instruction;

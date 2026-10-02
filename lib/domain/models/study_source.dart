@@ -46,7 +46,7 @@ class StudyConcept {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  // Empty pages mean user-authored content with no PDF provenance.
+  // Empty pages mean content without PDF provenance, whether manual or AI-added.
   bool get hasPageSource => pageNumbers.isNotEmpty;
 
   StudyConcept copyWith({
@@ -78,6 +78,8 @@ class StudySourceWithConcepts {
   final List<StudyConcept> concepts;
 }
 
+enum ConceptChangeKind { update, add, delete }
+
 class ConceptRevision {
   const ConceptRevision({
     required this.id,
@@ -85,6 +87,9 @@ class ConceptRevision {
     required this.content,
     required this.pageNumbers,
     required this.importance,
+    this.kind = ConceptChangeKind.update,
+    this.groupId = '',
+    this.reason = '',
   });
 
   final String id;
@@ -92,6 +97,25 @@ class ConceptRevision {
   final String content;
   final List<int> pageNumbers;
   final ConceptImportance importance;
+  final ConceptChangeKind kind;
+  final String groupId;
+  final String reason;
+}
+
+class ConceptRevisionProposal {
+  const ConceptRevisionProposal({
+    required this.original,
+    required this.changes,
+    required this.targetConceptIds,
+    required this.allowAdditions,
+    required this.allowDeletions,
+  });
+
+  final StudySourceWithConcepts original;
+  final List<ConceptRevision> changes;
+  final Set<String> targetConceptIds;
+  final bool allowAdditions;
+  final bool allowDeletions;
 }
 
 class ConceptRevisionApplyResult {

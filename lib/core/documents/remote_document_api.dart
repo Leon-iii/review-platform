@@ -25,6 +25,8 @@ abstract interface class RemoteDocumentApi {
     required List<StudyConcept> concepts,
     required String instruction,
     required Set<String> targetConceptIds,
+    bool allowAdditions = false,
+    bool allowDeletions = false,
   });
 }
 
@@ -132,6 +134,8 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
     required List<StudyConcept> concepts,
     required String instruction,
     required Set<String> targetConceptIds,
+    bool allowAdditions = false,
+    bool allowDeletions = false,
   }) async {
     http.Response response;
     try {
@@ -148,6 +152,8 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
               'pageCount': source.pageCount,
               'instruction': instruction,
               'targetConceptIds': targetConceptIds.toList(growable: false),
+              'allowAdditions': allowAdditions,
+              'allowDeletions': allowDeletions,
               'concepts': [
                 for (final concept in concepts)
                   {
@@ -177,6 +183,19 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
       return [
         for (final raw in body['revisions']! as List)
           _revision(Map<String, Object?>.from(raw as Map)),
+        for (final (index, raw) in ((body['additions'] as List?) ?? []).indexed)
+          _revision({
+            ...Map<String, Object?>.from(raw as Map),
+            'id': 'addition-$index',
+          }, kind: ConceptChangeKind.add),
+        for (final raw in (body['deletions'] as List?) ?? [])
+          _revision({
+            ...Map<String, Object?>.from(raw as Map),
+            'title': '',
+            'content': '',
+            'pageNumbers': <int>[],
+            'importance': 'medium',
+          }, kind: ConceptChangeKind.delete),
       ];
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
@@ -200,7 +219,10 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
     );
   }
 
-  ConceptRevision _revision(Map<String, Object?> json) => ConceptRevision(
+  ConceptRevision _revision(
+    Map<String, Object?> json, {
+    ConceptChangeKind kind = ConceptChangeKind.update,
+  }) => ConceptRevision(
     id: json['id']! as String,
     title: json['title']! as String,
     content: json['content']! as String,
@@ -208,6 +230,9 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
       for (final page in json['pageNumbers']! as List) (page as num).toInt(),
     ],
     importance: ConceptImportance.fromStorage(json['importance'] as String?),
+    kind: kind,
+    groupId: json['groupId'] as String? ?? '',
+    reason: json['reason'] as String? ?? '',
   );
 
   Map<String, Object?> _decode(

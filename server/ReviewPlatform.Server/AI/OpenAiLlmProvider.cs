@@ -357,10 +357,10 @@ public sealed class OpenAiLlmProvider(
         try
         {
             var outputText = ExtractOutputText(body, "개념 수정");
-            var envelope = JsonSerializer.Deserialize<ConceptRevisionEnvelope>(
+            var envelope = JsonSerializer.Deserialize<ConceptChangeEnvelope>(
                 outputText,
                 JsonOptions);
-            return envelope?.Revisions ?? throw new LlmProviderRequestException(
+            return envelope?.Flatten() ?? throw new LlmProviderRequestException(
                 "OpenAI의 구조화된 개념 수정 응답을 해석하지 못했습니다.");
         }
         catch (LlmProviderRequestException)
@@ -467,6 +467,4 @@ public sealed class OpenAiLlmProvider(
     private sealed record ConceptEnvelope(
         IReadOnlyList<GeneratedConceptDraft>? Concepts);
 
-    private sealed record ConceptRevisionEnvelope(
-        IReadOnlyList<GeneratedConceptRevision>? Revisions);
 }

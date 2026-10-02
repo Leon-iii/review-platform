@@ -8,6 +8,9 @@ class FakeConceptRevisionApi implements RemoteDocumentApi {
   StudySource? lastSource;
   List<StudyConcept>? lastConcepts;
   int deleteCount = 0;
+  bool lastAllowAdditions = false;
+  bool lastAllowDeletions = false;
+  List<ConceptRevision>? changes;
 
   @override
   Future<DocumentImportResult> importPdf({
@@ -33,20 +36,25 @@ class FakeConceptRevisionApi implements RemoteDocumentApi {
     required List<StudyConcept> concepts,
     required String instruction,
     required Set<String> targetConceptIds,
+    bool allowAdditions = false,
+    bool allowDeletions = false,
   }) async {
     lastSource = source;
     lastConcepts = List.of(concepts);
-    return [
-      for (final concept in concepts.where(
-        (concept) => targetConceptIds.contains(concept.id),
-      ))
-        ConceptRevision(
-          id: concept.id,
-          title: concept.title,
-          content: '${concept.content} 테스트 추가',
-          pageNumbers: concept.pageNumbers,
-          importance: concept.importance,
-        ),
-    ];
+    lastAllowAdditions = allowAdditions;
+    lastAllowDeletions = allowDeletions;
+    return changes ??
+        [
+          for (final concept in concepts.where(
+            (concept) => targetConceptIds.contains(concept.id),
+          ))
+            ConceptRevision(
+              id: concept.id,
+              title: concept.title,
+              content: '${concept.content} 테스트 추가',
+              pageNumbers: concept.pageNumbers,
+              importance: concept.importance,
+            ),
+        ];
   }
 }

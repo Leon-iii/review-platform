@@ -58,6 +58,11 @@ abstract interface class SourceRepository {
     required String sourceId,
     required List<ConceptRevision> revisions,
     bool markReviewed = false,
+    List<StudyConcept>? expectedConcepts,
+    List<ConceptRevision>? allChanges,
+    Set<String>? editableConceptIds,
+    bool allowAdditions = false,
+    bool allowDeletions = false,
   });
 
   Future<ConceptGenerationSeed> getConceptGenerationSeed(String conceptId);
@@ -440,48 +445,218 @@ class DriftSourceRepository implements SourceRepository {
     required String sourceId,
     required List<ConceptRevision> revisions,
     bool markReviewed = false,
+    List<StudyConcept>? expectedConcepts,
+    List<ConceptRevision>? allChanges,
+    Set<String>? editableConceptIds,
+    bool allowAdditions = false,
+    bool allowDeletions = false,
   }) {
-    return _guard(() async {
-      final source = await _database.sourceDao.getSource(sourceId);
-      if (source == null) {
-        throw const ValidationFailure('학습 자료를 찾을 수 없어요.');
-      }
-      final rows = await _database.sourceDao.getConcepts(sourceId);
-      final rowsById = {for (final row in rows) row.id: row};
-      final seen = <String>{};
-      final normalized = <ConceptRevision>[];
-      for (final revision in revisions) {
-        final title = revision.title.trim();
-        final content = revision.content.trim();
-        final pages = revision.pageNumbers.toSet().toList()..sort();
-        if (!seen.add(revision.id) ||
-            !rowsById.containsKey(revision.id) ||
-            title.isEmpty ||
-            title.length > 200 ||
-            content.isEmpty ||
-            content.length > 8000 ||
-            pages.isEmpty !=
-                ((jsonDecode(
-                  rowsById[revision.id]!.pageNumbersJson,
-                ) as List).isEmpty) ||
-            pages.any((page) => page < 1 || page > source.pageCount)) {
-          throw const ValidationFailure('AI 개념 수정 결과가 올바르지 않아요.');
+    return _guard(
+      () => _database.transaction(() async {
+        final source = await _database.sourceDao.getSource(sourceId);
+        if (source == null) {
+          throw const ValidationFailure('학습 자료를 찾을 수 없어요.');
         }
-        normalized.add(
-          ConceptRevision(
-            id: revision.id,
-            title: title,
-            content: content,
-            pageNumbers: pages,
-            importance: revision.importance,
-          ),
-        );
-      }
+        final rows = await _database.sourceDao.getConcepts(sourceId);
+        final rowsById = {for (final row in rows) row.id: row};
+        if (expectedConcepts != null &&
+            (rows.length != expectedConcepts.length ||
+                expectedConcepts.any((expected) {
+                  final row = rowsById[expected.id];
+                  if (row == null) return true;
+                  final actual = _conceptFromRow(row);
+                  return expected.sourceId != sourceId ||
+                      expected.title != actual.title ||
+                      expected.content != actual.content ||
+                      expected.status != actual.status ||
+                      expected.importance != actual.importance ||
+                      !_samePages(expected.pageNumbers, actual.pageNumbers) ||
+                      !expected.updatedAt.isAtSameMomentAs(actual.updatedAt);
+                }))) {
+          throw const ValidationFailure(
+            '요청 이후 자료의 개념이 변경되었어요. 최신 내용을 확인하고 다시 요청해 주세요.',
+          );
+        }
+        if (allChanges != null) {
+          if (revisions.any((item) => !allChanges.contains(item))) {
+            throw const ValidationFailure('적용할 개념 변경안이 올바르지 않아요.');
+          }
+          for (final group
+              in revisions
+                  .map((item) => item.groupId)
+                  .where((id) => id.isNotEmpty)
+                  .toSet()) {
+            if (allChanges
+                .where((item) => item.groupId == group)
+                .any((item) => !revisions.contains(item))) {
+              throw const ValidationFailure('연결된 변경은 그룹 전체를 함께 적용해야 해요.');
+            }
+          }
+        }
+        final allowedPages = rows
+            .where(
+              (row) =>
+                  editableConceptIds == null ||
+                  editableConceptIds.contains(row.id),
+            )
+            .expand((row) => _conceptFromRow(row).pageNumbers)
+            .toSet();
+        final seen = <String>{};
+        final normalized = <ConceptRevision>[];
+        for (final revision in revisions) {
+          final title = revision.title.trim();
+          final content = revision.content.trim();
+          final pages = revision.pageNumbers.toSet().toList()..sort();
+          if (!seen.add(revision.id) ||
+              revision.groupId.length > 100 ||
+              revision.reason.length > 1000) {
+            throw const ValidationFailure('AI 개념 변경 결과가 올바르지 않아요.');
+          }
+          if (revision.kind == ConceptChangeKind.delete) {
+            if (!allowDeletions ||
+                !rowsById.containsKey(revision.id) ||
+                (editableConceptIds != null &&
+                    !editableConceptIds.contains(revision.id)) ||
+                revision.reason.trim().isEmpty) {
+              throw const ValidationFailure('허용되지 않거나 올바르지 않은 개념 삭제안이에요.');
+            }
+            normalized.add(revision);
+            continue;
+          }
+          if (revision.kind == ConceptChangeKind.add) {
+            if (!allowAdditions ||
+                rowsById.containsKey(revision.id) ||
+                pages.any((page) => !allowedPages.contains(page))) {
+              throw const ValidationFailure('허용되지 않거나 출처가 올바르지 않은 새 개념이에요.');
+            }
+            _validateConceptText(title, content);
+            normalized.add(
+              ConceptRevision(
+                id: revision.id,
+                title: title,
+                content: content,
+                pageNumbers: pages,
+                importance: revision.importance,
+                kind: revision.kind,
+                groupId: revision.groupId,
+                reason: revision.reason,
+              ),
+            );
+            continue;
+          }
+          if (!rowsById.containsKey(revision.id) ||
+              (editableConceptIds != null &&
+                  !editableConceptIds.contains(revision.id)) ||
+              title.isEmpty ||
+              title.length > 200 ||
+              content.isEmpty ||
+              content.length > 8000 ||
+              pages.isEmpty !=
+                  ((jsonDecode(
+                    rowsById[revision.id]!.pageNumbersJson,
+                  ) as List).isEmpty) ||
+              pages.any((page) => page < 1 || page > source.pageCount)) {
+            throw const ValidationFailure('AI 개념 수정 결과가 올바르지 않아요.');
+          }
+          normalized.add(
+            ConceptRevision(
+              id: revision.id,
+              title: title,
+              content: content,
+              pageNumbers: pages,
+              importance: revision.importance,
+              groupId: revision.groupId,
+            ),
+          );
+        }
+        final additions = normalized
+            .where((item) => item.kind == ConceptChangeKind.add)
+            .toList();
+        final deletions = normalized
+            .where((item) => item.kind == ConceptChangeKind.delete)
+            .map((item) => item.id)
+            .toSet();
+        if (additions.length > 20 ||
+            (additions.isNotEmpty &&
+                rows.length + additions.length - deletions.length > 200)) {
+          throw const ValidationFailure(
+            '한 번에 추가할 개념은 20개 이하, 자료의 총 개념은 200개 이하여야 해요.',
+          );
+        }
+        final updates = {
+          for (final item in normalized.where(
+            (item) => item.kind == ConceptChangeKind.update,
+          ))
+            item.id: item,
+        };
+        final titles = rows
+            .where((row) => !deletions.contains(row.id))
+            .map((row) => (updates[row.id]?.title ?? row.title).toLowerCase())
+            .toSet();
+        for (final addition in additions) {
+          if (!titles.add(addition.title.toLowerCase())) {
+            throw const ValidationFailure('기존 개념과 제목이 중복되는 새 개념이 있어요.');
+          }
+        }
 
-      var changedCount = 0;
-      final now = DateTime.now().toUtc();
-      await _database.transaction(() async {
+        var changedCount = 0;
+        final now = DateTime.now().toUtc();
         for (final revision in normalized) {
+          if (revision.kind == ConceptChangeKind.add) {
+            final id = _uuid.v6();
+            final at = now.add(Duration(microseconds: ++changedCount));
+            await _database.sourceDao.insertConcepts([
+              ConceptsCompanion.insert(
+                id: id,
+                sourceId: sourceId,
+                title: revision.title,
+                content: revision.content,
+                pageNumbersJson: jsonEncode(revision.pageNumbers),
+                status: markReviewed
+                    ? ConceptStatus.approved.name
+                    : ConceptStatus.held.name,
+                importance: Value(revision.importance.name),
+                createdAt: at,
+                updatedAt: at,
+              ),
+            ]);
+            await _database.syncDao.enqueue(
+              entityType: SyncEntityType.concept.name,
+              entityId: id,
+              operation: SyncOperation.upsert.name,
+              createdAt: at,
+            );
+            continue;
+          }
+          if (revision.kind == ConceptChangeKind.delete) {
+            final references =
+                await (_database.select(_database.questionSources)..where(
+                      (reference) => reference.conceptId.equals(revision.id),
+                    ))
+                    .get();
+            final at = now.add(Duration(microseconds: ++changedCount));
+            await _database.sourceDao.deleteConcept(revision.id);
+            for (final questionId
+                in references.map((item) => item.questionId).toSet()) {
+              await _database.questionDao.updateQuestion(
+                questionId,
+                QuestionsCompanion(updatedAt: Value(at)),
+              );
+              await _database.syncDao.enqueue(
+                entityType: SyncEntityType.question.name,
+                entityId: questionId,
+                operation: SyncOperation.upsert.name,
+                createdAt: at,
+              );
+            }
+            await _database.syncDao.enqueue(
+              entityType: SyncEntityType.concept.name,
+              entityId: revision.id,
+              operation: SyncOperation.delete.name,
+              createdAt: at,
+            );
+            continue;
+          }
           final row = rowsById[revision.id]!;
           final currentPages =
               (jsonDecode(row.pageNumbersJson) as List)
@@ -519,17 +694,18 @@ class DriftSourceRepository implements SourceRepository {
             createdAt: updatedAt,
           );
         }
-      });
 
-      final updatedRows = await _database.sourceDao.getConcepts(sourceId);
-      return ConceptRevisionApplyResult(
-        review: StudySourceWithConcepts(
-          source: _sourceFromRow(source),
-          concepts: _sortConcepts(updatedRows.map(_conceptFromRow)),
-        ),
-        changedCount: changedCount,
-      );
-    }, 'AI 개념 수정 결과를 저장하지 못했어요.');
+        final updatedRows = await _database.sourceDao.getConcepts(sourceId);
+        return ConceptRevisionApplyResult(
+          review: StudySourceWithConcepts(
+            source: _sourceFromRow(source),
+            concepts: _sortConcepts(updatedRows.map(_conceptFromRow)),
+          ),
+          changedCount: changedCount,
+        );
+      }),
+      'AI 개념 수정 결과를 저장하지 못했어요.',
+    );
   }
 
   @override

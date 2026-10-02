@@ -250,6 +250,29 @@ public sealed class OpenAiLlmProviderTests
         Assert.Contains("추론·출력 토큰 한도", error.Message);
     }
 
+    [Fact]
+    public async Task ReviseConcepts_ParsesAdditionsAndDeletionsWithGroups()
+    {
+        var output = JsonSerializer.Serialize(new {
+            revisions = Array.Empty<object>(),
+            additions = new[] { new { title = "새 개념", content = "내용", pageNumbers = Array.Empty<int>(), importance = "high", groupId = "replace", reason = "교체" } },
+            deletions = new[] { new { id = "c1", reason = "교체 요청", groupId = "replace" } }
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, new {
+            status = "completed", output = new[] { new { type = "message", content = new[] { new { type = "output_text", text = output } } } }
+        }));
+        var changes = await CreateProvider(handler).ReviseConceptsAsync(new ConceptRevisionInput(
+            "source", "자료", 0, "교체", [new ConceptRevisionContext("c1", "제목", "내용", [], "held")],
+            ["c1"], ConceptRevisionPrompt.Version, true, true), TestContext.Current.CancellationToken);
+        Assert.Equal(["add", "delete"], changes.Select(item => item.Kind));
+        Assert.All(changes, item => Assert.Equal("replace", item.GroupId));
+        Assert.Equal("교체 요청", changes[1].Reason);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        var schema = request.RootElement.GetProperty("text").GetProperty("format").GetProperty("schema");
+        Assert.True(schema.GetProperty("properties").TryGetProperty("additions", out _));
+        Assert.True(schema.GetProperty("properties").TryGetProperty("deletions", out _));
+    }
+
     private static QuestionGenerationInput Input() => new(
         "가우스 법칙은 폐곡면의 전기선속과 내부 전하를 연결한다.",
         1,

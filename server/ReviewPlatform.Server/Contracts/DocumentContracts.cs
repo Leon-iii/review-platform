@@ -72,7 +72,9 @@ public sealed record ReviseConceptsRequest(
     int PageCount,
     string Instruction,
     IReadOnlyList<string> TargetConceptIds,
-    IReadOnlyList<ConceptRevisionContext> Concepts);
+    IReadOnlyList<ConceptRevisionContext> Concepts,
+    bool AllowAdditions = false,
+    bool AllowDeletions = false);
 
 public sealed record ConceptRevisionInput(
     string SourceId,
@@ -81,14 +83,52 @@ public sealed record ConceptRevisionInput(
     string Instruction,
     IReadOnlyList<ConceptRevisionContext> Concepts,
     IReadOnlyList<string> EditableConceptIds,
-    string PromptVersion);
+    string PromptVersion,
+    bool AllowAdditions = false,
+    bool AllowDeletions = false);
 
 public sealed record GeneratedConceptRevision(
     string Id,
     string Title,
     string Content,
     IReadOnlyList<int> PageNumbers,
-    string Importance = "medium");
+    string Importance = "medium",
+    string GroupId = "",
+    string Kind = "update",
+    string Reason = "");
 
 public sealed record ReviseConceptsResponse(
-    IReadOnlyList<GeneratedConceptRevision> Revisions);
+    IReadOnlyList<GeneratedConceptRevision> Revisions,
+    IReadOnlyList<GeneratedConceptAddition> Additions,
+    IReadOnlyList<GeneratedConceptDeletion> Deletions);
+
+public sealed record GeneratedConceptAddition(
+    string Title,
+    string Content,
+    IReadOnlyList<int> PageNumbers,
+    string Importance = "medium",
+    string GroupId = "",
+    string Reason = "");
+
+public sealed record GeneratedConceptDeletion(string Id, string Reason, string GroupId = "");
+
+// Provider adapters flatten the three wire arrays into the existing revision interface.
+// New concept IDs are assigned by the client only when the confirmed proposal is saved.
+public sealed record ConceptChangeEnvelope(
+    IReadOnlyList<GeneratedConceptRevision>? Revisions,
+    IReadOnlyList<GeneratedConceptAddition>? Additions = null,
+    IReadOnlyList<GeneratedConceptDeletion>? Deletions = null)
+{
+    public IReadOnlyList<GeneratedConceptRevision> Flatten()
+    {
+        if (Revisions is null) throw new System.Text.Json.JsonException("Missing revisions array.");
+        return [
+            .. Revisions.Select(item => item with { Kind = "update" }),
+            .. (Additions ?? []).Select(item => new GeneratedConceptRevision(
+                "", item.Title, item.Content, item.PageNumbers, item.Importance,
+                item.GroupId, "add", item.Reason)),
+            .. (Deletions ?? []).Select(item => new GeneratedConceptRevision(
+                item.Id, "", "", [], "medium", item.GroupId, "delete", item.Reason))
+        ];
+    }
+}

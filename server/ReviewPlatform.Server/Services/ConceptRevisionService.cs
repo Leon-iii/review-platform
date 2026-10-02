@@ -34,7 +34,12 @@ public sealed class ConceptRevisionService(
             revisions.Count,
             provider.ProviderName,
             provider.ModelName);
-        return new ReviseConceptsResponse(revisions);
+        return new ReviseConceptsResponse(
+            revisions.Where(item => item.Kind == "update").ToList(),
+            revisions.Where(item => item.Kind == "add").Select(item => new GeneratedConceptAddition(
+                item.Title, item.Content, item.PageNumbers, item.Importance, item.GroupId, item.Reason)).ToList(),
+            revisions.Where(item => item.Kind == "delete").Select(item => new GeneratedConceptDeletion(
+                item.Id, item.Reason, item.GroupId)).ToList());
     }
 
     private static ConceptRevisionInput Validate(ReviseConceptsRequest request)
@@ -57,7 +62,8 @@ public sealed class ConceptRevisionService(
             throw new ConceptRevisionRequestException(
                 "수정 요청사항은 1자에서 4,000자 사이여야 합니다.");
         }
-        if (request.Concepts is null || request.Concepts.Count is < 1 or > 200)
+        if (request.Concepts is null || request.Concepts.Count > 200 ||
+            (request.Concepts.Count == 0 && !request.AllowAdditions))
         {
             throw new ConceptRevisionRequestException(
                 "수정할 개념은 1개에서 200개 사이여야 합니다.");
@@ -98,7 +104,8 @@ public sealed class ConceptRevisionService(
         }
 
         if (request.TargetConceptIds is null ||
-            request.TargetConceptIds.Count is < 1 or > 200)
+            request.TargetConceptIds.Count > 200 ||
+            (request.TargetConceptIds.Count == 0 && !request.AllowAdditions))
         {
             throw new ConceptRevisionRequestException(
                 "수정할 개념을 하나 이상 선택해 주세요.");
@@ -126,14 +133,17 @@ public sealed class ConceptRevisionService(
             instruction,
             normalized,
             editableIds,
-            ConceptRevisionPrompt.Version);
+            ConceptRevisionPrompt.Version,
+            request.AllowAdditions,
+            request.AllowDeletions);
     }
 
     private static IReadOnlyList<GeneratedConceptRevision> ValidateOutput(
         IReadOnlyList<GeneratedConceptRevision> generated,
         ConceptRevisionInput input)
     {
-        if (generated.Count > input.EditableConceptIds.Count)
+        if (generated.Count > input.EditableConceptIds.Count +
+            (input.AllowAdditions ? ConceptRevisionPrompt.MaximumAdditions : 0))
         {
             throw new LlmProviderRequestException(
                 "LLM이 허용된 개수보다 많은 개념 수정안을 반환했습니다.");
@@ -143,6 +153,9 @@ public sealed class ConceptRevisionService(
             StringComparer.Ordinal);
         var editable = input.EditableConceptIds.ToHashSet(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var allowedPages = input.Concepts.Where(item => editable.Contains(item.Id))
+            .SelectMany(item => item.PageNumbers).ToHashSet();
+        var additionCount = 0;
         var result = new List<GeneratedConceptRevision>(generated.Count);
         foreach (var revision in generated)
         {
@@ -151,8 +164,29 @@ public sealed class ConceptRevisionService(
             var content = revision.Content?.Trim() ?? string.Empty;
             var importance = ConceptImportanceLevels.Normalize(revision.Importance);
             var pages = revision.PageNumbers?.Distinct().Order().ToList() ?? [];
+            var groupId = revision.GroupId?.Trim() ?? string.Empty;
+            var reason = revision.Reason?.Trim() ?? string.Empty;
+            if (groupId.Length > 100 || reason.Length > 1000)
+                throw new LlmProviderRequestException("LLM이 올바르지 않은 개념 변경 그룹을 반환했습니다.");
+            if (revision.Kind == "add")
+            {
+                if (!input.AllowAdditions || ++additionCount > ConceptRevisionPrompt.MaximumAdditions ||
+                    title.Length is < 1 or > 200 || content.Length is < 1 or > 8000 ||
+                    importance is null || revision.PageNumbers is null ||
+                    pages.Any(page => !allowedPages.Contains(page)))
+                    throw new LlmProviderRequestException("LLM이 허용되지 않거나 올바르지 않은 새 개념을 반환했습니다.");
+                result.Add(new GeneratedConceptRevision("", title, content, pages, importance, groupId, "add", reason));
+                continue;
+            }
+            if (revision.Kind == "delete")
+            {
+                if (!input.AllowDeletions || !editable.Contains(id) || !seen.Add(id) || reason.Length == 0)
+                    throw new LlmProviderRequestException("LLM이 허용되지 않거나 올바르지 않은 개념 삭제안을 반환했습니다.");
+                result.Add(new GeneratedConceptRevision(id, "", "", [], "medium", groupId, "delete", reason));
+                continue;
+            }
             var original = originals.GetValueOrDefault(id);
-            if (!editable.Contains(id) || !seen.Add(id) || original is null ||
+            if (revision.Kind != "update" || !editable.Contains(id) || !seen.Add(id) || original is null ||
                 title.Length is < 1 or > 200 || content.Length is < 1 or > 8_000 ||
                 revision.PageNumbers is null ||
                 (pages.Count == 0) != (original.PageNumbers.Count == 0) ||
@@ -165,10 +199,21 @@ public sealed class ConceptRevisionService(
             if (title == original.Title && content == original.Content &&
                 pages.SequenceEqual(original.PageNumbers) && importance == original.Importance)
             {
+                if (groupId.Length != 0)
+                    throw new LlmProviderRequestException("연결된 변경 그룹에 변경되지 않은 개념이 포함되어 있습니다.");
                 continue;
             }
-            result.Add(new GeneratedConceptRevision(id, title, content, pages, importance));
+            result.Add(new GeneratedConceptRevision(id, title, content, pages, importance, groupId));
         }
+        if (input.Concepts.Count + additionCount - result.Count(item => item.Kind == "delete") > 200)
+            throw new LlmProviderRequestException("자료의 개념 수는 200개를 초과할 수 없습니다.");
+        var deleted = result.Where(item => item.Kind == "delete").Select(item => item.Id).ToHashSet();
+        var updates = result.Where(item => item.Kind == "update").ToDictionary(item => item.Id);
+        var titles = input.Concepts.Where(item => !deleted.Contains(item.Id))
+            .Select(item => updates.GetValueOrDefault(item.Id)?.Title ?? item.Title).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var addition in result.Where(item => item.Kind == "add"))
+            if (!titles.Add(addition.Title))
+                throw new LlmProviderRequestException("LLM이 기존 개념과 제목이 중복된 새 개념을 반환했습니다.");
         return result;
     }
 }

@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
@@ -807,6 +808,225 @@ void main() {
       ),
       isNotEmpty,
     );
+  });
+
+  test('확인한 AI 추가·삭제를 원자적으로 적용하고 기존 문제와 동기화를 보존한다', () async {
+    final saved = await sourceRepository.saveImport(
+      folderId: folderId,
+      result: _result(),
+    );
+    final original = saved.concepts.single;
+    final questions = DriftQuestionRepository(database);
+    final ids = await questions.createQuestions(
+      [
+        QuestionDraft(
+          folderId: folderId,
+          type: QuestionType.shortAnswer,
+          prompt: '기존 문제',
+          acceptableAnswers: const ['정답'],
+        ),
+      ],
+      sourceReferences: [
+        QuestionSourceDraft(
+          sourceId: saved.source.id,
+          conceptId: original.id,
+          pageNumbers: original.pageNumbers,
+        ),
+      ],
+    );
+    final snapshot = await sourceRepository.getSourceWithConcepts(
+      saved.source.id,
+    );
+    final beforePending = await database.syncDao.getPendingCount();
+    await database.questionDao.updateQuestion(
+      ids.single,
+      QuestionsCompanion(updatedAt: Value(DateTime.utc(2020))),
+    );
+    final addition = const ConceptRevision(
+      id: 'proposal-new',
+      title: '새로운 개념',
+      content: '요청한 새로운 개념',
+      pageNumbers: [],
+      importance: ConceptImportance.veryHigh,
+      kind: ConceptChangeKind.add,
+      groupId: 'replace',
+    );
+    final deletion = ConceptRevision(
+      id: original.id,
+      title: '',
+      content: '',
+      pageNumbers: const [],
+      importance: ConceptImportance.medium,
+      kind: ConceptChangeKind.delete,
+      reason: '기존 개념을 교체',
+      groupId: 'replace',
+    );
+    final all = [addition, deletion];
+    await expectLater(
+      sourceRepository.applyConceptRevisions(
+        sourceId: saved.source.id,
+        revisions: [addition],
+        allChanges: all,
+        expectedConcepts: snapshot.concepts,
+        editableConceptIds: {original.id},
+        allowAdditions: true,
+        allowDeletions: true,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    expect(await database.syncDao.getPendingCount(), beforePending);
+    expect(
+      (await sourceRepository.getSourceWithConcepts(saved.source.id))
+          .concepts
+          .single
+          .id,
+      original.id,
+    );
+    final result = await sourceRepository.applyConceptRevisions(
+      sourceId: saved.source.id,
+      revisions: all,
+      allChanges: all,
+      expectedConcepts: snapshot.concepts,
+      editableConceptIds: {original.id},
+      allowAdditions: true,
+      allowDeletions: true,
+    );
+    expect(result.changedCount, 2);
+    final created = result.review.concepts.single;
+    expect(created.id, isNot(addition.id));
+    expect(created.status, ConceptStatus.held);
+    expect(created.importance, ConceptImportance.veryHigh);
+    expect(created.pageNumbers, isEmpty);
+    final question = (await questions.getQuestion(ids.single))!;
+    expect(question.prompt, '기존 문제');
+    expect(question.sourceReferences.single.conceptId, isNull);
+    expect(question.sourceReferences.single.sourceId, saved.source.id);
+    expect(question.sourceReferences.single.pageNumbers, original.pageNumbers);
+    expect(question.updatedAt.isAfter(DateTime.utc(2020)), isTrue);
+    expect(await database.syncDao.getPendingCount(), beforePending + 3);
+    final batch = await DriftSyncRepository(database).buildPushBatch();
+    expect(
+      batch.any(
+        (item) => item.entityId == original.id && item.operation == 'delete',
+      ),
+      isTrue,
+    );
+    expect(
+      batch
+          .lastWhere((item) => item.entityId == ids.single)
+          .payload!['sourceReferences'],
+      [containsPair('conceptId', null)],
+    );
+  });
+
+  test('원본 변경·권한·중복·출처 오류는 데이터와 Outbox를 변경하지 않는다', () async {
+    final saved = await sourceRepository.saveImport(
+      folderId: folderId,
+      result: _result(),
+    );
+    final original = saved.concepts.single;
+    final snapshot = await sourceRepository.getSourceWithConcepts(
+      saved.source.id,
+    );
+    final addition = const ConceptRevision(
+      id: 'new',
+      title: '새 개념',
+      content: '새 내용',
+      pageNumbers: [],
+      importance: ConceptImportance.low,
+      kind: ConceptChangeKind.add,
+    );
+    final before = await database.syncDao.getPendingCount();
+    await expectLater(
+      sourceRepository.applyConceptRevisions(
+        sourceId: saved.source.id,
+        revisions: [addition],
+        expectedConcepts: snapshot.concepts,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    final badPage = const ConceptRevision(
+      id: 'bad',
+      title: '새 개념',
+      content: '새 내용',
+      pageNumbers: [10],
+      importance: ConceptImportance.low,
+      kind: ConceptChangeKind.add,
+    );
+    await expectLater(
+      sourceRepository.applyConceptRevisions(
+        sourceId: saved.source.id,
+        revisions: [addition, badPage],
+        allowAdditions: true,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    final duplicate = ConceptRevision(
+      id: 'duplicate',
+      title: original.title,
+      content: '내용',
+      pageNumbers: const [],
+      importance: ConceptImportance.medium,
+      kind: ConceptChangeKind.add,
+    );
+    await expectLater(
+      sourceRepository.applyConceptRevisions(
+        sourceId: saved.source.id,
+        revisions: [addition, duplicate],
+        allowAdditions: true,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    expect(await database.syncDao.getPendingCount(), before);
+    await sourceRepository.updateConcept(
+      id: original.id,
+      title: original.title,
+      content: '사용자가 대기 중 수정한 내용',
+      importance: original.importance,
+    );
+    final afterEdit = await database.syncDao.getPendingCount();
+    await expectLater(
+      sourceRepository.applyConceptRevisions(
+        sourceId: saved.source.id,
+        revisions: [addition],
+        expectedConcepts: snapshot.concepts,
+        allowAdditions: true,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    expect(await database.syncDao.getPendingCount(), afterEdit);
+    expect(
+      (await sourceRepository.getSourceWithConcepts(saved.source.id))
+          .concepts
+          .single
+          .content,
+      '사용자가 대기 중 수정한 내용',
+    );
+  });
+
+  test('빈 사용자 자료에도 AI 개념을 추가하고 명시적으로 검토 완료할 수 있다', () async {
+    final saved = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '새 자료',
+    );
+    final result = await sourceRepository.applyConceptRevisions(
+      sourceId: saved.source.id,
+      revisions: const [
+        ConceptRevision(
+          id: 'new',
+          title: '새 개념',
+          content: '새 내용',
+          pageNumbers: [],
+          importance: ConceptImportance.high,
+          kind: ConceptChangeKind.add,
+        ),
+      ],
+      expectedConcepts: const [],
+      allowAdditions: true,
+      markReviewed: true,
+    );
+    expect(result.review.concepts.single.status, ConceptStatus.approved);
+    expect(result.review.concepts.single.pageNumbers, isEmpty);
   });
 
   test('개념 삭제 시 문제 출처 연결을 해제하고 delete를 기록한다', () async {

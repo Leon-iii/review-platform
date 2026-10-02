@@ -798,6 +798,25 @@ public sealed class OllamaLlmProviderTests
         });
     }
 
+    [Fact]
+    public async Task ReviseConcepts_ParsesAdditionsAndDeletionsWithGroups()
+    {
+        var output = JsonSerializer.Serialize(new {
+            revisions = Array.Empty<object>(),
+            additions = new[] { new { title = "새 개념", content = "내용", pageNumbers = Array.Empty<int>(), importance = "high", groupId = "replace", reason = "교체" } },
+            deletions = new[] { new { id = "c1", reason = "교체 요청", groupId = "replace" } }
+        });
+        var handler = new RecordingHandler(request => request.RequestUri!.AbsolutePath == "/api/tags"
+            ? JsonResponse(HttpStatusCode.OK, new { models = new[] { new { name = "qwen3:8b" } } })
+            : JsonResponse(HttpStatusCode.OK, new { done = true, message = new { content = output } }));
+        var changes = await CreateProvider(handler).ReviseConceptsAsync(new ConceptRevisionInput(
+            "source", "자료", 0, "교체", [new ConceptRevisionContext("c1", "제목", "내용", [], "held")],
+            ["c1"], ConceptRevisionPrompt.Version, true, true), TestContext.Current.CancellationToken);
+        Assert.Equal(["add", "delete"], changes.Select(item => item.Kind));
+        Assert.All(changes, item => Assert.Equal("replace", item.GroupId));
+        Assert.Equal("교체 요청", changes[1].Reason);
+    }
+
     private static OllamaLlmProvider CreateProvider(
         HttpMessageHandler handler,
         string apiKey = "",

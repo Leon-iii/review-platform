@@ -176,7 +176,7 @@ public sealed class OllamaLlmProvider(
             var userPrompt = ConceptRevisionPrompt.BuildUserPrompt(input);
             var outputTokenBudget = Math.Min(
                 6_000,
-                2_048 + input.EditableConceptIds.Count * 384);
+                2_048 + (input.EditableConceptIds.Count + (input.AllowAdditions ? 4 : 0)) * 384);
             var contextWindow = SelectRevisionContextWindow(
                 ConceptRevisionPrompt.SystemPrompt.Length + userPrompt.Length,
                 outputTokenBudget);
@@ -731,10 +731,10 @@ public sealed class OllamaLlmProvider(
                 throw new LlmProviderRequestException(
                     "Ollama 응답에 구조화된 개념 수정안이 없습니다.");
             }
-            var envelope = JsonSerializer.Deserialize<ConceptRevisionEnvelope>(
+            var envelope = JsonSerializer.Deserialize<ConceptChangeEnvelope>(
                 content.GetString()!,
                 JsonOptions);
-            return envelope?.Revisions ?? throw new LlmProviderRequestException(
+            return envelope?.Flatten() ?? throw new LlmProviderRequestException(
                 "Ollama의 구조화된 개념 수정 응답을 해석하지 못했습니다.");
         }
         catch (LlmProviderRequestException)
@@ -1044,9 +1044,6 @@ public sealed class OllamaLlmProvider(
 
     private sealed record ConceptEnvelope(
         IReadOnlyList<GeneratedConceptDraft>? Concepts);
-
-    private sealed record ConceptRevisionEnvelope(
-        IReadOnlyList<GeneratedConceptRevision>? Revisions);
 
     private sealed record DocumentVisionEnvelope(string? Text);
 
