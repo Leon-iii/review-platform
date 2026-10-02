@@ -127,6 +127,7 @@ public sealed class LlmProfileRecord
     public int? ContextWindowTokens { get; set; }
 
     public string? ReasoningEffort { get; set; }
+    public int MaximumQuestionsPerRequest { get; set; } = 120;
 }
 
 public sealed class LlmPurposeAssignmentRecord

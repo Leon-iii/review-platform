@@ -16,11 +16,13 @@ class AiQuestionGenerationView extends ConsumerStatefulWidget {
   const AiQuestionGenerationView({
     this.initialFolderId,
     this.initialConceptId,
+    this.initialSourceId,
     super.key,
   });
 
   final String? initialFolderId;
   final String? initialConceptId;
+  final String? initialSourceId;
 
   @override
   ConsumerState<AiQuestionGenerationView> createState() =>
@@ -29,6 +31,13 @@ class AiQuestionGenerationView extends ConsumerStatefulWidget {
 
 class _AiQuestionGenerationViewState
     extends ConsumerState<AiQuestionGenerationView> {
+  static const _difficultyLabels = {
+    1: '매우 쉬움',
+    2: '쉬움',
+    3: '보통',
+    4: '어려움',
+    5: '매우 어려움',
+  };
   final _formKey = GlobalKey<FormState>();
   final _sourceLabelController = TextEditingController();
   final _sourceTextController = TextEditingController();
@@ -36,12 +45,14 @@ class _AiQuestionGenerationViewState
   String? _selectedFolderId;
   AiQuestionGenerationMode _generationMode = AiQuestionGenerationMode.automatic;
   AiQuestionDensity _automaticDensity = AiQuestionDensity.medium;
+  RangeValues _difficultyRange = const RangeValues(1, 5);
   Set<QuestionType> _questionTypes = {
     QuestionType.multipleChoice,
     QuestionType.trueFalse,
     QuestionType.shortAnswer,
   };
   ConceptGenerationSeed? _conceptSeed;
+  SourceGenerationSeed? _sourceSeed;
   Object? _conceptSeedError;
   bool _loadingConceptSeed = false;
 
@@ -49,7 +60,7 @@ class _AiQuestionGenerationViewState
   void initState() {
     super.initState();
     _selectedFolderId = widget.initialFolderId;
-    if (widget.initialConceptId != null) {
+    if (widget.initialConceptId != null || widget.initialSourceId != null) {
       _loadingConceptSeed = true;
       Future<void>.microtask(_loadConceptSeed);
     }
@@ -168,7 +179,7 @@ class _AiQuestionGenerationViewState
                       TextFormField(
                         key: const Key('ai-source-label-field'),
                         controller: _sourceLabelController,
-                        readOnly: _conceptSeed != null,
+                        readOnly: _conceptSeed != null || _sourceSeed != null,
                         maxLength: 200,
                         decoration: const InputDecoration(
                           labelText: '자료 이름 (선택)',
@@ -180,7 +191,7 @@ class _AiQuestionGenerationViewState
                       TextFormField(
                         key: const Key('ai-source-text-field'),
                         controller: _sourceTextController,
-                        readOnly: _conceptSeed != null,
+                        readOnly: _conceptSeed != null || _sourceSeed != null,
                         minLines: 10,
                         maxLines: 20,
                         maxLength: 50000,
@@ -190,9 +201,14 @@ class _AiQuestionGenerationViewState
                           alignLabelWithHint: true,
                           border: OutlineInputBorder(),
                         ),
-                        validator: (value) => (value?.trim().length ?? 0) < 10
-                            ? '학습 내용을 10자 이상 입력해 주세요.'
-                            : null,
+                        validator: (value) {
+                          final length = value?.trim().length ?? 0;
+                          if (length < 10) return '학습 내용을 10자 이상 입력해 주세요.';
+                          if (length > 50000) {
+                            return '학습 내용은 50,000자 이하로 입력해 주세요.';
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -223,6 +239,52 @@ class _AiQuestionGenerationViewState
                         selected: _questionTypes,
                         onSelectionChanged: (value) =>
                             setState(() => _questionTypes = value),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '목표 난이도',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          Text(
+                            '${_difficultyRange.start.round()} ~ ${_difficultyRange.end.round()}',
+                            key: const Key('ai-difficulty-range-label'),
+                          ),
+                        ],
+                      ),
+                      RangeSlider(
+                        key: const Key('ai-difficulty-range-slider'),
+                        min: 1,
+                        max: 5,
+                        divisions: 4,
+                        values: _difficultyRange,
+                        labels: RangeLabels(
+                          _difficultyLabel(_difficultyRange.start),
+                          _difficultyLabel(_difficultyRange.end),
+                        ),
+                        semanticFormatterCallback: _difficultyLabel,
+                        onChanged: (values) => setState(() {
+                          _difficultyRange = RangeValues(
+                            values.start.roundToDouble(),
+                            values.end.roundToDouble(),
+                          );
+                        }),
+                      ),
+                      const Row(
+                        children: [
+                          Expanded(child: Text('1 · 매우 쉬움')),
+                          Expanded(
+                            child: Text('5 · 매우 어려움', textAlign: TextAlign.end),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '생성 목표 범위이며, 최종 난이도는 생성된 문제를 다시 평가합니다.',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 20),
                       Text(
@@ -310,7 +372,9 @@ class _AiQuestionGenerationViewState
                       const SizedBox(height: 28),
                       FilledButton.icon(
                         key: const Key('generate-ai-questions-button'),
-                        onPressed: () => _generate(selectedId!),
+                        onPressed: _conceptSeedError != null
+                            ? null
+                            : () => _generate(selectedId!),
                         icon: const Icon(Icons.auto_awesome_rounded),
                         label: const Text('문제 생성'),
                       ),
@@ -340,6 +404,8 @@ class _AiQuestionGenerationViewState
                 ? null
                 : _sourceLabelController.text.trim(),
             questionTypes: _questionTypes,
+            minimumDifficulty: _difficultyRange.start.round(),
+            maximumDifficulty: _difficultyRange.end.round(),
             generationMode: _generationMode,
             automaticDensity:
                 _generationMode == AiQuestionGenerationMode.automatic
@@ -349,7 +415,7 @@ class _AiQuestionGenerationViewState
                 ? int.parse(_manualQuestionCountController.text)
                 : null,
             sourceReference: _conceptSeed == null
-                ? null
+                ? _sourceSeed?.sourceReference
                 : QuestionSourceDraft(
                     sourceId: _conceptSeed!.source.id,
                     conceptId: _conceptSeed!.concept.id,
@@ -363,11 +429,30 @@ class _AiQuestionGenerationViewState
     }
   }
 
+  String _difficultyLabel(double value) {
+    final level = value.round();
+    return '$level · ${_difficultyLabels[level]}';
+  }
+
   String _messageFor(Object error) =>
       error is AppFailure ? error.message : 'AI 문제 생성을 완료하지 못했어요.';
 
   Future<void> _loadConceptSeed() async {
     try {
+      if (widget.initialConceptId == null) {
+        final seed = await ref
+            .read(sourceRepositoryProvider)
+            .getSourceGenerationSeed(widget.initialSourceId!);
+        if (!mounted) return;
+        _sourceLabelController.text = seed.sourceLabel;
+        _sourceTextController.text = seed.sourceText;
+        setState(() {
+          _sourceSeed = seed;
+          _selectedFolderId = seed.folderId;
+          _loadingConceptSeed = false;
+        });
+        return;
+      }
       final seed = await ref
           .read(sourceRepositoryProvider)
           .getConceptGenerationSeed(widget.initialConceptId!);

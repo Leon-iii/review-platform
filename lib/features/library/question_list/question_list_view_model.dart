@@ -41,6 +41,12 @@ class QuestionListViewModel extends _$QuestionListViewModel {
   }
 
   Future<void> deleteSource(String id) async {
+    final repository = ref.read(sourceRepositoryProvider);
+    final source = (await repository.getSourceWithConcepts(id)).source;
+    if (source.isManual) {
+      await repository.deleteSource(id);
+      return;
+    }
     final configuration = await ref
         .read(syncCredentialsStoreProvider)
         .readConfiguration();

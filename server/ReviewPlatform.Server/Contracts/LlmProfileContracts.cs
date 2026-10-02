@@ -30,7 +30,8 @@ public sealed record LlmProfileDto(
     string Model,
     DateTimeOffset UpdatedAt,
     int? ContextWindowTokens = null,
-    string? ReasoningEffort = null);
+    string? ReasoningEffort = null,
+    int MaximumQuestionsPerRequest = 120);
 
 public sealed record LlmProfileInput(
     string Id,
@@ -38,7 +39,8 @@ public sealed record LlmProfileInput(
     string Provider,
     string Model,
     int? ContextWindowTokens = null,
-    string? ReasoningEffort = null);
+    string? ReasoningEffort = null,
+    int MaximumQuestionsPerRequest = 120);
 
 public sealed record LlmProfileSettingsResponse(
     IReadOnlyList<LlmProfileDto> Profiles,

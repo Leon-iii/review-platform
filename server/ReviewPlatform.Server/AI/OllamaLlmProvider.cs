@@ -24,6 +24,8 @@ public sealed class OllamaLlmProvider(
 
     public string ModelName => settings.Model;
 
+    public int MaximumQuestionsPerRequest => settings.MaximumQuestionsPerRequest;
+
     public int? ContextWindowTokens => settings.ContextWindowTokens;
 
     public async Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(

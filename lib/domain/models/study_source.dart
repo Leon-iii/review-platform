@@ -19,6 +19,8 @@ class StudySource {
   final int pageCount;
   final String extractionMethod;
   final DateTime importedAt;
+
+  bool get isManual => extractionMethod == 'manual';
 }
 
 class StudyConcept {
@@ -43,6 +45,9 @@ class StudyConcept {
   final ConceptImportance importance;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  // Empty pages mean user-authored content with no PDF provenance.
+  bool get hasPageSource => pageNumbers.isNotEmpty;
 
   StudyConcept copyWith({
     String? title,
@@ -112,7 +117,9 @@ class ConceptGenerationSeed {
 
   String get sourceLabel {
     final pages = concept.pageNumbers.join(', ');
-    final label = '${source.fileName} · p.$pages · ${concept.title}';
+    final label =
+        '${source.fileName}'
+        '${concept.hasPageSource ? ' · p.$pages' : ''} · ${concept.title}';
     return label.length <= 200 ? label : label.substring(0, 200);
   }
 
@@ -120,6 +127,33 @@ class ConceptGenerationSeed {
     concept.title,
     concept.content,
   ].where((value) => value.trim().isNotEmpty).join('\n\n');
+}
+
+class SourceGenerationSeed {
+  const SourceGenerationSeed({required this.source, required this.concepts});
+
+  final StudySource source;
+  final List<StudyConcept> concepts;
+
+  String get folderId => source.folderId;
+  String get sourceLabel => source.fileName.length <= 200
+      ? source.fileName
+      : source.fileName.substring(0, 200);
+  String get sourceText => [
+    for (var index = 0; index < concepts.length; index++)
+      '${index + 1}. ${concepts[index].title}\n'
+          '${concepts[index].hasPageSource ? '페이지: ${concepts[index].pageNumbers.join(', ')}\n' : ''}'
+          '${concepts[index].content}',
+  ].join('\n\n');
+
+  // Document-wide generation has no reliable per-question concept mapping.
+  // Keep the source and input pages without attributing an arbitrary concept.
+  QuestionSourceDraft get sourceReference => QuestionSourceDraft(
+    sourceId: source.id,
+    pageNumbers: {
+      for (final concept in concepts) ...concept.pageNumbers,
+    }.toList()..sort(),
+  );
 }
 
 class QuestionSourceDraft {

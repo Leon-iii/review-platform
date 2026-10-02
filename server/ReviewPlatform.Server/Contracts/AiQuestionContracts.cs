@@ -6,7 +6,9 @@ public sealed record GenerateQuestionsRequest(
     IReadOnlyList<string>? QuestionTypes,
     string? SourceLabel,
     string? GenerationMode = null,
-    string? AutomaticDensity = null);
+    string? AutomaticDensity = null,
+    int MinimumDifficulty = 1,
+    int MaximumDifficulty = 5);
 
 public sealed record GeneratedQuestionChoice(string Text, bool IsCorrect);
 

@@ -23,6 +23,8 @@ public sealed class OpenAiLlmProvider(
 
     public string ModelName => settings.Model;
 
+    public int MaximumQuestionsPerRequest => settings.MaximumQuestionsPerRequest;
+
     public async Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default)

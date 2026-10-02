@@ -12,6 +12,8 @@ class AiQuestionGenerationRequest {
     this.generationMode = AiQuestionGenerationMode.manual,
     this.automaticDensity,
     this.questionCount = 10,
+    this.minimumDifficulty = 1,
+    this.maximumDifficulty = 5,
   });
 
   final String sourceText;
@@ -20,6 +22,8 @@ class AiQuestionGenerationRequest {
   final String? sourceLabel;
   final AiQuestionGenerationMode generationMode;
   final AiQuestionDensity? automaticDensity;
+  final int minimumDifficulty;
+  final int maximumDifficulty;
 
   Map<String, Object?> toJson() => {
     'sourceText': sourceText,
@@ -28,6 +32,8 @@ class AiQuestionGenerationRequest {
     'sourceLabel': sourceLabel,
     'generationMode': generationMode.name,
     'automaticDensity': automaticDensity?.name,
+    'minimumDifficulty': minimumDifficulty,
+    'maximumDifficulty': maximumDifficulty,
   };
 }
 

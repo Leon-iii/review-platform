@@ -17,4 +17,6 @@ public sealed class LlmOptions
 
     // null leaves the OpenAI API default unchanged; not used by Ollama.
     public string? ReasoningEffort { get; set; }
+
+    public int MaximumQuestionsPerRequest { get; set; } = 120;
 }

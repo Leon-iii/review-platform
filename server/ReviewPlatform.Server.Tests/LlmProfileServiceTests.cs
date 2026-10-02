@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 using System.Text;
 using ReviewPlatform.Server.AI;
@@ -88,6 +89,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
         var profile = Assert.Single(settings.Profiles);
         Assert.Equal("ollama", profile.Provider);
         Assert.Equal("qwen3-vl:8b-instruct", profile.Model);
+        Assert.Equal(120, profile.MaximumQuestionsPerRequest);
         Assert.Equal(profile.Id,
             settings.Assignments[LlmPurposes.QuestionGeneration]);
         Assert.Equal(profile.Id,
@@ -385,6 +387,50 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
                     active.ReasoningEffort);
             }
         }
+    }
+
+    [Theory]
+    [InlineData("ollama", "qwen3-vl:8b-instruct", 40)]
+    [InlineData("openai", "gpt-5-mini", 100)]
+    [InlineData("openai", "gpt-5-mini", 101)]
+    [InlineData("ollama", "qwen3-vl:8b-instruct", 200)]
+    public async Task QuestionLimit_PersistsAndAppliesToNextRequestWithoutRestart(
+        string provider, string model, int limit)
+    {
+        await service.GetSettingsAsync(TestContext.Current.CancellationToken);
+        var resolver = new RuntimeLlmProviderResolver(service, apiKeys,
+            new MetadataHttpClientFactory(), NullLoggerFactory.Instance);
+        var before = await resolver.ResolveAsync(LlmPurposes.QuestionGeneration,
+            TestContext.Current.CancellationToken);
+        var profiles = LlmPurposes.All.Select(purpose => new LlmProfileInput(
+            $"purpose-{purpose}", purpose, provider, model,
+            MaximumQuestionsPerRequest: purpose == LlmPurposes.QuestionGeneration ? limit : 120)).ToList();
+        await service.UpdateSettingsAsync(new UpdateLlmProfileSettingsRequest(profiles,
+            LlmPurposes.All.ToDictionary(p => p, p => $"purpose-{p}")),
+            TestContext.Current.CancellationToken);
+        database.ChangeTracker.Clear();
+        var stored = await service.GetSettingsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(limit, stored.Profiles.Single(p => p.Id == "purpose-questionGeneration").MaximumQuestionsPerRequest);
+        var after = await resolver.ResolveAsync(LlmPurposes.QuestionGeneration,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(limit, after.MaximumQuestionsPerRequest);
+        Assert.Equal(120, before.MaximumQuestionsPerRequest);
+        Assert.Equal(120, (await service.GetActiveProfileAsync(LlmPurposes.ConceptExtraction,
+            TestContext.Current.CancellationToken)).MaximumQuestionsPerRequest);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task QuestionLimit_RejectsInvalidValueWithoutChangingProfiles(int limit)
+    {
+        await service.GetSettingsAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<LlmProfileValidationException>(() => service.UpdateSettingsAsync(
+            new UpdateLlmProfileSettingsRequest(
+                [new LlmProfileInput("new", "문제 생성", "openai", "gpt-5-mini", MaximumQuestionsPerRequest: limit)],
+                LlmPurposes.All.ToDictionary(p => p, _ => "new")), TestContext.Current.CancellationToken));
+        Assert.Equal(120, (await service.GetActiveProfileAsync(LlmPurposes.QuestionGeneration,
+            TestContext.Current.CancellationToken)).MaximumQuestionsPerRequest);
     }
 
     private sealed class MetadataHttpClientFactory : IHttpClientFactory

@@ -38,6 +38,10 @@ abstract final class AppRoutes {
     path: aiGenerate,
     queryParameters: {'folderId': folderId, 'conceptId': conceptId},
   ).toString();
+  static String aiGenerateForSource(String folderId, String sourceId) => Uri(
+    path: aiGenerate,
+    queryParameters: {'folderId': folderId, 'sourceId': sourceId},
+  ).toString();
   static String documentsForFolder(String folderId) =>
       Uri(path: documents, queryParameters: {'folderId': folderId}).toString();
   static String documentsForSource(String folderId, String sourceId) => Uri(
@@ -115,6 +119,7 @@ GoRouter router(Ref ref) {
         builder: (context, state) => AiQuestionGenerationView(
           initialFolderId: state.uri.queryParameters['folderId'],
           initialConceptId: state.uri.queryParameters['conceptId'],
+          initialSourceId: state.uri.queryParameters['sourceId'],
         ),
       ),
       GoRoute(

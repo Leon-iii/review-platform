@@ -64,6 +64,8 @@ public sealed record ConceptRevisionContext(
     string Status,
     string Importance = "medium");
 
+// PageCount=0 and empty PageNumbers represent user-authored material/concepts.
+// PDF materials can also contain user-authored concepts with empty PageNumbers.
 public sealed record ReviseConceptsRequest(
     string SourceId,
     string FileName,

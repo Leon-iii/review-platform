@@ -88,7 +88,9 @@ void main() {
     await tester.pumpAndSettle();
     slider = tester.widget<RangeSlider>(finder);
     expect(slider.values, const RangeValues(2, 4));
-    expect(find.text('2 · 쉬움 ~ 4 · 어려움'), findsOneWidget);
+    expect(slider.labels, const RangeLabels('2 · 쉬움', '4 · 어려움'));
+    expect(find.byKey(const Key('difficulty-range-label')), findsNothing);
+    expect(find.text('2 · 쉬움 ~ 4 · 어려움'), findsNothing);
     expect(find.byKey(const Key('difficulty-filter-1')), findsNothing);
     expect(tester.takeException(), isNull);
   }, variant: platforms);
@@ -115,16 +117,51 @@ void main() {
     await tester.pumpAndSettle();
     tester.widget<RangeSlider>(finder).onChanged!(const RangeValues(3, 3));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('difficulty-range-label')), findsOneWidget);
+    expect(find.byKey(const Key('difficulty-range-label')), findsNothing);
     expect(
-      tester.widget<Text>(find.byKey(const Key('difficulty-range-label'))).data,
-      '3 · 보통',
+      tester.widget<RangeSlider>(finder).labels,
+      const RangeLabels('3 · 보통', '3 · 보통'),
     );
     await tapVisible(tester, find.byKey(const Key('start-quiz-button')));
     final row = await database.select(database.quizSessions).getSingle();
     final details = (await quizzes.getSession(row.id))!;
     expect(details.items.single.questionSnapshot.prompt, '난이도 3 문제');
     expect(details.session.filter.enabledDifficulties, {3});
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('정답 바로 확인 토글은 다른 풀이 옵션과 같은 형식이며 다시 켤 수 있다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.byKey(const Key('start-study-button')));
+    final finder = find.byKey(const Key('answer-feedback-switch'));
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(finder).value, isTrue);
+    expect(
+      tester.widget<SwitchListTile>(finder).contentPadding,
+      EdgeInsets.zero,
+    );
+    expect(find.byType(SwitchListTile), findsNWidgets(3));
+    expect(find.text('정답 공개 시점'), findsNothing);
+    expect(find.byType(Slider), findsNothing);
+    await tapVisible(tester, finder);
+    expect(tester.widget<SwitchListTile>(finder).value, isFalse);
+    expect(
+      find.text('풀이 중에는 정답·오답을 숨기고, 학습 종료 후 결과 화면에서 확인합니다.'),
+      findsOneWidget,
+    );
+    await tapVisible(tester, finder);
+    expect(tester.widget<SwitchListTile>(finder).value, isTrue);
+    expect(find.text('각 답안을 제출하면 바로 정답·오답을 알려줍니다.'), findsOneWidget);
+    expect(
+      tester.getTopLeft(finder).dy,
+      lessThan(
+        tester.getTopLeft(find.widgetWithText(SwitchListTile, '문제 순서 섞기')).dy,
+      ),
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -228,14 +265,14 @@ void main() {
         const RangeValues(2, 4),
       );
       await tester.pumpAndSettle();
-      final sliderFinder = find.byKey(const Key('answer-feedback-slider'));
-      await tester.ensureVisible(sliderFinder);
+      final feedbackFinder = find.byKey(const Key('answer-feedback-switch'));
+      await tester.ensureVisible(feedbackFinder);
       await tester.pumpAndSettle();
-      expect(tester.widget<Slider>(sliderFinder).value, 0);
+      expect(tester.widget<SwitchListTile>(feedbackFinder).value, isTrue);
+      expect(find.byKey(const Key('answer-feedback-slider')), findsNothing);
       if (timing == AnswerFeedbackTiming.afterCompletion) {
-        await tester.drag(sliderFinder, const Offset(600, 0));
-        await tester.pumpAndSettle();
-        expect(tester.widget<Slider>(sliderFinder).value, 1);
+        await tapVisible(tester, feedbackFinder);
+        expect(tester.widget<SwitchListTile>(feedbackFinder).value, isFalse);
       }
       await tapVisible(tester, find.widgetWithText(SwitchListTile, '문제 순서 섞기'));
       await tapVisible(tester, find.byKey(const Key('start-quiz-button')));

@@ -21,6 +21,10 @@ public static class QuestionGenerationPrompt
         including the cognitive demand, reasoning steps, answer ambiguity, and distractor
         plausibility. Always assign an integer difficulty from 1 (very easy) to 5 (very hard).
         Do not rate difficulty from the source topic alone.
+        The requested difficulty range is a drafting target, not a label to copy. Aim to write
+        questions at that level, then independently assess the finished question. Report its actual
+        assessed difficulty even if it falls outside the target range. Never clamp, overwrite, or
+        assign a fixed difficulty merely to match the request.
         Every question must contain the exact supplied source reference. Do not generate essay questions.
         Respond in the primary language used by SOURCE and output only data matching the JSON schema.
         """;
@@ -32,9 +36,12 @@ public static class QuestionGenerationPrompt
             ? $"""
                 Generation mode: automatic
                 First identify every distinct, study-worthy key concept explicitly supported by SOURCE.
-                Generate {input.MinimumQuestionsPerConcept}-{input.MaximumQuestionsPerConcept} questions for EACH identified concept.
+                Normally generate {input.MinimumQuestionsPerConcept}-{input.MaximumQuestionsPerConcept} questions for EACH identified concept.
                 The total question count is determined by the number of identified concepts; there is no fixed total.
-                Cover every identified concept, do not merge unrelated concepts to reduce the count, and avoid duplicate questions.
+                HARD LIMIT: Return at most {input.MaximumOutputQuestions} questions in total in this response.
+                This limit takes precedence over concept coverage and per-concept quantity instructions.
+                If full coverage would exceed the limit, prioritize key concepts and reduce questions per concept or omit lower-priority concepts.
+                Otherwise cover every identified concept. Never merge unrelated concepts, and avoid duplicate questions.
                 """
             : $"""
                 Generation mode: manual
@@ -48,6 +55,14 @@ public static class QuestionGenerationPrompt
             Prompt version: {input.PromptVersion}
 
             {quantityInstructions}
+
+            TARGET DIFFICULTY:
+            Requested difficulty range: {input.MinimumDifficulty}-{input.MaximumDifficulty} (inclusive).
+            Scale: 1 very easy, 2 easy, 3 medium, 4 hard, 5 very hard.
+            Design questions for this target range within SOURCE's conceptual scope.
+            After drafting, independently evaluate each finished question and report its actual
+            difficulty on the full 1-5 scale, even when outside the requested range.
+            Do not copy the target bounds into difficulty or force every question to the same rating.
 
             SOURCE:
             {input.SourceText}

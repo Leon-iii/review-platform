@@ -248,7 +248,7 @@ class _FolderList extends StatelessWidget {
                           subtitle: Text(
                             '하위 폴더 ${node.children.length}개, '
                             '문제 ${node.questionCount}개, '
-                            'PDF 강의자료 ${node.sourceCount}개',
+                            '자료 ${node.sourceCount}개',
                           ),
                           onTap: () => onOpen(node.folder),
                           trailing: PopupMenuButton<_FolderAction>(

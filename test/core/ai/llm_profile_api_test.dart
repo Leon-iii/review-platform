@@ -32,6 +32,12 @@ void main() {
     expect(settings.profiles.last.contextWindowTokens, isNull);
     expect(settings.profiles.first.reasoningEffort, isNull);
     expect(settings.profiles.last.reasoningEffort, 'high');
+    expect(settings.profiles.first.maximumQuestionsPerRequest, 45);
+    expect(settings.profiles.last.maximumQuestionsPerRequest, 120);
+    expect(
+      settings.forPurposes().profiles.first.maximumQuestionsPerRequest,
+      45,
+    );
     expect(
       settings.assignments[LlmPurpose.questionGeneration],
       'question-profile',
@@ -69,6 +75,7 @@ void main() {
           provider: LlmProviderKind.ollama,
           model: 'qwen3:4b',
           contextWindowTokens: 16384,
+          maximumQuestionsPerRequest: 101,
           updatedAt: DateTime.utc(2026),
         ),
         LlmProfile(
@@ -119,6 +126,8 @@ void main() {
     expect((profiles.last as Map)['contextWindowTokens'], isNull);
     expect((profiles.last as Map)['reasoningEffort'], 'high');
     expect((profiles.first as Map)['reasoningEffort'], isNull);
+    expect((profiles.first as Map)['maximumQuestionsPerRequest'], 101);
+    expect((profiles.last as Map)['maximumQuestionsPerRequest'], 120);
   });
 
   test('Provider별 모델 목록을 서버에서 불러온다', () async {
@@ -240,6 +249,7 @@ http.Response _response() => http.Response(
         'provider': 'ollama',
         'model': 'qwen3:4b',
         'contextWindowTokens': 32768,
+        'maximumQuestionsPerRequest': 45,
         'updatedAt': '2026-09-19T00:00:00Z',
       },
       {

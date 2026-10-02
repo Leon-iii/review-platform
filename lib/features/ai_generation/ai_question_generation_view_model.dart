@@ -95,6 +95,8 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
     AiQuestionGenerationMode generationMode = AiQuestionGenerationMode.manual,
     AiQuestionDensity? automaticDensity,
     int? questionCount = 10,
+    int minimumDifficulty = 1,
+    int maximumDifficulty = 5,
     QuestionSourceDraft? sourceReference,
   }) async {
     state = const AsyncLoading();
@@ -116,6 +118,8 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
               sourceLabel: sourceLabel,
               generationMode: generationMode,
               automaticDensity: automaticDensity,
+              minimumDifficulty: minimumDifficulty,
+              maximumDifficulty: maximumDifficulty,
             ),
           );
       final drafts = [

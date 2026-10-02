@@ -63,6 +63,67 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         Assert.Null(record.Error);
     }
 
+    [Theory]
+    [InlineData("manual", 1, 5, 3)]
+    [InlineData("manual", 4, 5, 1)]
+    [InlineData("manual", 1, 2, 5)]
+    [InlineData("manual", 4, 4, 2)]
+    [InlineData("automatic", 4, 5, 1)]
+    public async Task TargetDifficultyGuidesDraftingWithoutOverridingAssessment(
+        string mode, int minimum, int maximum, int assessed)
+    {
+        var provider = new FakeLlmProvider([ShortAnswerQuestion() with { Difficulty = assessed }]);
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            new GenerateQuestionsRequest("생성 목표 난이도를 검증할 충분히 긴 학습 내용이다.",
+                mode == "manual" ? 1 : null, ["shortAnswer"], null, mode,
+                mode == "automatic" ? "low" : null, minimum, maximum), TestContext.Current.CancellationToken);
+        var input = provider.LastInput!;
+        Assert.Equal(minimum, input.MinimumDifficulty);
+        Assert.Equal(maximum, input.MaximumDifficulty);
+        Assert.Contains($"Requested difficulty range: {minimum}-{maximum}", QuestionGenerationPrompt.BuildUserPrompt(input));
+        Assert.Contains("even if it falls outside the target range", QuestionGenerationPrompt.SystemPrompt);
+        var schema = QuestionGenerationPrompt.BuildQuestionSchema(input);
+        var difficulty = schema["properties"]!["questions"]!["items"]!["properties"]!["difficulty"]!;
+        Assert.Equal(1, difficulty["minimum"]!.GetValue<int>());
+        Assert.Equal(5, difficulty["maximum"]!.GetValue<int>());
+        Assert.Equal(assessed, Assert.Single(response.Questions).Difficulty);
+        var stored = await database.AiGenerationRecords.SingleAsync(TestContext.Current.CancellationToken);
+        using var output = System.Text.Json.JsonDocument.Parse(stored.OutputJson!);
+        Assert.Equal(assessed, output.RootElement[0].GetProperty("difficulty").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 6)]
+    [InlineData(6, 6)]
+    [InlineData(0, 0)]
+    [InlineData(5, 2)]
+    public async Task InvalidTargetDifficultyRejectedBeforeProviderCall(int minimum, int maximum)
+    {
+        var provider = new FakeLlmProvider([ShortAnswerQuestion()]);
+        await Assert.ThrowsAsync<QuestionGenerationRequestException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(
+                new GenerateQuestionsRequest("난이도 입력 오류를 검증할 충분히 긴 학습 내용이다.",
+                    1, ["shortAnswer"], null, MinimumDifficulty: minimum, MaximumDifficulty: maximum),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(0, provider.CallCount);
+        Assert.Empty(await database.AiGenerationRecords.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task InvalidAssessedDifficultyStillRejected(int? assessed)
+    {
+        var provider = new FakeLlmProvider([ShortAnswerQuestion() with { Difficulty = assessed }]);
+        await Assert.ThrowsAsync<LlmOutputValidationException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(
+                new GenerateQuestionsRequest("AI 난이도 평가 오류를 검증할 충분히 긴 학습 내용이다.",
+                    1, ["shortAnswer"], null, MinimumDifficulty: 4, MaximumDifficulty: 5),
+                TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task InvalidRequest_DoesNotCallProviderOrCreateHistory()
     {
@@ -107,6 +168,8 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
 
         Assert.Equal(2, response.Questions.Count);
         var input = Assert.IsType<QuestionGenerationInput>(provider.LastInput);
+        Assert.Equal(1, input.MinimumDifficulty);
+        Assert.Equal(5, input.MaximumDifficulty);
         Assert.True(input.IsAutomatic);
         Assert.Equal(1, input.MinimumQuestionsPerConcept);
         Assert.Equal(2, input.MaximumQuestionsPerConcept);
@@ -116,7 +179,7 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         var schema = QuestionGenerationPrompt.BuildQuestionSchema(input);
         var questionArray = schema["properties"]!["questions"]!;
         Assert.Equal(1, questionArray["minItems"]!.GetValue<int>());
-        Assert.Equal(QuestionGenerationInput.MaximumAutomaticQuestionCount,
+        Assert.Equal(120,
             questionArray["maxItems"]!.GetValue<int>());
     }
 
@@ -380,6 +443,58 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
             TestContext.Current.CancellationToken)).Status);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(40)]
+    [InlineData(101)]
+    [InlineData(130)]
+    public async Task AutomaticCount_UsesConfiguredLimitInPromptSchemaAndValidation(int limit)
+    {
+        var questions = Enumerable.Range(1, limit).Select(n =>
+            ShortAnswerQuestion() with { Prompt = $"{n}번째 개념 확인 질문" }).ToList();
+        var provider = new FakeLlmProvider(questions, limit);
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            new GenerateQuestionsRequest("문제 생성 상한을 검증하기 위한 충분히 긴 학습 자료이다.",
+                null, ["shortAnswer"], null, "automatic", "high"), TestContext.Current.CancellationToken);
+        Assert.Equal(limit, response.Questions.Count);
+        var input = provider.LastInput!;
+        Assert.Equal(limit, input.MaximumOutputQuestions);
+        Assert.Equal(Math.Min(30, limit), input.QuestionBudgetForTokenLimit);
+        Assert.Contains($"Return at most {limit} questions in total", QuestionGenerationPrompt.BuildUserPrompt(input));
+        Assert.Contains("takes precedence", QuestionGenerationPrompt.BuildUserPrompt(input));
+        Assert.Equal(limit, QuestionGenerationPrompt.BuildQuestionSchema(input)["properties"]!["questions"]!["maxItems"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(40)]
+    [InlineData(130)]
+    public async Task AutomaticCount_RejectsOverflowWithoutSilentlyTruncating(int limit)
+    {
+        var provider = new FakeLlmProvider(Enumerable.Range(1, limit + 1).Select(n =>
+            ShortAnswerQuestion() with { Prompt = $"{n}번째 개념 확인 질문" }).ToList(), limit);
+        await Assert.ThrowsAsync<LlmOutputValidationException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(new GenerateQuestionsRequest(
+                "문제 개수 초과 오류를 검증하기 위한 충분히 긴 학습 자료이다.",
+                null, ["shortAnswer"], null, "automatic", "low"), TestContext.Current.CancellationToken));
+        var record = await database.AiGenerationRecords.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("failed", record.Status);
+        Assert.Null(record.OutputJson);
+    }
+
+    [Fact]
+    public async Task ManualCount_RejectsRequestAboveConfiguredLimitBeforeProviderCall()
+    {
+        var provider = new FakeLlmProvider([ShortAnswerQuestion()], 1);
+        var error = await Assert.ThrowsAsync<QuestionGenerationRequestException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(new GenerateQuestionsRequest(
+                "수동 생성 상한을 검증하기 위한 충분히 긴 학습 자료이다.", 2, ["shortAnswer"], null),
+                TestContext.Current.CancellationToken));
+        Assert.Contains("상한(1개)", error.Message);
+        Assert.Equal(0, provider.CallCount);
+        Assert.Empty(await database.AiGenerationRecords.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
     private static GeneratedQuestionDraft MultipleChoiceQuestion() => new(
         "multipleChoice",
         "가우스 법칙의 설명으로 옳은 것은?",
@@ -414,11 +529,14 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         ["provided-source"]);
 
     private sealed class FakeLlmProvider(
-        IReadOnlyList<GeneratedQuestionDraft> questions) : ILLMProvider
+        IReadOnlyList<GeneratedQuestionDraft> questions,
+        int maximumQuestionsPerRequest = 120) : ILLMProvider
     {
         public string ProviderName => "fake";
 
         public string ModelName => "fake-model";
+
+        public int MaximumQuestionsPerRequest => maximumQuestionsPerRequest;
 
         public int CallCount { get; private set; }
 

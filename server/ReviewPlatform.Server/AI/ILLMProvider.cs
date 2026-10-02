@@ -10,6 +10,8 @@ public interface ILLMProvider
 
     int? ContextWindowTokens => null;
 
+    int MaximumQuestionsPerRequest => 120;
+
     Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default);
@@ -48,10 +50,11 @@ public sealed record QuestionGenerationInput(
     string GenerationMode = "manual",
     string? AutomaticDensity = null,
     int MinimumQuestionsPerConcept = 0,
-    int MaximumQuestionsPerConcept = 0)
+    int MaximumQuestionsPerConcept = 0,
+    int MinimumDifficulty = 1,
+    int MaximumDifficulty = 5,
+    int MaximumQuestionsPerRequest = 120)
 {
-    public const int MaximumAutomaticQuestionCount = 120;
-
     public string SourceReference => string.IsNullOrWhiteSpace(SourceLabel)
         ? "provided-source"
         : SourceLabel;
@@ -61,17 +64,17 @@ public sealed record QuestionGenerationInput(
     public int MinimumOutputQuestions => IsAutomatic ? 1 : QuestionCount;
 
     public int MaximumOutputQuestions => IsAutomatic
-        ? MaximumAutomaticQuestionCount
+        ? MaximumQuestionsPerRequest
         : QuestionCount;
 
     public int QuestionBudgetForTokenLimit => IsAutomatic
-        ? AutomaticDensity switch
+        ? Math.Min(MaximumQuestionsPerRequest, AutomaticDensity switch
         {
             "low" => 10,
             "medium" => 20,
             "high" => 30,
             _ => 20
-        }
+        })
         : QuestionCount;
 }
 

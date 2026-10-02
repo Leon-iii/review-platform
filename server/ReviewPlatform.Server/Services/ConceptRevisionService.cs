@@ -45,12 +45,12 @@ public sealed class ConceptRevisionService(
         if (sourceId.Length is < 1 or > 100 || fileName.Length is < 1 or > 300)
         {
             throw new ConceptRevisionRequestException(
-                "수정할 PDF 자료 정보가 올바르지 않습니다.");
+                "수정할 자료 정보가 올바르지 않습니다.");
         }
-        if (request.PageCount is < 1 or > 300)
+        if (request.PageCount is < 0 or > 300)
         {
             throw new ConceptRevisionRequestException(
-                "PDF 페이지 수가 올바르지 않습니다.");
+                "자료 페이지 수가 올바르지 않습니다.");
         }
         if (instruction.Length is < 1 or > 4_000)
         {
@@ -71,13 +71,13 @@ public sealed class ConceptRevisionService(
             var id = concept.Id?.Trim() ?? string.Empty;
             var title = concept.Title?.Trim() ?? string.Empty;
             var content = concept.Content?.Trim() ?? string.Empty;
-            var importance = concept.Importance?.Trim().ToLowerInvariant() ?? string.Empty;
+            var importance = ConceptImportanceLevels.Normalize(concept.Importance);
             var pages = concept.PageNumbers?.Distinct().Order().ToList() ?? [];
             if (id.Length is < 1 or > 100 || !ids.Add(id) ||
                 title.Length is < 1 or > 200 || content.Length is < 1 or > 8_000 ||
-                pages.Count == 0 || pages.Any(page => page < 1 || page > request.PageCount) ||
+                concept.PageNumbers is null || pages.Any(page => page < 1 || page > request.PageCount) ||
                 concept.Status is not "held" and not "approved" ||
-                importance is not "low" and not "medium" and not "high")
+                importance is null)
             {
                 throw new ConceptRevisionRequestException(
                     "수정할 개념 정보가 올바르지 않습니다.");
@@ -149,17 +149,19 @@ public sealed class ConceptRevisionService(
             var id = revision.Id?.Trim() ?? string.Empty;
             var title = revision.Title?.Trim() ?? string.Empty;
             var content = revision.Content?.Trim() ?? string.Empty;
-            var importance = revision.Importance?.Trim().ToLowerInvariant() ?? string.Empty;
+            var importance = ConceptImportanceLevels.Normalize(revision.Importance);
             var pages = revision.PageNumbers?.Distinct().Order().ToList() ?? [];
-            if (!editable.Contains(id) || !seen.Add(id) ||
+            var original = originals.GetValueOrDefault(id);
+            if (!editable.Contains(id) || !seen.Add(id) || original is null ||
                 title.Length is < 1 or > 200 || content.Length is < 1 or > 8_000 ||
-                pages.Count == 0 || pages.Any(page => page < 1 || page > input.PageCount) ||
-                importance is not "low" and not "medium" and not "high")
+                revision.PageNumbers is null ||
+                (pages.Count == 0) != (original.PageNumbers.Count == 0) ||
+                pages.Any(page => page < 1 || page > input.PageCount) ||
+                importance is null)
             {
                 throw new LlmProviderRequestException(
                     "LLM이 올바르지 않은 개념 수정안을 반환했습니다.");
             }
-            var original = originals[id];
             if (title == original.Title && content == original.Content &&
                 pages.SequenceEqual(original.PageNumbers) && importance == original.Importance)
             {

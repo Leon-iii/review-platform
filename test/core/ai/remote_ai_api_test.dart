@@ -15,7 +15,7 @@ void main() {
     accessToken: 'private-token',
   );
 
-  test('생성 요청과 토큰을 전송하고 Draft 문제를 파싱한다', () async {
+  test('목표 난이도를 전송하되 범위 밖 AI 평가도 덮어쓰지 않고 파싱한다', () async {
     late http.Request captured;
     final api = HttpRemoteAiApi(
       MockClient((request) async {
@@ -57,15 +57,20 @@ void main() {
         questionCount: 1,
         questionTypes: {QuestionType.shortAnswer},
         sourceLabel: '전자기학',
+        minimumDifficulty: 4,
+        maximumDifficulty: 5,
       ),
     );
 
     expect(captured.url.path, '/api/ai/questions/generate');
     expect(captured.headers['x-sync-token'], 'private-token');
     expect(jsonDecode(captured.body)['questionTypes'], ['shortAnswer']);
+    expect(jsonDecode(captured.body)['minimumDifficulty'], 4);
+    expect(jsonDecode(captured.body)['maximumDifficulty'], 5);
     expect(result.metadata.provider, 'openai');
     expect(result.questions.single.type, QuestionType.shortAnswer);
     expect(result.questions.single.acceptableAnswers, hasLength(1));
+    expect(result.questions.single.difficulty, 2);
   });
 
   test('서버의 안전한 오류 메시지를 사용자에게 전달한다', () async {
@@ -203,5 +208,7 @@ void main() {
     expect(body['generationMode'], 'automatic');
     expect(body['automaticDensity'], 'high');
     expect(body['questionCount'], isNull);
+    expect(body['minimumDifficulty'], 1);
+    expect(body['maximumDifficulty'], 5);
   });
 }

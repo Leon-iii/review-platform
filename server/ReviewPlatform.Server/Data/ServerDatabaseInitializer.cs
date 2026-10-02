@@ -35,7 +35,8 @@ public static class ServerDatabaseInitializer
                 "BaseUrl" TEXT NOT NULL,
                 "UpdatedAt" TEXT NOT NULL,
                 "ContextWindowTokens" INTEGER NULL,
-                "ReasoningEffort" TEXT NULL
+                "ReasoningEffort" TEXT NULL,
+                "MaximumQuestionsPerRequest" INTEGER NOT NULL DEFAULT 120
             );
             CREATE TABLE IF NOT EXISTS "LlmPurposeAssignments" (
                 "Purpose" TEXT NOT NULL CONSTRAINT "PK_LlmPurposeAssignments" PRIMARY KEY,
@@ -59,12 +60,15 @@ public static class ServerDatabaseInitializer
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             var hasContextColumn = false;
             var hasReasoningColumn = false;
+            var hasQuestionLimitColumn = false;
             while (await reader.ReadAsync(cancellationToken))
             {
                 if (reader.GetString(1) == "ContextWindowTokens")
                     hasContextColumn = true;
                 if (reader.GetString(1) == "ReasoningEffort")
                     hasReasoningColumn = true;
+                if (reader.GetString(1) == "MaximumQuestionsPerRequest")
+                    hasQuestionLimitColumn = true;
             }
             await reader.DisposeAsync();
             if (!hasContextColumn)
@@ -77,6 +81,12 @@ public static class ServerDatabaseInitializer
             {
                 await database.Database.ExecuteSqlRawAsync(
                     "ALTER TABLE \"LlmProfiles\" ADD COLUMN \"ReasoningEffort\" TEXT NULL",
+                    cancellationToken);
+            }
+            if (!hasQuestionLimitColumn)
+            {
+                await database.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE \"LlmProfiles\" ADD COLUMN \"MaximumQuestionsPerRequest\" INTEGER NOT NULL DEFAULT 120",
                     cancellationToken);
             }
         }

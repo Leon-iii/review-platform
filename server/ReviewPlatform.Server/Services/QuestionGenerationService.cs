@@ -11,7 +11,7 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v7-difficulty-assessment";
+    public const string PromptVersion = "question-generation-v9-configurable-count-limit";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [
@@ -54,7 +54,7 @@ public sealed class QuestionGenerationService
         QuestionGenerationInput input;
         try
         {
-            input = ValidateAndNormalize(request);
+            input = ValidateAndNormalize(request, provider.MaximumQuestionsPerRequest);
         }
         catch (QuestionGenerationRequestException exception)
         {
@@ -191,7 +191,8 @@ public sealed class QuestionGenerationService
     }
 
     private static QuestionGenerationInput ValidateAndNormalize(
-        GenerateQuestionsRequest request)
+        GenerateQuestionsRequest request,
+        int maximumQuestionsPerRequest)
     {
         var sourceText = request.SourceText?.Trim() ?? string.Empty;
         if (sourceText.Length < 10)
@@ -203,6 +204,13 @@ public sealed class QuestionGenerationService
         {
             throw new QuestionGenerationRequestException(
                 $"학습 내용은 최대 {MaximumSourceLength:N0}자까지 입력할 수 있습니다.");
+        }
+        if (request.MinimumDifficulty is < 1 or > 5 ||
+            request.MaximumDifficulty is < 1 or > 5 ||
+            request.MinimumDifficulty > request.MaximumDifficulty)
+        {
+            throw new QuestionGenerationRequestException(
+                "목표 난이도는 1에서 5 사이이며 최솟값이 최댓값보다 클 수 없습니다.");
         }
         var generationMode = string.IsNullOrWhiteSpace(request.GenerationMode)
             ? "manual"
@@ -225,6 +233,9 @@ public sealed class QuestionGenerationService
                     "수동 문제 수는 1개에서 20개 사이여야 합니다.");
             }
             questionCount = request.QuestionCount.Value;
+            if (questionCount > maximumQuestionsPerRequest)
+                throw new QuestionGenerationRequestException(
+                    $"수동 문제 수가 LLM 설정의 요청 1회당 상한({maximumQuestionsPerRequest}개)을 초과합니다.");
         }
         else
         {
@@ -270,7 +281,10 @@ public sealed class QuestionGenerationService
             generationMode,
             automaticDensity,
             minimumQuestionsPerConcept,
-            maximumQuestionsPerConcept);
+            maximumQuestionsPerConcept,
+            request.MinimumDifficulty,
+            request.MaximumDifficulty,
+            maximumQuestionsPerRequest);
     }
 
     private static IReadOnlyList<GeneratedQuestionDraft> ValidateProviderOutput(
@@ -283,10 +297,10 @@ public sealed class QuestionGenerationService
                 "LLM이 요청한 개수와 다른 수의 문제를 반환했습니다.");
         }
         if (input.IsAutomatic &&
-            generated.Count is < 1 or > QuestionGenerationInput.MaximumAutomaticQuestionCount)
+            (generated.Count < 1 || generated.Count > input.MaximumOutputQuestions))
         {
             throw new LlmOutputValidationException(
-                "LLM이 자동 생성에서 허용되지 않는 수의 문제를 반환했습니다.");
+                $"LLM이 자동 생성에서 허용되지 않는 수의 문제를 반환했습니다 (상한 {input.MaximumOutputQuestions}개).");
         }
 
         var validated = new List<GeneratedQuestionDraft>(generated.Count);

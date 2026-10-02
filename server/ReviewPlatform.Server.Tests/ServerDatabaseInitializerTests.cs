@@ -39,5 +39,13 @@ public sealed class ServerDatabaseInitializerTests
         Assert.Equal("qwen3:8b", existing.Model);
         Assert.Null(existing.ContextWindowTokens);
         Assert.Null(existing.ReasoningEffort);
+        Assert.Equal(120, existing.MaximumQuestionsPerRequest);
+        existing.MaximumQuestionsPerRequest = 45;
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await ServerDatabaseInitializer.InitializeAsync(database,
+            TestContext.Current.CancellationToken);
+        database.ChangeTracker.Clear();
+        Assert.Equal(45, (await database.LlmProfiles.SingleAsync(
+            TestContext.Current.CancellationToken)).MaximumQuestionsPerRequest);
     }
 }

@@ -17,52 +17,120 @@ void main() {
     accessToken: 'private-token',
   );
 
-  test('PDF multipart 요청을 보내고 Source와 보류된 Concept을 파싱한다', () async {
-    late http.Request captured;
-    final api = HttpRemoteDocumentApi(
-      MockClient((request) async {
-        captured = request;
-        return http.Response(
-          jsonEncode({
-            'source': {
-              'id': 'source-1',
-              'fileName': '전자기학.pdf',
-              'contentHash': List.filled(64, 'a').join(),
-              'pageCount': 12,
-              'extractionMethod': 'textLayer',
-              'importedAt': '2026-09-19T00:00:00Z',
-            },
-            'concepts': [
-              {
-                'title': '가우스 법칙',
-                'content': '전기선속과 전하의 관계를 폐곡면을 기준으로 설명한다.',
-                'pageNumbers': [3, 4],
-                'importance': 'high',
-                'status': 'held',
+  for (final importance in ConceptImportance.values) {
+    test('수동 자료 AI 수정의 중요도 ${importance.label} 송수신과 빈 출처를 보존한다', () async {
+      late Map<String, dynamic> payload;
+      final api = HttpRemoteDocumentApi(
+        MockClient((request) async {
+          expect(request.url.path, '/api/documents/concepts/revise');
+          payload = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'revisions': [
+                {
+                  'id': 'manual-concept',
+                  'title': '노트 개념',
+                  'content': '직접 쓴 내용 수정',
+                  'pageNumbers': [],
+                  'importance': importance.name,
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      final now = DateTime.utc(2026);
+      final source = StudySource(
+        id: 'manual-source',
+        folderId: 'folder-1',
+        fileName: '노트',
+        contentHash: '',
+        pageCount: 0,
+        extractionMethod: 'manual',
+        importedAt: now,
+      );
+      final result = await api.reviseConcepts(
+        configuration: configuration,
+        source: source,
+        concepts: [
+          StudyConcept(
+            id: 'manual-concept',
+            sourceId: source.id,
+            title: '노트 개념',
+            content: '직접 쓴 내용',
+            pageNumbers: const [],
+            status: ConceptStatus.approved,
+            importance: importance,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ],
+        instruction: '설명을 보완해 줘.',
+        targetConceptIds: const {'manual-concept'},
+      );
+      expect(payload['pageCount'], 0);
+      expect((payload['concepts'] as List).single['pageNumbers'], isEmpty);
+      expect(
+        (payload['concepts'] as List).single['importance'],
+        importance.name,
+      );
+      expect(result.single.pageNumbers, isEmpty);
+      expect(result.single.importance, importance);
+      expect(result.single.content, '직접 쓴 내용 수정');
+    });
+
+    test('PDF multipart 응답의 중요도 ${importance.label}와 Source를 파싱한다', () async {
+      late http.Request captured;
+      final api = HttpRemoteDocumentApi(
+        MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode({
+              'source': {
+                'id': 'source-1',
+                'fileName': '전자기학.pdf',
+                'contentHash': List.filled(64, 'a').join(),
+                'pageCount': 12,
+                'extractionMethod': 'textLayer',
+                'importedAt': '2026-09-19T00:00:00Z',
               },
-            ],
-          }),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        );
-      }),
-    );
+              'concepts': [
+                {
+                  'title': '가우스 법칙',
+                  'content': '전기선속과 전하의 관계를 폐곡면을 기준으로 설명한다.',
+                  'pageNumbers': [3, 4],
+                  'importance': importance.name,
+                  'status': 'held',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
 
-    final result = await api.importPdf(
-      configuration: configuration,
-      fileName: '전자기학.pdf',
-      bytes: Uint8List.fromList(utf8.encode('%PDF-test')),
-    );
+      final result = await api.importPdf(
+        configuration: configuration,
+        fileName: '전자기학.pdf',
+        bytes: Uint8List.fromList(utf8.encode('%PDF-test')),
+      );
 
-    expect(captured.url.path, '/api/documents/import');
-    expect(captured.headers['x-sync-token'], 'private-token');
-    expect(captured.headers['content-type'], startsWith('multipart/form-data'));
-    expect(captured.body, contains('전자기학.pdf'));
-    expect(result.source.pageCount, 12);
-    expect(result.concepts.single.content, contains('폐곡면'));
-    expect(result.concepts.single.pageNumbers, [3, 4]);
-    expect(result.concepts.single.importance, ConceptImportance.high);
-  });
+      expect(captured.url.path, '/api/documents/import');
+      expect(captured.headers['x-sync-token'], 'private-token');
+      expect(
+        captured.headers['content-type'],
+        startsWith('multipart/form-data'),
+      );
+      expect(captured.body, contains('전자기학.pdf'));
+      expect(result.source.pageCount, 12);
+      expect(result.concepts.single.content, contains('폐곡면'));
+      expect(result.concepts.single.pageNumbers, [3, 4]);
+      expect(result.concepts.single.importance, importance);
+    });
+  }
 
   test('PDF 처리 오류의 안전한 서버 메시지를 전달한다', () async {
     final api = HttpRemoteDocumentApi(

@@ -69,6 +69,29 @@ class DocumentImportController extends _$DocumentImportController {
     );
   }
 
+  Future<void> addConcept({
+    required String title,
+    required String content,
+    required ConceptImportance importance,
+    bool reviewed = true,
+  }) async {
+    final current = state.value;
+    if (current == null) {
+      throw const ValidationFailure('개념을 추가할 자료를 찾을 수 없어요.');
+    }
+    final repository = ref.read(sourceRepositoryProvider);
+    await repository.addConcept(
+      sourceId: current.source.id,
+      title: title,
+      content: content,
+      importance: importance,
+      reviewed: reviewed,
+    );
+    state = AsyncData(
+      await repository.getSourceWithConcepts(current.source.id),
+    );
+  }
+
   Future<void> updateConcept({
     required String conceptId,
     required String title,
@@ -114,7 +137,7 @@ class DocumentImportController extends _$DocumentImportController {
   }) async {
     final current = state.value;
     if (current == null) {
-      throw const ValidationFailure('수정할 PDF 강의자료를 찾을 수 없어요.');
+      throw const ValidationFailure('수정할 자료를 찾을 수 없어요.');
     }
     final normalizedInstruction = instruction.trim();
     if (normalizedInstruction.isEmpty) {
@@ -140,16 +163,20 @@ class DocumentImportController extends _$DocumentImportController {
         );
   }
 
-  Future<int> applyConceptRevisions(List<ConceptRevision> revisions) async {
+  Future<int> applyConceptRevisions(
+    List<ConceptRevision> revisions, {
+    bool markReviewed = false,
+  }) async {
     final current = state.value;
     if (current == null) {
-      throw const ValidationFailure('수정할 PDF 강의자료를 찾을 수 없어요.');
+      throw const ValidationFailure('수정할 자료를 찾을 수 없어요.');
     }
     final result = await ref
         .read(sourceRepositoryProvider)
         .applyConceptRevisions(
           sourceId: current.source.id,
           revisions: revisions,
+          markReviewed: markReviewed,
         );
     state = AsyncData(result.review);
     return result.changedCount;

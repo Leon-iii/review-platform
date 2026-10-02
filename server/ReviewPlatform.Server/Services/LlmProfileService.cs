@@ -30,6 +30,8 @@ public sealed class LlmProfileService(
                 Provider = provider,
                 Model = NormalizeBootstrapModel(provider, options.Model),
                 BaseUrl = LocalBaseUrl(provider),
+                MaximumQuestionsPerRequest = options.MaximumQuestionsPerRequest > 0
+                    ? options.MaximumQuestionsPerRequest : 120,
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             profiles.Add(profile);
@@ -167,7 +169,8 @@ public sealed class LlmProfileService(
                 profile.Model,
                 profile.UpdatedAt,
                 profile.ContextWindowTokens,
-                profile.ReasoningEffort))
+                profile.ReasoningEffort,
+                profile.MaximumQuestionsPerRequest))
             .ToListAsync(cancellationToken);
         var assignments = await database.LlmPurposeAssignments
             .AsNoTracking()
@@ -226,7 +229,8 @@ public sealed class LlmProfileService(
                 BaseUrl = LocalBaseUrl(profile.Provider),
                 UpdatedAt = now,
                 ContextWindowTokens = profile.ContextWindowTokens,
-                ReasoningEffort = profile.ReasoningEffort
+                ReasoningEffort = profile.ReasoningEffort,
+                MaximumQuestionsPerRequest = profile.MaximumQuestionsPerRequest
             }));
         database.LlmPurposeAssignments.AddRange(assignments.Select(pair =>
             new LlmPurposeAssignmentRecord
@@ -268,7 +272,8 @@ public sealed class LlmProfileService(
             profile.Model,
             profile.UpdatedAt,
             profile.ContextWindowTokens,
-            profile.ReasoningEffort);
+            profile.ReasoningEffort,
+            profile.MaximumQuestionsPerRequest);
     }
 
     private static IReadOnlyList<LlmProfileInput> ValidateProfiles(
@@ -329,13 +334,17 @@ public sealed class LlmProfileService(
                  !OpenAiModelCapabilitiesRegistry.SupportsEffort(model, effort)))
                 throw new LlmProfileValidationException(
                     $"'{model}'에서 지원하지 않는 추론 수준입니다. 자동 모드 또는 지원하는 값을 선택해 주세요.");
+            if (item.MaximumQuestionsPerRequest < 1)
+                throw new LlmProfileValidationException(
+                    "요청 1회당 문제 생성 상한은 1 이상인 정수여야 합니다.");
             result.Add(new LlmProfileInput(
                 id,
                 name,
                 provider,
                 model,
                 item.ContextWindowTokens,
-                effort));
+                effort,
+                item.MaximumQuestionsPerRequest));
         }
         return result;
     }

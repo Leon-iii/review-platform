@@ -31,8 +31,15 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
         return ValueTask.CompletedTask;
     }
 
-    [Fact]
-    public async Task TextPdf_IsStoredAndConceptPagesArePreserved()
+    [Theory]
+    [InlineData("veryLow", "veryLow")]
+    [InlineData("low", "low")]
+    [InlineData("medium", "medium")]
+    [InlineData("high", "high")]
+    [InlineData("veryHigh", "veryHigh")]
+    [InlineData(" VERYLOW ", "veryLow")]
+    [InlineData(" VERYHIGH ", "veryHigh")]
+    public async Task TextPdf_IsStoredAndConceptPagesArePreserved(string importance, string canonical)
     {
         var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
             2,
@@ -45,7 +52,7 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             new GeneratedConceptDraft(
                 "가우스 법칙",
                 "전기선속과 전하의 관계를 폐곡면을 기준으로 설명한다.",
-                [2, 1])
+                [2, 1], importance)
         ]);
         var service = CreateService(extractor, provider);
         await using var content = PdfLikeStream();
@@ -64,6 +71,7 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
         var concept = Assert.Single(response.Concepts);
         Assert.Equal([1, 2], concept.PageNumbers);
         Assert.Equal("held", concept.Status);
+        Assert.Equal(canonical, concept.Importance);
         Assert.True(File.Exists(Path.Combine(
             temporaryDirectory,
             "sources",

@@ -5,7 +5,7 @@ namespace ReviewPlatform.Server.AI;
 
 public static class ConceptExtractionPrompt
 {
-    public const string Version = "concept-extraction-v6-memorization-importance";
+    public const string Version = "concept-extraction-v7-five-level-importance";
     public const int MaximumConceptsPerRequest = 8;
 
     public const string SystemPrompt = """
@@ -23,10 +23,16 @@ public static class ConceptExtractionPrompt
            correct answer, including notation, order, wording, conditions, and table mappings.
         3. Only after those two, use suitability and likelihood for testing learner competence
            as a secondary tie-breaker. Do not make exam likelihood the primary criterion.
-        Assign "high" when there are many independent memorization elements, when exact recall of
-        notation, sequence, conditions, or mappings is critical, or both. Do not rate content high
-        merely because it is lengthy when approximate recall is sufficient. Use "medium" for
-        moderate load or precision, and "low" when both are low.
+        Use exactly one of five importance levels:
+        - "veryLow": minimal memorization elements and approximate understanding alone is sufficient.
+        - "low": few memorization elements and little required recall precision.
+        - "medium": moderate memorization load or recall precision.
+        - "high": many independent memorization elements or exact recall of notation, sequence, conditions,
+          or mappings is critical.
+        - "veryHigh": exceptionally many independent elements, exceptionally demanding exact
+          recall, or a combination of both high load and high precision.
+        Do not rate content high or veryHigh merely because it is lengthy when approximate recall
+        is sufficient. Distinguish ordinary high requirements from exceptional veryHigh requirements.
         Write every title and content field in natural Korean regardless of the
         source language. For an important technical term, use "한국어 (original term)" on
         its first occurrence. Preserve proper nouns, standard acronyms, code, identifiers,
@@ -102,7 +108,7 @@ public static class ConceptExtractionPrompt
                             ["importance"] = new JsonObject
                             {
                                 ["type"] = "string",
-                                ["enum"] = new JsonArray("low", "medium", "high"),
+                                ["enum"] = new JsonArray("veryLow", "low", "medium", "high", "veryHigh"),
                                 ["description"] = "Importance prioritized by memorization element count and required recall precision; exam suitability is secondary."
                             }
                         },

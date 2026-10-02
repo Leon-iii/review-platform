@@ -8,6 +8,7 @@ import 'package:review_platform/domain/models/sync_contract.dart';
 class FakeRemoteAiApi implements RemoteAiApi {
   int callCount = 0;
   Completer<void>? gate;
+  AiQuestionGenerationRequest? lastRequest;
 
   @override
   Future<AiQuestionGenerationResult> generateQuestions({
@@ -15,6 +16,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
     required AiQuestionGenerationRequest request,
   }) async {
     callCount++;
+    lastRequest = request;
     await gate?.future;
     final types = request.questionTypes.toList(growable: false);
     final questionCount =

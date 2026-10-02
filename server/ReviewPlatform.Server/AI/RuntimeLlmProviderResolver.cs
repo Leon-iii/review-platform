@@ -35,6 +35,7 @@ public sealed class RuntimeLlmProviderResolver(
                 ? LlmOptions.LocalOllamaBaseUrl
                 : string.Empty,
             ApiKey = apiKey,
+            MaximumQuestionsPerRequest = profile.MaximumQuestionsPerRequest,
             ContextWindowTokens = profile.Provider == "ollama"
                 ? profile.ContextWindowTokens
                 : null,

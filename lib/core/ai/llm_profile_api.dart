@@ -162,6 +162,8 @@ class HttpLlmProfileApi implements LlmProfileApi {
     updatedAt: DateTime.parse(json['updatedAt']! as String).toUtc(),
     contextWindowTokens: json['contextWindowTokens'] as int?,
     reasoningEffort: json['reasoningEffort'] as String?,
+    maximumQuestionsPerRequest:
+        json['maximumQuestionsPerRequest'] as int? ?? 120,
   );
 
   LlmModelCapabilities _capabilities(Map<String, Object?> json) =>

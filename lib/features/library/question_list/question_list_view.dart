@@ -10,6 +10,7 @@ import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/features/library/folder_browser/folder_browser_view_model.dart';
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
+import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
 
 class QuestionListView extends ConsumerWidget {
@@ -32,17 +33,25 @@ class QuestionListView extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
-                  'PDF 강의자료',
+                  '자료',
+                  key: const Key('source-section-header'),
                   style: Theme.of(context).textTheme.titleLarge
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              FilledButton.tonalIcon(
+              IconButton(
                 key: const Key('import-pdf-nav-button'),
+                tooltip: 'PDF 가져오기',
                 onPressed: () =>
                     context.push(AppRoutes.documentsForFolder(folderId)),
+                icon: const Icon(Icons.upload_file_rounded),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.tonalIcon(
+                key: const Key('create-source-button'),
+                onPressed: () => _createSource(context, ref),
                 icon: const Icon(Icons.add_rounded),
-                label: const Text('PDF 가져오기'),
+                label: const Text('새 자료'),
               ),
             ],
           ),
@@ -55,16 +64,16 @@ class QuestionListView extends ConsumerWidget {
               ),
             ),
             error: (error, stackTrace) => _QuestionError(
-              message: error is AppFailure
-                  ? error.message
-                  : 'PDF 강의자료를 불러오지 못했어요.',
+              message: error is AppFailure ? error.message : '자료를 불러오지 못했어요.',
               onRetry: () => ref.invalidate(documentSourcesProvider(folderId)),
             ),
             data: (items) => items.isEmpty
                 ? const Card(
                     child: Padding(
                       padding: EdgeInsets.all(24),
-                      child: Center(child: Text('이 폴더에 가져온 PDF가 없어요.')),
+                      child: Center(
+                        child: Text('이 폴더에 자료가 없어요. 새 자료를 만들거나 PDF를 가져와 주세요.'),
+                      ),
                     ),
                   )
                 : Column(
@@ -80,8 +89,8 @@ class QuestionListView extends ConsumerWidget {
                           onMove: () => _moveItem(
                             context,
                             ref,
-                            title: 'PDF 강의자료 이동',
-                            itemLabel: 'PDF 강의자료',
+                            title: '자료 이동',
+                            itemLabel: '자료',
                             move: (targetId) => ref
                                 .read(provider.notifier)
                                 .moveSource(id: source.id, folderId: targetId),
@@ -179,6 +188,96 @@ class QuestionListView extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _createSource(BuildContext context, WidgetRef ref) async {
+    final formKey = GlobalKey<FormState>();
+    var name = '';
+    var saving = false;
+    String? errorMessage;
+    final created = await showDialog<StudySourceWithConcepts>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => PopScope(
+          canPop: !saving,
+          child: AlertDialog(
+            title: const Text('새 자료'),
+            content: SizedBox(
+              width: 480,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      key: const Key('new-source-name-field'),
+                      autofocus: true,
+                      enabled: !saving,
+                      maxLength: 200,
+                      decoration: const InputDecoration(labelText: '자료 이름'),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? '자료 이름을 입력해 주세요.'
+                          : null,
+                      onChanged: (value) => name = value,
+                    ),
+                    if (errorMessage != null)
+                      Text(
+                        errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                key: const Key('save-new-source-button'),
+                onPressed: saving
+                    ? null
+                    : () async {
+                        if (!(formKey.currentState?.validate() ?? false)) {
+                          return;
+                        }
+                        setDialogState(() {
+                          saving = true;
+                          errorMessage = null;
+                        });
+                        try {
+                          final result = await ref
+                              .read(sourceRepositoryProvider)
+                              .createSource(folderId: folderId, name: name);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext, result);
+                          }
+                        } catch (error) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() {
+                            saving = false;
+                            errorMessage = error is AppFailure
+                                ? error.message
+                                : '자료를 만들지 못했어요.';
+                          });
+                        }
+                      },
+                child: Text(saving ? '생성 중…' : '만들기'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (created == null || !context.mounted) return;
+    ref.invalidate(documentSourcesProvider(folderId));
+    context.push(AppRoutes.documentsForSource(folderId, created.source.id));
   }
 
   Future<void> _moveItem(
@@ -296,15 +395,15 @@ class QuestionListView extends ConsumerWidget {
     final name = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('PDF 강의자료 이름 변경'),
+        title: const Text('자료 이름 변경'),
         content: TextFormField(
           key: const Key('pdf-source-name-field'),
           initialValue: source.fileName,
           autofocus: true,
           maxLength: 200,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: '자료 이름',
-            hintText: '강의자료.pdf',
+            hintText: source.isManual ? '복습 노트' : '강의자료.pdf',
             border: OutlineInputBorder(),
           ),
           onChanged: (value) => draftName = value,
@@ -337,12 +436,10 @@ class QuestionListView extends ConsumerWidget {
       ref.invalidate(documentSourcesProvider(folderId));
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('PDF 강의자료 이름을 변경했어요.')));
+          .showSnackBar(const SnackBar(content: Text('자료 이름을 변경했어요.')));
     } catch (error) {
       if (!context.mounted) return;
-      final message = error is AppFailure
-          ? error.message
-          : 'PDF 강의자료 이름을 변경하지 못했어요.';
+      final message = error is AppFailure ? error.message : '자료 이름을 변경하지 못했어요.';
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     }
@@ -357,10 +454,10 @@ class QuestionListView extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('PDF 강의자료 삭제'),
+        title: const Text('자료 삭제'),
         content: Text(
           '${source.fileName}을(를) 삭제하시겠습니까?\n\n'
-          '추출한 개념과 문제의 출처 연결은 제거되지만, 이미 생성된 문제는 유지됩니다.',
+          '포함된 개념과 문제의 출처 연결은 제거되지만, 이미 생성된 문제는 유지됩니다.',
         ),
         actions: [
           TextButton(
@@ -382,12 +479,10 @@ class QuestionListView extends ConsumerWidget {
       ref.invalidate(documentSourcesProvider(folderId));
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('PDF 강의자료를 삭제했어요.')));
+          .showSnackBar(const SnackBar(content: Text('자료를 삭제했어요.')));
     } catch (error) {
       if (!context.mounted) return;
-      final message = error is AppFailure
-          ? error.message
-          : 'PDF 강의자료를 삭제하지 못했어요.';
+      final message = error is AppFailure ? error.message : '자료를 삭제하지 못했어요.';
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     }
@@ -414,19 +509,23 @@ class _PdfSourceCard extends StatelessWidget {
     return Card(
       child: ListTile(
         key: ValueKey('pdf-source-${source.id}'),
-        leading: const Icon(Icons.description_outlined),
+        leading: Icon(
+          source.isManual ? Icons.notes_rounded : Icons.picture_as_pdf_outlined,
+        ),
         title: Text(
           source.fileName,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
         subtitle: Text(
-          '${source.pageCount}페이지 · ${_extractionLabel(source.extractionMethod)}',
+          source.isManual
+              ? '사용자 생성 자료'
+              : '${source.pageCount}페이지 · ${_extractionLabel(source.extractionMethod)}',
         ),
         onTap: onOpen,
         trailing: PopupMenuButton<_PdfSourceAction>(
           key: ValueKey('pdf-source-menu-${source.id}'),
-          tooltip: 'PDF 강의자료 메뉴',
+          tooltip: '자료 메뉴',
           onSelected: (action) {
             switch (action) {
               case _PdfSourceAction.edit:

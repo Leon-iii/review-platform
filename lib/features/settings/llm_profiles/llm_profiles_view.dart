@@ -473,6 +473,7 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
             name.length <= 80 &&
             draft.model.isNotEmpty &&
             draft.model.length <= 128 &&
+            _validQuestionLimit(draft.maximumQuestionsText) &&
             (available == null || available.contains(draft.model));
       }) &&
       _apiKeyControllers.values.every((key) => key.text.trim().length <= 2000);
@@ -523,6 +524,8 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
           draft.model = profile.model;
           draft.contextWindowTokens = profile.contextWindowTokens;
           draft.reasoningEffort = profile.reasoningEffort;
+          draft.maximumQuestionsText = profile.maximumQuestionsPerRequest
+              .toString();
         }
       }
       _assignments
@@ -778,6 +781,59 @@ class _ProfileCard extends StatelessWidget {
                   draft.contextWindowTokens = tokens;
                   onChanged();
                 },
+              ),
+            ],
+            if (draft.id == 'purpose-questionGeneration') ...[
+              const SizedBox(height: 14),
+              TextFormField(
+                key: const ValueKey('llm-maximum-questions-per-request'),
+                initialValue: draft.maximumQuestionsText,
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '요청 1회당 문제 생성 상한',
+                  suffixText: '개',
+                  border: OutlineInputBorder(),
+                  helperText: '자동 생성의 최대 개수입니다. 수동 요청도 이 상한을 초과할 수 없습니다.',
+                  helperMaxLines: 3,
+                ),
+                validator: (value) => _validQuestionLimit(value ?? '')
+                    ? null
+                    : '1 이상인 유효한 정수를 입력해 주세요.',
+                onChanged: (value) {
+                  draft.maximumQuestionsText = value;
+                  onChanged();
+                },
+              ),
+              if ((int.tryParse(draft.maximumQuestionsText.trim()) ?? 0) >
+                  100) ...[
+                const SizedBox(height: 10),
+                Container(
+                  key: const ValueKey('llm-question-limit-warning'),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.orange.shade900.withValues(alpha: 0.3)
+                        : Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '100개를 초과하면 생성 시간이 길어지고 응답 잘림·실패 위험이 높아질 수 있어요. 경고와 관계없이 저장됩니다.',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              const Text(
+                '상한은 생성 목표 개수가 아닙니다. 모델의 출력·컨텍스트 한도와 요청 제한 시간은 별도로 적용됩니다.',
               ),
             ],
           ],
@@ -1191,6 +1247,7 @@ class _ProfileDraft {
     required this.model,
     this.contextWindowTokens,
     this.reasoningEffort,
+    this.maximumQuestionsText = '120',
   });
 
   factory _ProfileDraft.fromProfile(LlmProfile profile) => _ProfileDraft(
@@ -1200,6 +1257,7 @@ class _ProfileDraft {
     model: profile.model,
     contextWindowTokens: profile.contextWindowTokens,
     reasoningEffort: profile.reasoningEffort,
+    maximumQuestionsText: profile.maximumQuestionsPerRequest.toString(),
   );
 
   final String id;
@@ -1208,6 +1266,7 @@ class _ProfileDraft {
   String model;
   int? contextWindowTokens;
   String? reasoningEffort;
+  String maximumQuestionsText;
 
   LlmProfile toModel() => LlmProfile(
     id: id,
@@ -1215,6 +1274,7 @@ class _ProfileDraft {
     provider: provider,
     model: model,
     updatedAt: DateTime.now().toUtc(),
+    maximumQuestionsPerRequest: int.parse(maximumQuestionsText.trim()),
     contextWindowTokens: provider == LlmProviderKind.ollama
         ? contextWindowTokens
         : null,
@@ -1222,6 +1282,13 @@ class _ProfileDraft {
         ? reasoningEffort
         : null,
   );
+}
+
+bool _validQuestionLimit(String value) {
+  final trimmed = value.trim();
+  if (!RegExp(r'^[0-9]+$').hasMatch(trimmed)) return false;
+  final count = int.tryParse(trimmed);
+  return count != null && count >= 1 && count <= 2147483647;
 }
 
 class _LoadError extends StatelessWidget {

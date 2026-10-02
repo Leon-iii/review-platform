@@ -1,6 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
+import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
@@ -29,6 +30,425 @@ void main() {
     if (!databaseClosed) await database.close();
   });
 
+  test('중요도 5단계는 추가·편집·AI 수정·저장·동기화에서 보존된다', () async {
+    expect(ConceptImportance.values.map((value) => value.label), [
+      '매우 낮음',
+      '낮음',
+      '보통',
+      '높음',
+      '매우 높음',
+    ]);
+    final source = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '중요도 노트',
+    );
+    for (final importance in ConceptImportance.values) {
+      expect(ConceptImportance.fromStorage(importance.name), importance);
+      expect(
+        ConceptImportance.fromStorage(' ${importance.name.toUpperCase()} '),
+        importance,
+      );
+      final added = await sourceRepository.addConcept(
+        sourceId: source.source.id,
+        title: importance.label,
+        content: '원본',
+        importance: importance,
+      );
+      await sourceRepository.updateConcept(
+        id: added.id,
+        title: added.title,
+        content: '직접 편집',
+        importance: importance,
+      );
+      final revised = await sourceRepository.applyConceptRevisions(
+        sourceId: source.source.id,
+        revisions: [
+          ConceptRevision(
+            id: added.id,
+            title: added.title,
+            content: 'AI 수정',
+            pageNumbers: const [],
+            importance: importance,
+          ),
+        ],
+      );
+      expect(
+        revised.review.concepts
+            .singleWhere((item) => item.id == added.id)
+            .importance,
+        importance,
+      );
+    }
+    final changes = await DriftSyncRepository(database).buildPushBatch();
+    final conceptChanges = changes.where(
+      (change) => change.entityType == 'concept',
+    );
+    expect(
+      conceptChanges.map((change) => change.payload!['importance']).toSet(),
+      ConceptImportance.values.map((value) => value.name).toSet(),
+    );
+    await database.close();
+    databaseClosed = true;
+    final target = AppDatabase(NativeDatabase.memory());
+    addTearDown(target.close);
+    await DriftSyncRepository(target).applyPulledChanges([
+      for (var index = 0; index < changes.length; index++)
+        PullSyncChange(
+          entityType: changes[index].entityType,
+          entityId: changes[index].entityId,
+          operation: changes[index].operation,
+          payload: changes[index].payload,
+          updatedAt: changes[index].updatedAt,
+          deletedAt: changes[index].deletedAt,
+          revision: index + 1,
+        ),
+    ]);
+    final restored = await DriftSourceRepository(target)
+        .getSourceWithConcepts(source.source.id);
+    expect(
+      restored.concepts.map((concept) => concept.importance),
+      ConceptImportance.values,
+    );
+  });
+
+  test('사용자 자료는 비어 있으며 수동 개념은 같은 승인과 문제 생성 파이프라인을 쓴다', () async {
+    final empty = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '  나의 노트  ',
+    );
+    expect(empty.concepts, isEmpty);
+    expect(empty.source.fileName, '나의 노트');
+    expect(empty.source.isManual, isTrue);
+    expect(empty.source.pageCount, 0);
+    expect(empty.source.contentHash, isEmpty);
+    final added = await sourceRepository.addConcept(
+      sourceId: empty.source.id,
+      title: '  직접 쓴 개념 ',
+      content: ' 직접 작성한 개념의 상세 내용 ',
+      importance: ConceptImportance.high,
+    );
+    expect(added.status, ConceptStatus.approved);
+    expect(added.hasPageSource, isFalse);
+    expect(added.importance, ConceptImportance.high);
+    expect(
+      (await sourceRepository.getConceptGenerationSeed(added.id)).concept.id,
+      added.id,
+    );
+    await sourceRepository.setConceptApproval(id: added.id, approved: false);
+    await expectLater(
+      sourceRepository.getConceptGenerationSeed(added.id),
+      throwsA(isA<ValidationFailure>()),
+    );
+    await sourceRepository.setConceptApproval(id: added.id, approved: true);
+    final seed = await sourceRepository.getConceptGenerationSeed(added.id);
+    expect(seed.sourceLabel, '나의 노트 · 직접 쓴 개념');
+    final all = await sourceRepository.getSourceGenerationSeed(empty.source.id);
+    expect(all.sourceText, isNot(contains('페이지:')));
+    expect(all.sourceReference.pageNumbers, isEmpty);
+    await sourceRepository.renameSource(id: empty.source.id, fileName: '새 이름');
+    expect(
+      (await sourceRepository.getSourceWithConcepts(empty.source.id))
+          .source
+          .fileName,
+      '새 이름',
+    );
+  });
+
+  test('검토 표시명만 변경하고 기존 저장 값과 수동 편집 상태를 보존한다', () async {
+    expect(ConceptStatus.fromStorage('draft').label, '검토 필요');
+    expect(ConceptStatus.fromStorage('held').label, '검토 필요');
+    expect(ConceptStatus.fromStorage('approved').label, '검토 완료');
+    final source = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '노트',
+    );
+    for (final reviewed in [true, false]) {
+      final concept = await sourceRepository.addConcept(
+        sourceId: source.source.id,
+        title: '수동 개념',
+        content: '사용자가 직접 입력한 내용',
+        reviewed: reviewed,
+      );
+      final expected = reviewed ? ConceptStatus.approved : ConceptStatus.held;
+      expect(concept.status, expected);
+      await sourceRepository.updateConcept(
+        id: concept.id,
+        title: concept.title,
+        content: '직접 편집한 내용',
+        importance: concept.importance,
+      );
+      final updated = (await sourceRepository.getSourceWithConcepts(
+        source.source.id,
+      )).concepts.singleWhere((entry) => entry.id == concept.id);
+      expect(updated.status, expected);
+      if (!reviewed) {
+        await expectLater(
+          sourceRepository.getConceptGenerationSeed(concept.id),
+          throwsA(isA<ValidationFailure>()),
+        );
+      }
+    }
+  });
+
+  for (final markReviewed in [false, true]) {
+    test('AI 수정 적용은 실제 변경된 개념만 검토 상태와 함께 원자적으로 저장한다 ($markReviewed)', () async {
+      final source = await sourceRepository.saveImport(
+        folderId: folderId,
+        result: _result(),
+      );
+      final changed = source.concepts.single;
+      final unchanged = await sourceRepository.addConcept(
+        sourceId: source.source.id,
+        title: '그대로 둘 개념',
+        content: '이 내용과 검토 상태는 변경하지 않아야 합니다.',
+        reviewed: false,
+      );
+      await sourceRepository.setConceptApproval(id: changed.id, approved: true);
+      final result = await sourceRepository.applyConceptRevisions(
+        sourceId: source.source.id,
+        markReviewed: markReviewed,
+        revisions: [
+          ConceptRevision(
+            id: changed.id,
+            title: changed.title,
+            content: '${changed.content} 수정',
+            pageNumbers: changed.pageNumbers,
+            importance: changed.importance,
+          ),
+          ConceptRevision(
+            id: unchanged.id,
+            title: unchanged.title,
+            content: unchanged.content,
+            pageNumbers: unchanged.pageNumbers,
+            importance: unchanged.importance,
+          ),
+        ],
+      );
+      final expected = markReviewed
+          ? ConceptStatus.approved
+          : ConceptStatus.held;
+      expect(result.changedCount, 1);
+      expect(result.review.concepts.first.status, expected);
+      expect(result.review.concepts.last.status, ConceptStatus.held);
+      final payloads = await DriftSyncRepository(database).buildPushBatch();
+      expect(
+        payloads
+            .lastWhere((entry) => entry.entityId == changed.id)
+            .payload!['status'],
+        expected.name,
+      );
+      // Invalid batches must not partially apply either content or review state.
+      await expectLater(
+        sourceRepository.applyConceptRevisions(
+          sourceId: source.source.id,
+          markReviewed: true,
+          revisions: [
+            ConceptRevision(
+              id: changed.id,
+              title: changed.title,
+              content: '저장되면 안 되는 변경',
+              pageNumbers: changed.pageNumbers,
+              importance: changed.importance,
+            ),
+            ConceptRevision(
+              id: 'missing',
+              title: '없는 개념',
+              content: '내용',
+              pageNumbers: const [],
+              importance: ConceptImportance.medium,
+            ),
+          ],
+        ),
+        throwsA(isA<ValidationFailure>()),
+      );
+      expect(
+        (await sourceRepository.getSourceWithConcepts(source.source.id))
+            .concepts
+            .first
+            .content,
+        '${changed.content} 수정',
+      );
+    });
+  }
+
+  test('자료 및 개념 추가의 잘못된 입력은 저장과 Outbox를 변경하지 않는다', () async {
+    for (final name in ['', '  ', List.filled(201, 'a').join()]) {
+      await expectLater(
+        sourceRepository.createSource(folderId: folderId, name: name),
+        throwsA(isA<ValidationFailure>()),
+      );
+    }
+    await expectLater(
+      sourceRepository.createSource(folderId: 'missing', name: '노트'),
+      throwsA(isA<ValidationFailure>()),
+    );
+    final empty = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '노트',
+    );
+    final sync = DriftSyncRepository(database);
+    final count = (await sync.getPending()).length;
+    for (final entry in [
+      ('', '내용'),
+      ('제목', ''),
+      (List.filled(201, 'a').join(), '내용'),
+      ('제목', List.filled(8001, 'a').join()),
+    ]) {
+      await expectLater(
+        sourceRepository.addConcept(
+          sourceId: empty.source.id,
+          title: entry.$1,
+          content: entry.$2,
+        ),
+        throwsA(isA<ValidationFailure>()),
+      );
+    }
+    await expectLater(
+      sourceRepository.addConcept(
+        sourceId: 'missing',
+        title: '제목',
+        content: '내용',
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    expect(
+      (await sourceRepository.getSourceWithConcepts(empty.source.id)).concepts,
+      isEmpty,
+    );
+    expect((await sync.getPending()).length, count);
+  });
+
+  test('PDF에 직접 추가한 개념은 추출 개념 뒤에 유지되고 AI가 페이지 출처를 만들거나 지울 수 없다', () async {
+    final pdf = await sourceRepository.saveImport(
+      folderId: folderId,
+      result: _result(),
+    );
+    final first = await sourceRepository.addConcept(
+      sourceId: pdf.source.id,
+      title: '후기',
+      content: '개인적으로 작성한 첫 번째 메모',
+    );
+    final second = await sourceRepository.addConcept(
+      sourceId: pdf.source.id,
+      title: '가나다',
+      content: '개인적으로 작성한 두 번째 메모',
+    );
+    final mixed = await sourceRepository.getSourceWithConcepts(pdf.source.id);
+    expect(mixed.concepts.map((concept) => concept.id), [
+      pdf.concepts.single.id,
+      first.id,
+      second.id,
+    ]);
+    await sourceRepository.setConceptApproval(id: first.id, approved: true);
+    final applied = await sourceRepository.applyConceptRevisions(
+      sourceId: pdf.source.id,
+      revisions: [
+        ConceptRevision(
+          id: first.id,
+          title: first.title,
+          content: '${first.content} 수정',
+          pageNumbers: const [],
+          importance: first.importance,
+        ),
+      ],
+    );
+    expect(applied.changedCount, 1);
+    expect(applied.review.concepts[1].status, ConceptStatus.held);
+    expect(applied.review.concepts[1].pageNumbers, isEmpty);
+    for (final entry in [
+      (first, <int>[1]),
+      (pdf.concepts.single, <int>[]),
+    ]) {
+      await expectLater(
+        sourceRepository.applyConceptRevisions(
+          sourceId: pdf.source.id,
+          revisions: [
+            ConceptRevision(
+              id: entry.$1.id,
+              title: entry.$1.title,
+              content: '잘못된 출처 변경',
+              pageNumbers: entry.$2,
+              importance: entry.$1.importance,
+            ),
+          ],
+        ),
+        throwsA(isA<ValidationFailure>()),
+      );
+    }
+  });
+
+  test('빈 자료와 수동 개념, 출처가 연결된 문제는 기존 동기화로 복원된다', () async {
+    final empty = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '빈 자료',
+    );
+    final material = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '노트',
+    );
+    final concept = await sourceRepository.addConcept(
+      sourceId: material.source.id,
+      title: '메모',
+      content: '동기화할 내용',
+    );
+    await sourceRepository.setConceptApproval(id: concept.id, approved: true);
+    final questions = DriftQuestionRepository(database);
+    final ids = await questions.createQuestions(
+      [
+        QuestionDraft(
+          folderId: folderId,
+          type: QuestionType.shortAnswer,
+          prompt: '메모 문제',
+          acceptableAnswers: const ['정답'],
+        ),
+      ],
+      sourceReferences: [
+        QuestionSourceDraft(
+          sourceId: material.source.id,
+          conceptId: concept.id,
+          pageNumbers: const [],
+        ),
+      ],
+    );
+    final changes = await DriftSyncRepository(database).buildPushBatch();
+    await database.close();
+    databaseClosed = true;
+    final target = AppDatabase(NativeDatabase.memory());
+    addTearDown(target.close);
+    await DriftSyncRepository(target).applyPulledChanges([
+      for (var index = 0; index < changes.length; index++)
+        PullSyncChange(
+          entityType: changes[index].entityType,
+          entityId: changes[index].entityId,
+          operation: changes[index].operation,
+          payload: changes[index].payload,
+          updatedAt: changes[index].updatedAt,
+          deletedAt: changes[index].deletedAt,
+          revision: index + 1,
+        ),
+    ]);
+    final repository = DriftSourceRepository(target);
+    expect(
+      (await repository.getSourceWithConcepts(empty.source.id)).concepts,
+      isEmpty,
+    );
+    final restored = await repository.getSourceWithConcepts(material.source.id);
+    expect(restored.source.isManual, isTrue);
+    expect(restored.concepts.single.status, ConceptStatus.approved);
+    expect(restored.concepts.single.pageNumbers, isEmpty);
+    expect(
+      (await DriftQuestionRepository(target).getQuestion(ids.single))!
+          .sourceReferences
+          .single
+          .conceptId,
+      concept.id,
+    );
+    expect(
+      (await repository.getConceptGenerationSeed(concept.id)).sourceText,
+      contains('동기화할 내용'),
+    );
+  });
+
   test('PDF Source와 보류된 Concept을 저장하고 승인한다', () async {
     final saved = await sourceRepository.saveImport(
       folderId: folderId,
@@ -47,6 +467,106 @@ void main() {
     expect(seed.folderId, folderId);
     expect(seed.sourceLabel, contains('p.3, 4'));
     expect(seed.sourceText, contains('가우스 법칙'));
+  });
+
+  test('자료 전체 문제 생성은 승인 개념만 페이지 순으로 묶고 출처를 보존한다', () async {
+    final saved = await sourceRepository.saveImport(
+      folderId: folderId,
+      result: DocumentImportResult(
+        source: _result().source,
+        concepts: const [
+          ImportedConcept(
+            title: '나중 개념',
+            content: '마지막 페이지의 승인 내용',
+            pageNumbers: [9],
+          ),
+          ImportedConcept(
+            title: '처음 개념',
+            content: '첫 페이지의 승인 내용',
+            pageNumbers: [2, 1],
+          ),
+          ImportedConcept(
+            title: '보류 개념',
+            content: '생성에 포함하면 안 되는 내용',
+            pageNumbers: [3],
+          ),
+          ImportedConcept(
+            title: '삭제 개념',
+            content: '삭제 후 제외해야 하는 내용',
+            pageNumbers: [4],
+          ),
+        ],
+      ),
+    );
+    for (final concept in saved.concepts.where(
+      (concept) => concept.title != '보류 개념',
+    )) {
+      await sourceRepository.setConceptApproval(id: concept.id, approved: true);
+    }
+    await sourceRepository.deleteConcept(
+      saved.concepts.singleWhere((concept) => concept.title == '삭제 개념').id,
+    );
+    final seed = await sourceRepository.getSourceGenerationSeed(
+      saved.source.id,
+    );
+    expect(seed.folderId, folderId);
+    expect(seed.sourceLabel, saved.source.fileName);
+    expect(seed.concepts.map((concept) => concept.title), ['처음 개념', '나중 개념']);
+    expect(seed.sourceText, contains('1. 처음 개념'));
+    expect(seed.sourceText, contains('2. 나중 개념'));
+    expect(seed.sourceText, isNot(contains('보류 개념')));
+    expect(seed.sourceText, isNot(contains('삭제 개념')));
+    expect(seed.sourceReference.sourceId, saved.source.id);
+    expect(seed.sourceReference.pageNumbers, [1, 2, 9]);
+    expect(seed.sourceReference.conceptId, isNull);
+  });
+
+  test('승인 개념이 없거나 모두 승인 해제되면 자료 전체 문제 생성을 거부한다', () async {
+    final saved = await sourceRepository.saveImport(
+      folderId: folderId,
+      result: _result(),
+    );
+    await expectLater(
+      sourceRepository.getSourceGenerationSeed(saved.source.id),
+      throwsA(isA<ValidationFailure>()),
+    );
+    await sourceRepository.setConceptApproval(
+      id: saved.concepts.single.id,
+      approved: true,
+    );
+    expect(
+      (await sourceRepository.getSourceGenerationSeed(saved.source.id))
+          .concepts,
+      hasLength(1),
+    );
+    await sourceRepository.setConceptApproval(
+      id: saved.concepts.single.id,
+      approved: false,
+    );
+    await expectLater(
+      sourceRepository.getSourceGenerationSeed(saved.source.id),
+      throwsA(isA<ValidationFailure>()),
+    );
+  });
+
+  test('삭제되었거나 없는 PDF는 자료 전체 문제 생성에 사용할 수 없다', () async {
+    await expectLater(
+      sourceRepository.getSourceGenerationSeed('missing'),
+      throwsA(isA<ValidationFailure>()),
+    );
+    final saved = await sourceRepository.saveImport(
+      folderId: folderId,
+      result: _result(),
+    );
+    await sourceRepository.setConceptApproval(
+      id: saved.concepts.single.id,
+      approved: true,
+    );
+    await sourceRepository.deleteSource(saved.source.id);
+    await expectLater(
+      sourceRepository.getSourceGenerationSeed(saved.source.id),
+      throwsA(isA<ValidationFailure>()),
+    );
   });
 
   test('개념을 첫 페이지 순서로 정렬한다', () async {

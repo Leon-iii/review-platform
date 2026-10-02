@@ -179,6 +179,73 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final openAi in [false, true]) {
+    testWidgets(
+      '문제 생성 상한 자동 저장과 100/101 경고 경계: OpenAI=$openAi',
+      (tester) async {
+        final api = _FakeLlmProfileApi(openAi: openAi);
+        await openLlmProfiles(tester, api);
+        final field = find.byKey(
+          const Key('llm-maximum-questions-per-request'),
+        );
+        final warning = find.byKey(const Key('llm-question-limit-warning'));
+        expect(field, findsOneWidget);
+        expect(warning, findsOneWidget); // Existing default remains 120.
+        await tester.ensureVisible(field);
+        await tester.enterText(field, '100');
+        await tester.pump();
+        expect(warning, findsNothing);
+        await _waitForProfileAutosave(tester);
+        expect(
+          api.savedSettings!.profiles.first.maximumQuestionsPerRequest,
+          100,
+        );
+        await tester.enterText(field, '101');
+        await tester.pump();
+        expect(warning, findsOneWidget);
+        await _waitForProfileAutosave(tester);
+        expect(
+          api.savedSettings!.profiles.first.maximumQuestionsPerRequest,
+          101,
+        );
+        expect(
+          api.savedSettings!.profiles
+              .skip(1)
+              .every((p) => p.maximumQuestionsPerRequest == 120),
+          isTrue,
+        );
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('llm-profiles-settings-tile')));
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextFormField>(field).initialValue, '101');
+        expect(warning, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  for (final invalid in ['', '0', '-1', '1.5', '2147483648']) {
+    testWidgets('유효하지 않은 문제 상한은 자동 저장하지 않는다: $invalid', (tester) async {
+      final api = _FakeLlmProfileApi(openAi: true);
+      await openLlmProfiles(tester, api);
+      final field = find.byKey(const Key('llm-maximum-questions-per-request'));
+      await tester.ensureVisible(field);
+      await tester.enterText(field, invalid);
+      await _waitForProfileAutosave(tester);
+      expect(api.saveCalls, 0);
+      expect(find.text('입력을 완성하면 자동으로 저장됩니다.'), findsOneWidget);
+      await tester.enterText(field, '40');
+      await _waitForProfileAutosave(tester);
+      expect(api.savedSettings!.profiles.first.maximumQuestionsPerRequest, 40);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('자동 저장 실패 시 API Key 입력을 유지하고 재시도 성공 후 지운다', (tester) async {
     final api = _FakeLlmProfileApi()..failWrites = true;
     await openLlmProfiles(tester, api);
@@ -1222,6 +1289,8 @@ void main() {
     expect(find.byKey(const Key('ai-automatic-density-field')), findsOneWidget);
     expect(find.text('보통 · 개념별 3~4개'), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const Key('ai-count-mode-manual')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-count-mode-manual')));
     await tester.pumpAndSettle();
 
@@ -1328,7 +1397,7 @@ void main() {
       }
 
       await openMove('pdf-source-menu-moving-pdf');
-      expect(find.text('PDF 강의자료 이동'), findsOneWidget);
+      expect(find.text('자료 이동'), findsOneWidget);
       expect(
         find.byType(platform == TargetPlatform.windows ? Dialog : BottomSheet),
         findsOneWidget,
@@ -1342,7 +1411,10 @@ void main() {
       await openMove('pdf-source-menu-moving-pdf');
       await chooseTarget();
       expect(find.text('이동 테스트.pdf'), findsNothing);
-      expect(find.text('이 폴더에 가져온 PDF가 없어요.'), findsOneWidget);
+      expect(
+        find.text('이 폴더에 자료가 없어요. 새 자료를 만들거나 PDF를 가져와 주세요.'),
+        findsOneWidget,
+      );
       expect(find.text('이동할 문제'), findsOneWidget);
       expect(
         (await sources.getSourceWithConcepts('moving-pdf')).source.folderId,
@@ -1359,10 +1431,10 @@ void main() {
 
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.text('하위 폴더 0개, 문제 0개, PDF 강의자료 0개'), findsOneWidget);
+      expect(find.text('하위 폴더 0개, 문제 0개, 자료 0개'), findsOneWidget);
       await tester.tap(find.text('보관함'));
       await tester.pumpAndSettle();
-      expect(find.text('하위 폴더 0개, 문제 1개, PDF 강의자료 1개'), findsOneWidget);
+      expect(find.text('하위 폴더 0개, 문제 1개, 자료 1개'), findsOneWidget);
       await tester.tap(find.text('복습'));
       await tester.pumpAndSettle();
       expect(find.text('이동 테스트.pdf'), findsOneWidget);
@@ -1403,7 +1475,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('PDF 강의자료를 문제보다 먼저 표시하고 이름 변경 메뉴를 사용한다', (tester) async {
+  testWidgets('자료를 문제보다 먼저 표시하고 이름 변경 메뉴를 사용한다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final folderId = await DriftFolderRepository(database)
@@ -1450,19 +1522,19 @@ void main() {
 
     await tester.tap(find.text('문제 관리'));
     await tester.pumpAndSettle();
-    expect(find.text('하위 폴더 0개, 문제 0개, PDF 강의자료 1개'), findsOneWidget);
+    expect(find.text('하위 폴더 0개, 문제 0개, 자료 1개'), findsOneWidget);
     await tester.tap(find.text('전자기학'));
     await tester.pumpAndSettle();
 
-    expect(find.text('PDF 강의자료'), findsOneWidget);
+    expect(find.text('자료'), findsOneWidget);
     expect(find.text('1주차.pdf'), findsOneWidget);
-    expect(find.byTooltip('PDF 강의자료 메뉴'), findsOneWidget);
+    expect(find.byTooltip('자료 메뉴'), findsOneWidget);
     expect(
-      tester.getTopLeft(find.text('PDF 강의자료')).dy,
+      tester.getTopLeft(find.text('자료')).dy,
       lessThan(tester.getTopLeft(find.text('문제')).dy),
     );
 
-    await tester.tap(find.byTooltip('PDF 강의자료 메뉴'));
+    await tester.tap(find.byTooltip('자료 메뉴'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('이름 변경'));
     await tester.pumpAndSettle();
@@ -1480,7 +1552,7 @@ void main() {
     expect(find.text('1. 맥스웰 방정식'), findsOneWidget);
     expect(find.text('2. 전자기파'), findsOneWidget);
     expect(find.text('자료 목록'), findsNothing);
-    expect(find.text('보류됨'), findsNWidgets(2));
+    expect(find.text('검토 필요'), findsNWidgets(2));
     expect(find.text('중요도 보통'), findsNWidgets(2));
     expect(find.text('Draft'), findsNothing);
     expect(find.text('수정 후 승인'), findsNothing);
@@ -1499,23 +1571,29 @@ void main() {
     await tester.pumpAndSettle();
 
     final firstConceptId = saved.concepts.first.id;
+    final reviewedBadgeText = find.descendant(
+      of: find.byKey(ValueKey('concept-status-$firstConceptId')),
+      matching: find.text('검토 완료'),
+    );
     await tester.tap(find.byKey(ValueKey('concept-approval-$firstConceptId')));
     await tester.pumpAndSettle();
-    expect(find.text('승인됨'), findsOneWidget);
-    final approvedBadge = tester.widget<DecoratedBox>(
+    expect(reviewedBadgeText, findsOneWidget);
+    final approvedBadge = tester.widget<Chip>(
       find
           .descendant(
             of: find.byKey(ValueKey('concept-status-$firstConceptId')),
-            matching: find.byType(DecoratedBox),
+            matching: find.byType(Chip),
           )
           .first,
     );
-    final approvedDecoration = approvedBadge.decoration as BoxDecoration;
-    expect(approvedDecoration.gradient, isA<LinearGradient>());
-    expect((approvedDecoration.gradient! as LinearGradient).colors, const [
-      Color(0xFF66BB6A),
-      Color(0xFF388E3C),
-    ]);
+    final badgeTheme = Theme.of(tester.element(reviewedBadgeText));
+    expect(approvedBadge.backgroundColor, badgeTheme.cardTheme.color);
+    expect(
+      approvedBadge.labelStyle!.color,
+      badgeTheme.brightness == Brightness.dark
+          ? const Color(0xFFC5E1A5)
+          : const Color(0xFF4E6B38),
+    );
 
     final perConceptRevisionButton = find.byKey(
       ValueKey('request-concept-revision-$firstConceptId'),
@@ -1557,15 +1635,15 @@ void main() {
     expect(find.text('AI 수정안 검토'), findsOneWidget);
     expect(find.text('변경 전'), findsNWidgets(2));
     expect(find.text('변경 후'), findsNWidgets(2));
-    expect(find.text('승인됨'), findsOneWidget);
-    expect(find.text('수정안 적용'), findsOneWidget);
+    expect(reviewedBadgeText, findsOneWidget);
+    expect(find.text('적용'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('apply-concept-revisions-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('승인됨'), findsNothing);
-    expect(find.text('보류됨'), findsNWidgets(2));
-    expect(find.text('1개 개념을 수정하고 보류 상태로 변경했어요.'), findsOneWidget);
+    expect(reviewedBadgeText, findsNothing);
+    expect(find.text('검토 필요'), findsNWidgets(2));
+    expect(find.text('1개 개념을 수정하고 검토 필요로 변경했어요.'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -1593,6 +1671,10 @@ void main() {
       find.byKey(const Key('ai-source-text-field')),
       '사칙연산은 덧셈, 뺄셈, 곱셈, 나눗셈으로 구성됩니다.',
     );
+    await tester.ensureVisible(
+      find.byKey(const Key('generate-ai-questions-button')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('generate-ai-questions-button')));
     await tester.pump();
 
@@ -1621,6 +1703,10 @@ void main() {
       find.byKey(const Key('ai-source-text-field')),
       '사칙연산은 덧셈, 뺄셈, 곱셈, 나눗셈으로 구성됩니다.',
     );
+    await tester.ensureVisible(
+      find.byKey(const Key('generate-ai-questions-button')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('generate-ai-questions-button')));
     await tester.pumpAndSettle();
 
@@ -1821,6 +1907,7 @@ class _FakeLlmProfileApi implements LlmProfileApi {
             model: profile.model,
             contextWindowTokens: profile.contextWindowTokens,
             reasoningEffort: profile.reasoningEffort,
+            maximumQuestionsPerRequest: profile.maximumQuestionsPerRequest,
             updatedAt: DateTime.utc(2026).add(Duration(seconds: saveCalls)),
           ),
       ],

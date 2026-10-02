@@ -11,6 +11,19 @@ import 'package:review_platform/domain/models/study_source.dart';
 import 'package:uuid/uuid.dart';
 
 abstract interface class SourceRepository {
+  Future<StudySourceWithConcepts> createSource({
+    required String folderId,
+    required String name,
+  });
+
+  Future<StudyConcept> addConcept({
+    required String sourceId,
+    required String title,
+    required String content,
+    ConceptImportance importance = ConceptImportance.medium,
+    bool reviewed = true,
+  });
+
   Future<StudySourceWithConcepts> saveImport({
     required String folderId,
     required DocumentImportResult result,
@@ -44,9 +57,11 @@ abstract interface class SourceRepository {
   Future<ConceptRevisionApplyResult> applyConceptRevisions({
     required String sourceId,
     required List<ConceptRevision> revisions,
+    bool markReviewed = false,
   });
 
   Future<ConceptGenerationSeed> getConceptGenerationSeed(String conceptId);
+  Future<SourceGenerationSeed> getSourceGenerationSeed(String sourceId);
 }
 
 class DriftSourceRepository implements SourceRepository {
@@ -54,6 +69,90 @@ class DriftSourceRepository implements SourceRepository {
 
   final AppDatabase _database;
   final Uuid _uuid = const Uuid();
+
+  @override
+  Future<StudySourceWithConcepts> createSource({
+    required String folderId,
+    required String name,
+  }) {
+    return _guard(() async {
+      final normalized = name.trim();
+      if (normalized.isEmpty || normalized.length > 200) {
+        throw const ValidationFailure('자료 이름은 1자에서 200자 사이로 입력해 주세요.');
+      }
+      final now = DateTime.now().toUtc();
+      final id = _uuid.v4();
+      await _database.transaction(() async {
+        if (await _database.folderDao.getActiveFolder(folderId) == null) {
+          throw const ValidationFailure('자료를 저장할 폴더를 찾을 수 없어요.');
+        }
+        await _database.sourceDao.insertSource(
+          StudySourcesCompanion.insert(
+            id: id,
+            folderId: folderId,
+            fileName: normalized,
+            contentHash: '',
+            pageCount: 0,
+            extractionMethod: 'manual',
+            importedAt: now,
+          ),
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.source.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      });
+      return getSourceWithConcepts(id);
+    }, '자료를 만들지 못했어요.');
+  }
+
+  @override
+  Future<StudyConcept> addConcept({
+    required String sourceId,
+    required String title,
+    required String content,
+    ConceptImportance importance = ConceptImportance.medium,
+    bool reviewed = true,
+  }) {
+    return _guard(() async {
+      final normalizedTitle = title.trim();
+      final normalizedContent = content.trim();
+      _validateConceptText(normalizedTitle, normalizedContent);
+      final now = DateTime.now().toUtc();
+      // Drift stores timestamps with second precision. Time-ordered UUIDs keep
+      // the insertion order of user concepts even within the same second.
+      final id = _uuid.v6();
+      await _database.transaction(() async {
+        if (await _database.sourceDao.getSource(sourceId) == null) {
+          throw const ValidationFailure('개념을 추가할 자료를 찾을 수 없어요.');
+        }
+        await _database.sourceDao.insertConcepts([
+          ConceptsCompanion.insert(
+            id: id,
+            sourceId: sourceId,
+            title: normalizedTitle,
+            content: normalizedContent,
+            pageNumbersJson: '[]',
+            status: reviewed
+                ? ConceptStatus.approved.name
+                : ConceptStatus.held.name,
+            importance: Value(importance.name),
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ]);
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.concept.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      });
+      return _conceptFromRow(await _requireConcept(id));
+    }, '개념을 추가하지 못했어요.');
+  }
 
   @override
   Future<StudySourceWithConcepts> saveImport({
@@ -214,7 +313,7 @@ class DriftSourceRepository implements SourceRepository {
           createdAt: DateTime.now().toUtc(),
         );
       });
-    }, 'PDF 강의자료를 이동하지 못했어요.');
+    }, '자료를 이동하지 못했어요.');
   }
 
   @override
@@ -228,7 +327,8 @@ class DriftSourceRepository implements SourceRepository {
       if (normalized.isEmpty) {
         throw const ValidationFailure('자료 이름을 입력해 주세요.');
       }
-      if (!normalized.toLowerCase().endsWith('.pdf')) {
+      if (source.extractionMethod != 'manual' &&
+          !normalized.toLowerCase().endsWith('.pdf')) {
         normalized = '$normalized.pdf';
       }
       if (normalized.length > 200) {
@@ -295,9 +395,7 @@ class DriftSourceRepository implements SourceRepository {
     return _guard(() async {
       final normalizedTitle = title.trim();
       final normalizedContent = content.trim();
-      if (normalizedTitle.isEmpty || normalizedContent.isEmpty) {
-        throw const ValidationFailure('제목과 내용을 모두 입력해 주세요.');
-      }
+      _validateConceptText(normalizedTitle, normalizedContent);
       await _requireConcept(id);
       final now = DateTime.now().toUtc();
       await _database.transaction(() async {
@@ -341,6 +439,7 @@ class DriftSourceRepository implements SourceRepository {
   Future<ConceptRevisionApplyResult> applyConceptRevisions({
     required String sourceId,
     required List<ConceptRevision> revisions,
+    bool markReviewed = false,
   }) {
     return _guard(() async {
       final source = await _database.sourceDao.getSource(sourceId);
@@ -361,7 +460,10 @@ class DriftSourceRepository implements SourceRepository {
             title.length > 200 ||
             content.isEmpty ||
             content.length > 8000 ||
-            pages.isEmpty ||
+            pages.isEmpty !=
+                ((jsonDecode(
+                  rowsById[revision.id]!.pageNumbersJson,
+                ) as List).isEmpty) ||
             pages.any((page) => page < 1 || page > source.pageCount)) {
           throw const ValidationFailure('AI 개념 수정 결과가 올바르지 않아요.');
         }
@@ -401,7 +503,11 @@ class DriftSourceRepository implements SourceRepository {
               title: Value(revision.title),
               content: Value(revision.content),
               pageNumbersJson: Value(jsonEncode(revision.pageNumbers)),
-              status: Value(ConceptStatus.held.name),
+              status: Value(
+                markReviewed
+                    ? ConceptStatus.approved.name
+                    : ConceptStatus.held.name,
+              ),
               importance: Value(revision.importance.name),
               updatedAt: Value(updatedAt),
             ),
@@ -432,7 +538,7 @@ class DriftSourceRepository implements SourceRepository {
       final conceptRow = await _requireConcept(conceptId);
       if (ConceptStatus.fromStorage(conceptRow.status) !=
           ConceptStatus.approved) {
-        throw const ValidationFailure('승인된 개념만 문제 생성에 사용할 수 있어요.');
+        throw const ValidationFailure('검토 완료된 개념만 문제 생성에 사용할 수 있어요.');
       }
       final sourceRow = await _database.sourceDao.getSource(
         conceptRow.sourceId,
@@ -446,6 +552,23 @@ class DriftSourceRepository implements SourceRepository {
         concept: _conceptFromRow(conceptRow),
       );
     }, '개념 정보를 불러오지 못했어요.');
+  }
+
+  @override
+  Future<SourceGenerationSeed> getSourceGenerationSeed(String sourceId) {
+    return _guard(() async {
+      final review = await getSourceWithConcepts(sourceId);
+      final approved = review.concepts
+          .where((concept) => concept.status == ConceptStatus.approved)
+          .toList();
+      if (approved.isEmpty) {
+        throw const ValidationFailure('문제를 생성하려면 개념을 하나 이상 검토 완료로 표시해 주세요.');
+      }
+      return SourceGenerationSeed(
+        source: review.source,
+        concepts: List.unmodifiable(approved),
+      );
+    }, '문제 생성에 사용할 학습 자료를 불러오지 못했어요.');
   }
 
   Future<void> _setStatus(String id, ConceptStatus status) {
@@ -502,6 +625,15 @@ class DriftSourceRepository implements SourceRepository {
   List<StudyConcept> _sortConcepts(Iterable<StudyConcept> concepts) {
     final sorted = concepts.toList();
     sorted.sort((left, right) {
+      if (!left.hasPageSource || !right.hasPageSource) {
+        if (left.hasPageSource != right.hasPageSource) {
+          return left.hasPageSource ? -1 : 1;
+        }
+        final createdComparison = left.createdAt.compareTo(right.createdAt);
+        return createdComparison != 0
+            ? createdComparison
+            : left.id.compareTo(right.id);
+      }
       final pageComparison = left.pageNumbers.first.compareTo(
         right.pageNumbers.first,
       );
@@ -517,6 +649,15 @@ class DriftSourceRepository implements SourceRepository {
       if (left[index] != right[index]) return false;
     }
     return true;
+  }
+
+  void _validateConceptText(String title, String content) {
+    if (title.isEmpty || content.isEmpty) {
+      throw const ValidationFailure('제목과 내용을 모두 입력해 주세요.');
+    }
+    if (title.length > 200 || content.length > 8000) {
+      throw const ValidationFailure('개념 제목은 200자, 내용은 8,000자 이하로 입력해 주세요.');
+    }
   }
 
   Future<T> _guard<T>(Future<T> Function() action, String message) async {

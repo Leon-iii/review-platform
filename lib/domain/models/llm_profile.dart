@@ -45,6 +45,7 @@ class LlmProfile {
     required this.updatedAt,
     this.contextWindowTokens,
     this.reasoningEffort,
+    this.maximumQuestionsPerRequest = 120,
   });
 
   final String id;
@@ -54,6 +55,7 @@ class LlmProfile {
   final DateTime updatedAt;
   final int? contextWindowTokens;
   final String? reasoningEffort;
+  final int maximumQuestionsPerRequest;
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -62,6 +64,7 @@ class LlmProfile {
     'model': model,
     'contextWindowTokens': contextWindowTokens,
     'reasoningEffort': reasoningEffort,
+    'maximumQuestionsPerRequest': maximumQuestionsPerRequest,
   };
 }
 
@@ -159,6 +162,7 @@ class LlmProfileSettings {
           updatedAt: source.updatedAt,
           contextWindowTokens: source.contextWindowTokens,
           reasoningEffort: source.reasoningEffort,
+          maximumQuestionsPerRequest: source.maximumQuestionsPerRequest,
         ),
       );
     }
