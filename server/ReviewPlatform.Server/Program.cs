@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using ReviewPlatform.Server.AI;
 using ReviewPlatform.Server.Auth;
@@ -7,6 +8,12 @@ using ReviewPlatform.Server.Data;
 using ReviewPlatform.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+var documentLimits = builder.Configuration.GetSection("Documents").Get<DocumentLimits>() ?? new();
+if (documentLimits.MaximumFileSizeMb is < 1 or > 2048 ||
+    documentLimits.MaximumPages is < 1 or > 10000 ||
+    documentLimits.MaximumExtractedCharacters is < 20 or > 10000000 ||
+    documentLimits.MinimumFreeDiskSpaceMb < 0 || documentLimits.MaximumPendingJobs is < 1 or > 100)
+    throw new InvalidOperationException("Documents safety limits are invalid.");
 
 // The Windows app captures stdout/stderr. Avoid the default Windows Event Log
 // provider, which may require elevated permissions when writing warnings.
@@ -42,6 +49,9 @@ builder.Services.PostConfigure<LlmOptions>(options =>
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<QuestionGenerationService>();
 builder.Services.AddScoped<DocumentProcessingService>();
+builder.Services.AddScoped<DocumentJobService>();
+builder.Services.AddSingleton<DocumentJobSignals>();
+builder.Services.AddHostedService<DocumentJobWorker>();
 builder.Services.AddScoped<ConceptRevisionService>();
 builder.Services.AddScoped<LlmProfileService>();
 builder.Services.AddScoped<ILlmApiKeyStore, LlmApiKeyStore>();
@@ -73,6 +83,44 @@ using (var scope = app.Services.CreateScope())
 app.UseMiddleware<SyncTokenMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+app.MapGet("/api/documents/limits", () => Results.Ok(documentLimits));
+app.MapPost("/api/documents/jobs/{id}", async (string id, string fileName,
+    HttpRequest request, DocumentJobService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var bodyLimit = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = documentLimits.MaximumFileSize;
+        return Results.Json(await service.UploadAsync(id, fileName, request.Body,
+            request.ContentLength ?? 0, cancellationToken), statusCode: StatusCodes.Status202Accepted);
+    }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+    catch (LlmProviderUnavailableException exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (IOException) { return Results.BadRequest(new { error = "PDF 파일을 저장하지 못했습니다. 다시 시도해 주세요." }); }
+});
+app.MapGet("/api/documents/jobs/{id}", async (string id, DocumentJobService service,
+    CancellationToken cancellationToken) => await service.GetAsync(id, cancellationToken) is { } result
+        ? Results.Ok(result) : Results.NotFound(new { error = "PDF 분석 작업을 찾을 수 없습니다." }));
+app.MapGet("/api/documents/jobs/{id}/result", async (string id, DocumentJobService service,
+    CancellationToken cancellationToken) => await service.GetResultAsync(id, cancellationToken) is { } json
+        ? Results.Content(json, "application/json")
+        : Results.NotFound(new { error = "PDF 분석 결과가 아직 준비되지 않았습니다." }));
+app.MapPost("/api/documents/jobs/{id}/cancel", async (string id, DocumentJobService service,
+    CancellationToken cancellationToken) => await service.CancelAsync(id, cancellationToken) is { } result
+        ? Results.Ok(result) : Results.NotFound());
+app.MapPost("/api/documents/jobs/{id}/retry", async (string id, DocumentJobService service,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return await service.RetryAsync(id, cancellationToken) is { } result ? Results.Ok(result) : Results.NotFound();
+    }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
 
 app.MapGet("/api/ai/ollama/status", async (
     ILlmProviderResolver resolver,

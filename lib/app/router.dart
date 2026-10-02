@@ -48,6 +48,10 @@ abstract final class AppRoutes {
     path: documents,
     queryParameters: {'folderId': folderId, 'sourceId': sourceId},
   ).toString();
+  static String documentsForJob(String folderId, String jobId) => Uri(
+    path: documents,
+    queryParameters: {'folderId': folderId, 'jobId': jobId},
+  ).toString();
   static String studySession(String sessionId) => '/study/session/$sessionId';
   static String studyResult(String sessionId) => '/study/result/$sessionId';
   static String studySetupForWrong(String folderId) => Uri(
@@ -132,6 +136,7 @@ GoRouter router(Ref ref) {
         builder: (context, state) => DocumentImportView(
           folderId: state.uri.queryParameters['folderId']!,
           initialSourceId: state.uri.queryParameters['sourceId'],
+          initialJobId: state.uri.queryParameters['jobId'],
         ),
       ),
       GoRoute(

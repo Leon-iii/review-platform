@@ -433,6 +433,27 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
             TestContext.Current.CancellationToken)).MaximumQuestionsPerRequest);
     }
 
+    [Fact]
+    public async Task CapturedProfile_ResolvesOriginalProviderAndModel_AfterSettingsChange()
+    {
+        await service.GetSettingsAsync(TestContext.Current.CancellationToken);
+        var resolver = new RuntimeLlmProviderResolver(service, apiKeys,
+            new MetadataHttpClientFactory(), NullLoggerFactory.Instance);
+        var captured = await resolver.CaptureAsync(LlmPurposes.ConceptExtraction, TestContext.Current.CancellationToken);
+        var profiles = LlmPurposes.All.Select(purpose => new LlmProfileInput(
+            $"purpose-{purpose}", purpose, "openai", "gpt-5-mini")).ToList();
+        await service.UpdateSettingsAsync(new UpdateLlmProfileSettingsRequest(profiles,
+            LlmPurposes.All.ToDictionary(purpose => purpose, purpose => $"purpose-{purpose}")),
+            TestContext.Current.CancellationToken);
+        var pinned = await resolver.ResolveSnapshotAsync(captured, TestContext.Current.CancellationToken);
+        var current = await resolver.ResolveAsync(LlmPurposes.ConceptExtraction, TestContext.Current.CancellationToken);
+        Assert.Equal(captured.Provider, pinned.ProviderName);
+        Assert.Equal(captured.Model, pinned.ModelName);
+        Assert.Equal(captured.ContextWindowTokens, pinned.ContextWindowTokens);
+        Assert.Equal("openai", current.ProviderName);
+        Assert.Equal("gpt-5-mini", current.ModelName);
+    }
+
     private sealed class MetadataHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new MetadataHandler());

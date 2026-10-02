@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:review_platform/core/documents/document_picker.dart';
+import 'package:review_platform/domain/models/pdf_import_job.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/study_source.dart';
@@ -30,7 +32,39 @@ abstract interface class RemoteDocumentApi {
   });
 }
 
-class HttpRemoteDocumentApi implements RemoteDocumentApi {
+abstract interface class RemoteDocumentJobApi {
+  Future<int> maximumUploadBytes(SyncConfiguration configuration);
+  Future<PdfImportJob> uploadJob(
+    SyncConfiguration configuration,
+    String id,
+    PickedPdfDocument document,
+  );
+  Future<PdfImportJob?> getJob(SyncConfiguration configuration, String id);
+  Future<PdfImportJob> changeJob(
+    SyncConfiguration configuration,
+    String id,
+    String action,
+  );
+  Future<DocumentImportResult> jobResult(
+    SyncConfiguration configuration,
+    String id,
+  );
+}
+
+class _PdfUploadRequest extends http.BaseRequest {
+  _PdfUploadRequest(Uri url, this.document) : super('POST', url) {
+    contentLength = document.length;
+    headers['content-type'] = 'application/pdf';
+  }
+  final PickedPdfDocument document;
+  @override
+  http.ByteStream finalize() {
+    super.finalize();
+    return http.ByteStream(document.openRead());
+  }
+}
+
+class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
   HttpRemoteDocumentApi(this._client);
 
   final http.Client _client;
@@ -62,6 +96,10 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
 
     final response = await http.Response.fromStream(streamedResponse);
     final body = _decode(response);
+    return _importResult(body);
+  }
+
+  DocumentImportResult _importResult(Map<String, Object?> body) {
     try {
       final source = Map<String, Object?>.from(body['source']! as Map);
       final concepts = body['concepts']! as List;
@@ -82,6 +120,115 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi {
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
         NetworkFailure('PDF 처리 응답 형식이 올바르지 않아요.', cause: error),
+        stackTrace,
+      );
+    }
+  }
+
+  @override
+  Future<int> maximumUploadBytes(SyncConfiguration configuration) async {
+    final body = _decode(await _jobRequest(configuration, 'GET', 'limits'));
+    return (body['maximumFileSize']! as num).toInt();
+  }
+
+  @override
+  Future<PdfImportJob> uploadJob(
+    SyncConfiguration configuration,
+    String id,
+    PickedPdfDocument document,
+  ) async {
+    final request = _PdfUploadRequest(
+      _jobUri(
+        configuration,
+        'jobs/$id',
+      ).replace(queryParameters: {'fileName': document.fileName}),
+      document,
+    )..headers['x-sync-token'] = configuration.accessToken;
+    try {
+      final streamed = await _client
+          .send(request)
+          .timeout(const Duration(minutes: 5));
+      final response = await http.Response.fromStream(streamed)
+          .timeout(const Duration(seconds: 30));
+      return _job(_decode(response));
+    } on AppFailure {
+      rethrow;
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        NetworkFailure(
+          'PDF 업로드를 확인하지 못했어요. 서버 연결 후 작업 상태를 다시 확인합니다.',
+          cause: error,
+        ),
+        stackTrace,
+      );
+    }
+  }
+
+  @override
+  Future<PdfImportJob?> getJob(
+    SyncConfiguration configuration,
+    String id,
+  ) async {
+    final response = await _jobRequest(configuration, 'GET', 'jobs/$id');
+    if (response.statusCode == 404) return null;
+    return _job(_decode(response));
+  }
+
+  @override
+  Future<PdfImportJob> changeJob(
+    SyncConfiguration configuration,
+    String id,
+    String action,
+  ) async {
+    if (action != 'cancel' && action != 'retry') {
+      throw const ValidationFailure('올바르지 않은 작업 요청이에요.');
+    }
+    return _job(
+      _decode(await _jobRequest(configuration, 'POST', 'jobs/$id/$action')),
+    );
+  }
+
+  @override
+  Future<DocumentImportResult> jobResult(
+    SyncConfiguration configuration,
+    String id,
+  ) async => _importResult(
+    _decode(await _jobRequest(configuration, 'GET', 'jobs/$id/result')),
+  );
+
+  PdfImportJob _job(Map<String, Object?> data) {
+    if (data['id'] is! String ||
+        data['fileName'] is! String ||
+        !{
+          'queued',
+          'running',
+          'failed',
+          'cancelled',
+          'completed',
+        }.contains(data['status'])) {
+      throw const NetworkFailure('PDF 작업 응답 형식이 올바르지 않아요.');
+    }
+    return PdfImportJob(data);
+  }
+
+  Uri _jobUri(SyncConfiguration configuration, String path) => Uri.parse(
+    '${configuration.serverUrl.replaceFirst(RegExp(r'/+$'), '')}/api/documents/$path',
+  );
+
+  Future<http.Response> _jobRequest(
+    SyncConfiguration configuration,
+    String method,
+    String path,
+  ) async {
+    try {
+      final request = http.Request(method, _jobUri(configuration, path))
+        ..headers['x-sync-token'] = configuration.accessToken;
+      return await http.Response.fromStream(
+        await _client.send(request).timeout(const Duration(seconds: 30)),
+      ).timeout(const Duration(seconds: 30));
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        NetworkFailure('PDF 처리 서버에 연결할 수 없어요.', cause: error),
         stackTrace,
       );
     }

@@ -196,6 +196,9 @@ class DriftSourceRepository implements SourceRepository {
       }
 
       await _database.transaction(() async {
+        // A completed background job may be fetched more than once (e.g. after
+        // the app exits between importing the result and acknowledging it).
+        if (await _database.sourceDao.getSource(result.source.id) != null) return;
         await _database.sourceDao.insertSource(
           StudySourcesCompanion.insert(
             id: result.source.id,
@@ -238,18 +241,7 @@ class DriftSourceRepository implements SourceRepository {
         }
       });
 
-      return StudySourceWithConcepts(
-        source: StudySource(
-          id: result.source.id,
-          folderId: folderId,
-          fileName: result.source.fileName,
-          contentHash: result.source.contentHash,
-          pageCount: result.source.pageCount,
-          extractionMethod: result.source.extractionMethod,
-          importedAt: result.source.importedAt,
-        ),
-        concepts: _sortConcepts(concepts),
-      );
+      return getSourceWithConcepts(result.source.id);
     }, 'PDF 추출 결과를 저장하지 못했어요.');
   }
 

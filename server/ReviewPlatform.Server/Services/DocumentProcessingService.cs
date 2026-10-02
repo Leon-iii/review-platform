@@ -7,13 +7,10 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class DocumentProcessingService
 {
-    private const long MaximumFileSize = 25 * 1024 * 1024;
     private const int MaximumPageCount = 300;
-    private const int MaximumTotalCharacters = 300_000;
     private const int TargetChunkCharacters = 8_000;
     private const int MaximumPagesPerConceptChunk = 8;
     private const int MinimumReliableCharactersPerPage = 10;
-    private const int MaximumVisionPagesPerImport = 50;
     private readonly IPdfTextExtractor textExtractor;
     private readonly IPdfPageRenderer pageRenderer;
     private readonly IDocumentPageTextCache pageTextCache;
@@ -21,6 +18,7 @@ public sealed class DocumentProcessingService
     private readonly IWebHostEnvironment environment;
     private readonly IConfiguration configuration;
     private readonly ILogger<DocumentProcessingService> logger;
+    private DocumentLimits Limits => configuration.GetSection("Documents").Get<DocumentLimits>() ?? new();
 
     public DocumentProcessingService(
         IPdfTextExtractor textExtractor,
@@ -65,10 +63,10 @@ public sealed class DocumentProcessingService
         long length,
         CancellationToken cancellationToken = default)
     {
-        if (length is < 1 or > MaximumFileSize)
+        if (length < 1 || length > Limits.MaximumFileSize)
         {
             throw new DocumentImportException(
-                "PDF 파일은 25MB 이하만 가져올 수 있습니다.");
+                $"PDF 파일은 {Limits.MaximumFileSizeMb}MB 이하만 가져올 수 있습니다.");
         }
         if (!Path.GetExtension(fileName).Equals(
             ".pdf",
@@ -96,23 +94,24 @@ public sealed class DocumentProcessingService
                 81920,
                 FileOptions.Asynchronous))
             {
-                await content.CopyToAsync(output, cancellationToken);
+                await CopyBoundedAsync(content, output, length, Limits.MaximumFileSize, cancellationToken);
             }
 
-            if (new FileInfo(temporaryPath).Length > MaximumFileSize)
+            if (new FileInfo(temporaryPath).Length > Limits.MaximumFileSize)
             {
                 throw new DocumentImportException(
-                    "PDF 파일은 25MB 이하만 가져올 수 있습니다.");
+                    $"PDF 파일은 {Limits.MaximumFileSizeMb}MB 이하만 가져올 수 있습니다.");
             }
             await ValidatePdfSignatureAsync(temporaryPath, cancellationToken);
             var contentHash = await ComputeHashAsync(
                 temporaryPath,
                 cancellationToken);
-            var extraction = textExtractor.Extract(temporaryPath);
-            if (extraction.PageCount is < 1 or > MaximumPageCount)
+            var extraction = textExtractor.Extract(temporaryPath, cancellationToken,
+                Limits.MaximumPages, Limits.MaximumExtractedCharacters);
+            if (extraction.PageCount < 1 || extraction.PageCount > Limits.MaximumPages)
             {
                 throw new DocumentImportException(
-                    $"PDF는 최대 {MaximumPageCount}페이지까지 가져올 수 있습니다.");
+                    $"PDF는 최대 {Limits.MaximumPages}페이지까지 가져올 수 있습니다.");
             }
 
             var prepared = await PreparePagesAsync(
@@ -200,6 +199,106 @@ public sealed class DocumentProcessingService
         }
     }
 
+    // Completed pages/chunks are checkpointed independently, so retries and
+    // server restarts never need to repeat successful LLM calls.
+    public async Task<ImportDocumentResponse> ProcessStoredPdfAsync(
+        string sourceId, string fileName, ILLMProvider conceptProvider,
+        Func<Task<ILLMProvider>> resolveVisionProvider, DocumentCheckpoint checkpoint,
+        Func<DocumentCheckpoint, Task> saveCheckpoint, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(ResolveStorageRoot(), $"{Guid.Parse(sourceId):D}.pdf");
+        if (checkpoint.ConceptPromptVersion != ConceptExtractionPrompt.Version ||
+            checkpoint.VisionPromptVersion != DocumentVisionPrompt.Version)
+            throw new DocumentImportException("서버의 분석 지침 버전이 변경되었습니다. PDF를 새 작업으로 다시 업로드해 주세요.");
+        checkpoint.Stage = "reading";
+        await saveCheckpoint(checkpoint);
+        var extraction = textExtractor.Extract(path, cancellationToken,
+            Limits.MaximumPages, Limits.MaximumExtractedCharacters);
+        if (extraction.PageCount < 1 || extraction.PageCount > Limits.MaximumPages)
+            throw new DocumentImportException($"PDF는 최대 {Limits.MaximumPages}페이지까지 가져올 수 있습니다.");
+        checkpoint.TotalPages = extraction.PageCount;
+        checkpoint.Stage = "pages";
+        await saveCheckpoint(checkpoint);
+        var prepared = await PreparePagesAsync(path, fileName, extraction.Pages,
+            resolveVisionProvider, cancellationToken, checkpoint, saveCheckpoint);
+        var usablePages = LimitExtractedText(prepared.Pages);
+        if (usablePages.Sum(page => CountContentCharacters(page.Text)) < 20)
+            throw new DocumentImportException("PDF에서 학습할 수 있는 텍스트를 찾지 못했습니다.");
+        var chunks = BuildChunks(usablePages, conceptProvider);
+        checkpoint.TotalChunks = chunks.Count;
+        checkpoint.Stage = "concepts";
+        await saveCheckpoint(checkpoint);
+        for (var index = checkpoint.Chunks.Count; index < chunks.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var chunk = chunks[index];
+            var generated = await conceptProvider.ExtractConceptsAsync(
+                new ConceptExtractionInput(sourceId, fileName, chunk, ConceptExtractionPrompt.Version),
+                cancellationToken);
+            checkpoint.Chunks.Add(ValidateConcepts(generated, chunk).ToList());
+            await saveCheckpoint(checkpoint);
+        }
+        var concepts = MergeDuplicateConcepts(checkpoint.Chunks.SelectMany(chunk => chunk).ToList());
+        if (concepts.Count == 0)
+            throw new DocumentImportException("PDF에서 검토할 학습 개념을 추출하지 못했습니다.");
+        return new ImportDocumentResponse(new DocumentSourceMetadata(sourceId, fileName,
+            await ComputeHashAsync(path, cancellationToken), extraction.PageCount,
+            DetermineExtractionMethod(prepared.Metadata), DateTimeOffset.UtcNow), concepts, prepared.Metadata);
+    }
+
+    public async Task StoreUploadAsync(string sourceId, Stream content, string fileName,
+        long length, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParseExact(sourceId, "D", out _) || fileName.Length is < 1 or > 200 ||
+            !Path.GetExtension(fileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+            throw new DocumentImportException("올바른 PDF 파일과 작업 ID를 지정해 주세요.");
+        if (length < 1 || length > Limits.MaximumFileSize)
+            throw new DocumentImportException($"PDF 파일은 {Limits.MaximumFileSizeMb}MB 이하만 가져올 수 있습니다.");
+        var root = ResolveStorageRoot();
+        Directory.CreateDirectory(root);
+        var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(root))!);
+        if (drive.AvailableFreeSpace < length + (long)Limits.MinimumFreeDiskSpaceMb * 1024 * 1024)
+            throw new DocumentImportException("서버의 디스크 여유 공간이 부족합니다.");
+        var temporary = Path.Combine(root, $".{sourceId}.{Guid.NewGuid():N}.upload");
+        try
+        {
+            await using (var output = new FileStream(temporary, FileMode.CreateNew,
+                FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+                await CopyBoundedAsync(content, output, length, Limits.MaximumFileSize, cancellationToken);
+            await ValidatePdfSignatureAsync(temporary, cancellationToken);
+            var final = Path.Combine(root, $"{sourceId}.pdf");
+            if (File.Exists(final))
+            {
+                if (await ComputeHashAsync(final, cancellationToken) != await ComputeHashAsync(temporary, cancellationToken))
+                    throw new DocumentImportException("동일한 작업 ID로 다른 PDF를 업로드할 수 없습니다.");
+                File.Delete(temporary);
+            }
+            else File.Move(temporary, final);
+        }
+        catch
+        {
+            TryDelete(temporary);
+            throw;
+        }
+    }
+
+    internal static async Task CopyBoundedAsync(Stream input, Stream output,
+        long expectedLength, long maximumLength, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[81920];
+        long written = 0;
+        int count;
+        while ((count = await input.ReadAsync(buffer, cancellationToken)) != 0)
+        {
+            written += count;
+            if (written > maximumLength || written > expectedLength)
+                throw new DocumentImportException("PDF 파일 크기가 업로드 제한을 초과했거나 전송 중 변경되었습니다.");
+            await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+        }
+        if (written != expectedLength)
+            throw new DocumentImportException("PDF 업로드가 완료되지 않았습니다. 다시 시도해 주세요.");
+    }
+
     public void DeletePdf(string sourceId)
     {
         if (!Guid.TryParse(sourceId, out var parsed) ||
@@ -232,27 +331,23 @@ public sealed class DocumentProcessingService
         string fileName,
         IReadOnlyList<ExtractedDocumentPage> extractedPages,
         Func<Task<ILLMProvider>> resolveVisionProvider,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DocumentCheckpoint? checkpoint = null,
+        Func<DocumentCheckpoint, Task>? saveCheckpoint = null)
     {
         var pagesRequiringVision = extractedPages
             .Where(page =>
                 page.RequiresVision || !HasReliableTextLayer(page.Text))
             .Select(page => page.PageNumber)
             .ToHashSet();
-        if (pagesRequiringVision.Count > MaximumVisionPagesPerImport)
-        {
-            throw new DocumentImportException(
-                $"이미지 분석이 필요한 페이지가 너무 많습니다. " +
-                $"현재 한 번에 최대 {MaximumVisionPagesPerImport}페이지까지 처리할 수 있습니다.");
-        }
-
         ILLMProvider? visionProvider = null;
-        var pages = new List<ExtractedDocumentPage>(extractedPages.Count);
-        var metadata = new List<DocumentPageExtractionMetadata>(
-            extractedPages.Count);
+        var pages = checkpoint?.Pages ?? new List<ExtractedDocumentPage>(extractedPages.Count);
+        var metadata = checkpoint?.Metadata ?? new List<DocumentPageExtractionMetadata>(extractedPages.Count);
+        var completed = pages.Select(page => page.PageNumber).ToHashSet();
         foreach (var page in extractedPages.OrderBy(page => page.PageNumber))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (completed.Contains(page.PageNumber)) continue;
             var hasReliableTextLayer = HasReliableTextLayer(page.Text);
             if (!pagesRequiringVision.Contains(page.PageNumber))
             {
@@ -266,6 +361,10 @@ public sealed class DocumentProcessingService
                     page.PageNumber,
                     DocumentExtractionMethods.TextLayer,
                     HashText(textLayerText)));
+                if (pages.Sum(item => (long)item.Text.Length) > Limits.MaximumExtractedCharacters)
+                    throw new DocumentImportException("추출된 텍스트가 서버의 안전 제한을 초과했습니다. PDF를 나누어 가져와 주세요.");
+                if (checkpoint is not null && saveCheckpoint is not null)
+                    await saveCheckpoint(checkpoint);
                 continue;
             }
 
@@ -280,6 +379,8 @@ public sealed class DocumentProcessingService
                 visionProvider.ModelName,
                 DocumentVisionPrompt.Version,
                 cancellationToken);
+            // Do not reuse oversized output from a previous failed attempt.
+            if (text?.Length > 50_000) text = null;
             if (text is null)
             {
                 var result = await visionProvider.ExtractPageContentAsync(
@@ -292,6 +393,9 @@ public sealed class DocumentProcessingService
                         DocumentVisionPrompt.Version),
                     cancellationToken);
                 text = result.Text.Trim();
+                if (text.Length > 50_000)
+                    throw new LlmProviderRequestException(
+                        $"LLM이 PDF {page.PageNumber}페이지에 너무 긴 OCR 결과를 반환했습니다.");
                 await pageTextCache.SetAsync(
                     rendered.ContentHash,
                     visionProvider.ProviderName,
@@ -323,6 +427,10 @@ public sealed class DocumentProcessingService
                 page.PageNumber,
                 extractionMethod,
                 rendered.ContentHash));
+            if (pages.Sum(item => (long)item.Text.Length) > Limits.MaximumExtractedCharacters)
+                throw new DocumentImportException("추출된 텍스트가 서버의 안전 제한을 초과했습니다. PDF를 나누어 가져와 주세요.");
+            if (checkpoint is not null && saveCheckpoint is not null)
+                await saveCheckpoint(checkpoint);
         }
         return new PreparedPages(pages, metadata, visionProvider);
     }
@@ -402,21 +510,12 @@ public sealed class DocumentProcessingService
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static List<ExtractedDocumentPage> LimitExtractedText(
+    private List<ExtractedDocumentPage> LimitExtractedText(
         IReadOnlyList<ExtractedDocumentPage> pages)
     {
-        var result = new List<ExtractedDocumentPage>(pages.Count);
-        var remaining = MaximumTotalCharacters;
-        foreach (var page in pages)
-        {
-            if (remaining <= 0) break;
-            var text = page.Text.Length <= remaining
-                ? page.Text
-                : page.Text[..remaining];
-            result.Add(page with { Text = text });
-            remaining -= text.Length;
-        }
-        return result;
+        if (pages.Sum(page => (long)page.Text.Length) > Limits.MaximumExtractedCharacters)
+            throw new DocumentImportException("추출된 텍스트가 서버의 안전 제한을 초과했습니다. PDF를 나누어 가져와 주세요.");
+        return pages.ToList();
     }
 
     private static int CountContentCharacters(string value) =>
@@ -427,11 +526,16 @@ public sealed class DocumentProcessingService
         ILLMProvider provider)
     {
         // Small batches are a local Ollama performance policy, not a cloud limit.
-        if (provider.ProviderName != "ollama") return [pages];
-        var targetCharacters = provider.ContextWindowTokens is int contextWindow
+        var isLocal = provider.ProviderName == "ollama";
+        // Cloud profiles retain their automatic policy. This larger bound only
+        // splits long documents to keep a single request/result manageable.
+        if (!isLocal && pages.Count <= 32 && pages.Sum(page => (long)page.Text.Length) <= 64_000)
+            return [pages];
+        var targetCharacters = !isLocal ? 64_000 : provider.ContextWindowTokens is int contextWindow
             ? Math.Max(1_024, (contextWindow / 2 - 1_000) * 2)
             : TargetChunkCharacters;
-        var maximumPages = provider.ContextWindowTokens is null
+        targetCharacters = Math.Min(targetCharacters, 64_000);
+        var maximumPages = !isLocal ? 32 : provider.ContextWindowTokens is null
             ? MaximumPagesPerConceptChunk
             : MaximumPageCount;
         var chunks = new List<IReadOnlyList<ExtractedDocumentPage>>();

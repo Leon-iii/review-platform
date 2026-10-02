@@ -8,6 +8,12 @@ namespace ReviewPlatform.Server.Services;
 public interface IPdfTextExtractor
 {
     PdfTextExtractionResult Extract(string path);
+    PdfTextExtractionResult Extract(string path, CancellationToken cancellationToken,
+        int maximumPages, int maximumCharacters)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Extract(path);
+    }
 }
 
 public sealed record PdfTextExtractionResult(
@@ -16,15 +22,27 @@ public sealed record PdfTextExtractionResult(
 
 public sealed partial class PdfPigTextExtractor : IPdfTextExtractor
 {
-    public PdfTextExtractionResult Extract(string path)
+    public PdfTextExtractionResult Extract(string path) =>
+        Extract(path, CancellationToken.None, int.MaxValue, int.MaxValue);
+
+    public PdfTextExtractionResult Extract(string path, CancellationToken cancellationToken,
+        int maximumPages, int maximumCharacters)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var document = PdfDocument.Open(path);
+            if (document.NumberOfPages > maximumPages)
+                throw new DocumentImportException($"PDF는 최대 {maximumPages}페이지까지 가져올 수 있습니다.");
             var pages = new List<ExtractedDocumentPage>(document.NumberOfPages);
+            long characters = 0;
             foreach (var page in document.GetPages())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var text = Normalize(ContentOrderTextExtractor.GetText(page));
+                characters += text.Length;
+                if (characters > maximumCharacters)
+                    throw new DocumentImportException("추출된 텍스트가 서버의 안전 제한을 초과했습니다. PDF를 나누어 가져와 주세요.");
                 pages.Add(new ExtractedDocumentPage(
                     page.Number,
                     text,
@@ -32,6 +50,7 @@ public sealed partial class PdfPigTextExtractor : IPdfTextExtractor
             }
             return new PdfTextExtractionResult(document.NumberOfPages, pages);
         }
+        catch (OperationCanceledException) { throw; }
         catch (DocumentImportException)
         {
             throw;

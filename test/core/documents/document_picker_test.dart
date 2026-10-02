@@ -12,7 +12,8 @@ void main() {
       DropItemFile.fromData(bytes, path: '강의.PDF'),
     ]);
     expect(result.fileName, '강의.PDF');
-    expect(result.bytes, bytes);
+    expect(result.length, bytes.length);
+    expect(await result.readBytes(), bytes);
   });
 
   test('빈 드롭, 여러 파일, PDF 아닌 파일 및 폴더는 거부한다', () async {
@@ -31,7 +32,7 @@ void main() {
     }
   });
 
-  test('빈 PDF 및 25MB 초과 파일은 읽기 전에 거부한다', () async {
+  test('빈 PDF 및 전송 상한 초과 파일은 읽기 전에 거부한다', () async {
     for (final length in [0, PickedPdfDocument.maximumFileSize + 1]) {
       final file = _SizedPdf(length, Uint8List.fromList([1]));
       await expectLater(
@@ -42,18 +43,24 @@ void main() {
     }
   });
 
-  test('25MB 경계는 허용하고 길이 확인 이후 증가한 파일도 제한한다', () async {
-    final bytes = Uint8List(PickedPdfDocument.maximumFileSize);
-    final result = await readDroppedPdf([_SizedPdf(bytes.length, bytes)]);
-    expect(result.bytes.length, PickedPdfDocument.maximumFileSize);
-    final grows = _SizedPdf(
-      1,
-      Uint8List(PickedPdfDocument.maximumFileSize + 1),
+  test('큰 파일도 선택 시 읽지 않고 실제 전송 시 길이 변화를 거부한다', () async {
+    final file = _SizedPdf(
+      PickedPdfDocument.maximumFileSize,
+      Uint8List.fromList([1]),
     );
-    await expectLater(
-      readDroppedPdf([grows]),
-      throwsA(isA<ValidationFailure>()),
-    );
+    final result = await readDroppedPdf([file]);
+    expect(result.length, PickedPdfDocument.maximumFileSize);
+    expect(file.readCount, 0);
+    final grows = _SizedPdf(1, Uint8List.fromList([1, 2]));
+    final picked = await readDroppedPdf([grows]);
+    await expectLater(picked.readBytes(), throwsA(isA<ValidationFailure>()));
+  });
+
+  test('업로드 전 길이보다 적게 읽히는 파일도 거부한다', () async {
+    final picked = await readDroppedPdf([
+      _SizedPdf(2, Uint8List.fromList([1])),
+    ]);
+    await expectLater(picked.readBytes(), throwsA(isA<ValidationFailure>()));
   });
 
   test('읽기 오류는 안전한 안내로 변환한다', () async {

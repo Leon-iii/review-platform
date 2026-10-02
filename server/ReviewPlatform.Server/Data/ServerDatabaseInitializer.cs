@@ -47,6 +47,17 @@ public static class ServerDatabaseInitializer
                 "ProtectedValue" TEXT NOT NULL,
                 "UpdatedAt" TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS "DocumentJobs" (
+                "Id" TEXT NOT NULL PRIMARY KEY,
+                "FileName" TEXT NOT NULL,
+                "Status" TEXT NOT NULL,
+                "CheckpointJson" TEXT NOT NULL,
+                "VisionProfileJson" TEXT NOT NULL,
+                "ConceptProfileJson" TEXT NOT NULL,
+                "ResultJson" TEXT NULL,
+                "Error" TEXT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
             """,
             cancellationToken);
 

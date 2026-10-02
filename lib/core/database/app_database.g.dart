@@ -5657,6 +5657,371 @@ class QuestionSourcesCompanion extends UpdateCompanion<QuestionSourceRow> {
   }
 }
 
+class $DocumentJobsTable extends DocumentJobs
+    with TableInfo<$DocumentJobsTable, DocumentJobRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DocumentJobsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _folderIdMeta = const VerificationMeta(
+    'folderId',
+  );
+  @override
+  late final GeneratedColumn<String> folderId = GeneratedColumn<String>(
+    'folder_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _serverUrlMeta = const VerificationMeta(
+    'serverUrl',
+  );
+  @override
+  late final GeneratedColumn<String> serverUrl = GeneratedColumn<String>(
+    'server_url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusJsonMeta = const VerificationMeta(
+    'statusJson',
+  );
+  @override
+  late final GeneratedColumn<String> statusJson = GeneratedColumn<String>(
+    'status_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _appliedMeta = const VerificationMeta(
+    'applied',
+  );
+  @override
+  late final GeneratedColumn<bool> applied = GeneratedColumn<bool>(
+    'applied',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("applied" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    folderId,
+    serverUrl,
+    statusJson,
+    applied,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'document_jobs';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DocumentJobRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('folder_id')) {
+      context.handle(
+        _folderIdMeta,
+        folderId.isAcceptableOrUnknown(data['folder_id']!, _folderIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_folderIdMeta);
+    }
+    if (data.containsKey('server_url')) {
+      context.handle(
+        _serverUrlMeta,
+        serverUrl.isAcceptableOrUnknown(data['server_url']!, _serverUrlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_serverUrlMeta);
+    }
+    if (data.containsKey('status_json')) {
+      context.handle(
+        _statusJsonMeta,
+        statusJson.isAcceptableOrUnknown(data['status_json']!, _statusJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusJsonMeta);
+    }
+    if (data.containsKey('applied')) {
+      context.handle(
+        _appliedMeta,
+        applied.isAcceptableOrUnknown(data['applied']!, _appliedMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DocumentJobRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DocumentJobRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      folderId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}folder_id'],
+      )!,
+      serverUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}server_url'],
+      )!,
+      statusJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status_json'],
+      )!,
+      applied: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}applied'],
+      )!,
+    );
+  }
+
+  @override
+  $DocumentJobsTable createAlias(String alias) {
+    return $DocumentJobsTable(attachedDatabase, alias);
+  }
+}
+
+class DocumentJobRow extends DataClass implements Insertable<DocumentJobRow> {
+  final String id;
+  final String folderId;
+  final String serverUrl;
+  final String statusJson;
+  final bool applied;
+  const DocumentJobRow({
+    required this.id,
+    required this.folderId,
+    required this.serverUrl,
+    required this.statusJson,
+    required this.applied,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['folder_id'] = Variable<String>(folderId);
+    map['server_url'] = Variable<String>(serverUrl);
+    map['status_json'] = Variable<String>(statusJson);
+    map['applied'] = Variable<bool>(applied);
+    return map;
+  }
+
+  DocumentJobsCompanion toCompanion(bool nullToAbsent) {
+    return DocumentJobsCompanion(
+      id: Value(id),
+      folderId: Value(folderId),
+      serverUrl: Value(serverUrl),
+      statusJson: Value(statusJson),
+      applied: Value(applied),
+    );
+  }
+
+  factory DocumentJobRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DocumentJobRow(
+      id: serializer.fromJson<String>(json['id']),
+      folderId: serializer.fromJson<String>(json['folderId']),
+      serverUrl: serializer.fromJson<String>(json['serverUrl']),
+      statusJson: serializer.fromJson<String>(json['statusJson']),
+      applied: serializer.fromJson<bool>(json['applied']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'folderId': serializer.toJson<String>(folderId),
+      'serverUrl': serializer.toJson<String>(serverUrl),
+      'statusJson': serializer.toJson<String>(statusJson),
+      'applied': serializer.toJson<bool>(applied),
+    };
+  }
+
+  DocumentJobRow copyWith({
+    String? id,
+    String? folderId,
+    String? serverUrl,
+    String? statusJson,
+    bool? applied,
+  }) => DocumentJobRow(
+    id: id ?? this.id,
+    folderId: folderId ?? this.folderId,
+    serverUrl: serverUrl ?? this.serverUrl,
+    statusJson: statusJson ?? this.statusJson,
+    applied: applied ?? this.applied,
+  );
+  DocumentJobRow copyWithCompanion(DocumentJobsCompanion data) {
+    return DocumentJobRow(
+      id: data.id.present ? data.id.value : this.id,
+      folderId: data.folderId.present ? data.folderId.value : this.folderId,
+      serverUrl: data.serverUrl.present ? data.serverUrl.value : this.serverUrl,
+      statusJson: data.statusJson.present
+          ? data.statusJson.value
+          : this.statusJson,
+      applied: data.applied.present ? data.applied.value : this.applied,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DocumentJobRow(')
+          ..write('id: $id, ')
+          ..write('folderId: $folderId, ')
+          ..write('serverUrl: $serverUrl, ')
+          ..write('statusJson: $statusJson, ')
+          ..write('applied: $applied')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, folderId, serverUrl, statusJson, applied);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DocumentJobRow &&
+          other.id == this.id &&
+          other.folderId == this.folderId &&
+          other.serverUrl == this.serverUrl &&
+          other.statusJson == this.statusJson &&
+          other.applied == this.applied);
+}
+
+class DocumentJobsCompanion extends UpdateCompanion<DocumentJobRow> {
+  final Value<String> id;
+  final Value<String> folderId;
+  final Value<String> serverUrl;
+  final Value<String> statusJson;
+  final Value<bool> applied;
+  final Value<int> rowid;
+  const DocumentJobsCompanion({
+    this.id = const Value.absent(),
+    this.folderId = const Value.absent(),
+    this.serverUrl = const Value.absent(),
+    this.statusJson = const Value.absent(),
+    this.applied = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DocumentJobsCompanion.insert({
+    required String id,
+    required String folderId,
+    required String serverUrl,
+    required String statusJson,
+    this.applied = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       folderId = Value(folderId),
+       serverUrl = Value(serverUrl),
+       statusJson = Value(statusJson);
+  static Insertable<DocumentJobRow> custom({
+    Expression<String>? id,
+    Expression<String>? folderId,
+    Expression<String>? serverUrl,
+    Expression<String>? statusJson,
+    Expression<bool>? applied,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (folderId != null) 'folder_id': folderId,
+      if (serverUrl != null) 'server_url': serverUrl,
+      if (statusJson != null) 'status_json': statusJson,
+      if (applied != null) 'applied': applied,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DocumentJobsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? folderId,
+    Value<String>? serverUrl,
+    Value<String>? statusJson,
+    Value<bool>? applied,
+    Value<int>? rowid,
+  }) {
+    return DocumentJobsCompanion(
+      id: id ?? this.id,
+      folderId: folderId ?? this.folderId,
+      serverUrl: serverUrl ?? this.serverUrl,
+      statusJson: statusJson ?? this.statusJson,
+      applied: applied ?? this.applied,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (folderId.present) {
+      map['folder_id'] = Variable<String>(folderId.value);
+    }
+    if (serverUrl.present) {
+      map['server_url'] = Variable<String>(serverUrl.value);
+    }
+    if (statusJson.present) {
+      map['status_json'] = Variable<String>(statusJson.value);
+    }
+    if (applied.present) {
+      map['applied'] = Variable<bool>(applied.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DocumentJobsCompanion(')
+          ..write('id: $id, ')
+          ..write('folderId: $folderId, ')
+          ..write('serverUrl: $serverUrl, ')
+          ..write('statusJson: $statusJson, ')
+          ..write('applied: $applied, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5679,6 +6044,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $QuestionSourcesTable questionSources = $QuestionSourcesTable(
     this,
   );
+  late final $DocumentJobsTable documentJobs = $DocumentJobsTable(this);
   late final FolderDao folderDao = FolderDao(this as AppDatabase);
   late final QuestionDao questionDao = QuestionDao(this as AppDatabase);
   late final QuizDao quizDao = QuizDao(this as AppDatabase);
@@ -5703,6 +6069,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     studySources,
     concepts,
     questionSources,
+    documentJobs,
   ];
 }
 
@@ -11400,6 +11767,217 @@ typedef $$QuestionSourcesTableProcessedTableManager =
       QuestionSourceRow,
       PrefetchHooks Function({bool questionId, bool sourceId, bool conceptId})
     >;
+typedef $$DocumentJobsTableCreateCompanionBuilder =
+    DocumentJobsCompanion Function({
+      required String id,
+      required String folderId,
+      required String serverUrl,
+      required String statusJson,
+      Value<bool> applied,
+      Value<int> rowid,
+    });
+typedef $$DocumentJobsTableUpdateCompanionBuilder =
+    DocumentJobsCompanion Function({
+      Value<String> id,
+      Value<String> folderId,
+      Value<String> serverUrl,
+      Value<String> statusJson,
+      Value<bool> applied,
+      Value<int> rowid,
+    });
+
+class $$DocumentJobsTableFilterComposer
+    extends Composer<_$AppDatabase, $DocumentJobsTable> {
+  $$DocumentJobsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get folderId => $composableBuilder(
+    column: $table.folderId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get serverUrl => $composableBuilder(
+    column: $table.serverUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get statusJson => $composableBuilder(
+    column: $table.statusJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get applied => $composableBuilder(
+    column: $table.applied,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DocumentJobsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DocumentJobsTable> {
+  $$DocumentJobsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get folderId => $composableBuilder(
+    column: $table.folderId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get serverUrl => $composableBuilder(
+    column: $table.serverUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get statusJson => $composableBuilder(
+    column: $table.statusJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get applied => $composableBuilder(
+    column: $table.applied,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DocumentJobsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DocumentJobsTable> {
+  $$DocumentJobsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get folderId =>
+      $composableBuilder(column: $table.folderId, builder: (column) => column);
+
+  GeneratedColumn<String> get serverUrl =>
+      $composableBuilder(column: $table.serverUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get statusJson => $composableBuilder(
+    column: $table.statusJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get applied =>
+      $composableBuilder(column: $table.applied, builder: (column) => column);
+}
+
+class $$DocumentJobsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DocumentJobsTable,
+          DocumentJobRow,
+          $$DocumentJobsTableFilterComposer,
+          $$DocumentJobsTableOrderingComposer,
+          $$DocumentJobsTableAnnotationComposer,
+          $$DocumentJobsTableCreateCompanionBuilder,
+          $$DocumentJobsTableUpdateCompanionBuilder,
+          (
+            DocumentJobRow,
+            BaseReferences<_$AppDatabase, $DocumentJobsTable, DocumentJobRow>,
+          ),
+          DocumentJobRow,
+          PrefetchHooks Function()
+        > {
+  $$DocumentJobsTableTableManager(_$AppDatabase db, $DocumentJobsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DocumentJobsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DocumentJobsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DocumentJobsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> folderId = const Value.absent(),
+                Value<String> serverUrl = const Value.absent(),
+                Value<String> statusJson = const Value.absent(),
+                Value<bool> applied = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DocumentJobsCompanion(
+                id: id,
+                folderId: folderId,
+                serverUrl: serverUrl,
+                statusJson: statusJson,
+                applied: applied,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String folderId,
+                required String serverUrl,
+                required String statusJson,
+                Value<bool> applied = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DocumentJobsCompanion.insert(
+                id: id,
+                folderId: folderId,
+                serverUrl: serverUrl,
+                statusJson: statusJson,
+                applied: applied,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$DocumentJobsTable, DocumentJobRow>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $DocumentJobsTable,
+                    DocumentJobRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DocumentJobsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DocumentJobsTable,
+      DocumentJobRow,
+      $$DocumentJobsTableFilterComposer,
+      $$DocumentJobsTableOrderingComposer,
+      $$DocumentJobsTableAnnotationComposer,
+      $$DocumentJobsTableCreateCompanionBuilder,
+      $$DocumentJobsTableUpdateCompanionBuilder,
+      (
+        DocumentJobRow,
+        BaseReferences<_$AppDatabase, $DocumentJobsTable, DocumentJobRow>,
+      ),
+      DocumentJobRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -11428,4 +12006,6 @@ class $AppDatabaseManager {
       $$ConceptsTableTableManager(_db, _db.concepts);
   $$QuestionSourcesTableTableManager get questionSources =>
       $$QuestionSourcesTableTableManager(_db, _db.questionSources);
+  $$DocumentJobsTableTableManager get documentJobs =>
+      $$DocumentJobsTableTableManager(_db, _db.documentJobs);
 }

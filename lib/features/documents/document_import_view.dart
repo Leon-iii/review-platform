@@ -7,6 +7,7 @@ import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
+import 'package:review_platform/features/documents/document_job_panel.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:review_platform/shared/widgets/concept_status_badge.dart';
@@ -16,11 +17,13 @@ class DocumentImportView extends ConsumerStatefulWidget {
   const DocumentImportView({
     required this.folderId,
     this.initialSourceId,
+    this.initialJobId,
     super.key,
   });
 
   final String folderId;
   final String? initialSourceId;
+  final String? initialJobId;
 
   @override
   ConsumerState<DocumentImportView> createState() => _DocumentImportViewState();
@@ -48,6 +51,9 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
       });
     }
     final state = ref.watch(controllerProvider);
+    final jobId =
+        widget.initialJobId ??
+        ref.read(controllerProvider.notifier).activeJobId;
     return Scaffold(
       key: const Key('document-import-view'),
       appBar: AppBar(
@@ -64,6 +70,7 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
         enabled:
             !state.isLoading &&
             state.value == null &&
+            jobId == null &&
             widget.initialSourceId == null,
         onPdfDropped: (document) async {
           await ref.read(controllerProvider.notifier).importPdf(document);
@@ -81,7 +88,22 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
                       .loadSource(widget.initialSourceId!),
           ),
           data: (review) => review == null
-              ? _ImportPrompt(provider: controllerProvider)
+              ? jobId == null
+                    ? _ImportPrompt(provider: controllerProvider)
+                    : DocumentJobPanel(
+                        jobId: jobId,
+                        onReady: (sourceId) => ref
+                            .read(controllerProvider.notifier)
+                            .loadSource(sourceId),
+                        onUploadAgain: () {
+                          ref
+                              .read(controllerProvider.notifier)
+                              .showImportPrompt();
+                          context.replace(
+                            AppRoutes.documentsForFolder(widget.folderId),
+                          );
+                        },
+                      )
               : _ConceptReview(
                   review: review,
                   provider: controllerProvider,
@@ -136,7 +158,7 @@ class _ImportPrompt extends ConsumerWidget {
                         const SizedBox(height: 16),
                         if (supportsPdfDrop) ...[
                           const Text(
-                            '이 화면에 PDF 파일을 끌어다 놓거나 아래 버튼으로 선택해 주세요. (1개 · 최대 25MB)',
+                            '이 화면에 PDF 파일을 끌어다 놓거나 아래 버튼으로 선택해 주세요. (1개 · 용량 제한은 서버 설정에 따릅니다.)',
                           ),
                           const SizedBox(height: 12),
                         ],

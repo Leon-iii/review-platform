@@ -147,165 +147,164 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
           children: [
             _saveStatus(),
             Expanded(
-              child: ListView(
+              // This is a single form, not a lazy list. Avoid ListView's
+              // synthetic two-pane semantics node: tooltip overlays can leave
+              // dangling Windows AXTree children (flutter/flutter#182444).
+              child: SingleChildScrollView(
+                key: const Key('llm-profile-scroll-view'),
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-                children: [
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 820),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '작업별 모델 설정',
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 820),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '작업별 모델 설정',
+                                style: Theme.of(context).textTheme.titleLarge,
                               ),
-                              IconButton.outlined(
-                                tooltip: '모델 목록 새로고침',
-                                onPressed: _saving ? null : _refreshAllModels,
-                                icon: const Icon(Icons.refresh_rounded),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            '변경사항은 자동으로 저장되며, 저장 완료 후 시작되는 새 작업부터 적용됩니다. '
-                            '이미 실행 중인 작업은 기존 설정으로 완료됩니다.',
-                          ),
-                          const SizedBox(height: 12),
-                          for (
-                            var index = 0;
-                            index < _profiles.length;
-                            index++
-                          ) ...[
-                            _ProfileCard(
-                              draft: _profiles[index],
-                              enabled: !_saving,
-                              modelCatalog:
-                                  _modelCatalogs[_profiles[index].provider],
-                              modelFilter: _filterPreferences.forProvider(
-                                _profiles[index].provider.id,
-                              ),
-                              filterEnabled:
-                                  _filtersLoaded && !_savingFilters && !_saving,
-                              onFilterChanged: (filter) => _saveFilter(
-                                _profiles[index].provider,
-                                filter,
-                              ),
-                              onChanged: _markChanged,
-                              onProviderChanged: (provider) =>
-                                  _changeProvider(_profiles[index], provider),
-                              onRefreshModels: () =>
-                                  _refreshModels(_profiles[index].provider),
                             ),
-                            const SizedBox(height: 12),
+                            IconButton.outlined(
+                              tooltip: '모델 목록 새로고침',
+                              onPressed: _saving ? null : _refreshAllModels,
+                              icon: const Icon(Icons.refresh_rounded),
+                            ),
                           ],
-                          const SizedBox(height: 12),
-                          Text(
-                            'API Key',
-                            style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '변경사항은 자동으로 저장되며, 저장 완료 후 시작되는 새 작업부터 적용됩니다. '
+                          '이미 실행 중인 작업은 기존 설정으로 완료됩니다.',
+                        ),
+                        const SizedBox(height: 12),
+                        for (
+                          var index = 0;
+                          index < _profiles.length;
+                          index++
+                        ) ...[
+                          _ProfileCard(
+                            draft: _profiles[index],
+                            enabled: !_saving,
+                            modelCatalog:
+                                _modelCatalogs[_profiles[index].provider],
+                            modelFilter: _filterPreferences.forProvider(
+                              _profiles[index].provider.id,
+                            ),
+                            filterEnabled:
+                                _filtersLoaded && !_savingFilters && !_saving,
+                            onFilterChanged: (filter) =>
+                                _saveFilter(_profiles[index].provider, filter),
+                            onChanged: _markChanged,
+                            onProviderChanged: (provider) =>
+                                _changeProvider(_profiles[index], provider),
+                            onRefreshModels: () =>
+                                _refreshModels(_profiles[index].provider),
                           ),
                           const SizedBox(height: 12),
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(20),
-                              child: Column(
-                                children: [
-                                  for (
-                                    var index = 0;
-                                    index < LlmApiKeyProvider.values.length;
-                                    index++
-                                  ) ...[
-                                    Builder(
-                                      builder: (context) {
-                                        final provider =
-                                            LlmApiKeyProvider.values[index];
-                                        final configured =
-                                            widget
-                                                .initialSettings
-                                                .apiKeyConfigured[provider] ??
-                                            false;
-                                        return TextFormField(
-                                          key: ValueKey(
-                                            'llm-api-key-${provider.id}',
-                                          ),
-                                          controller:
-                                              _apiKeyControllers[provider],
-                                          enabled: !_saving,
-                                          obscureText: !_visibleApiKeys
-                                              .contains(provider),
-                                          autocorrect: false,
-                                          enableSuggestions: false,
-                                          onChanged: (_) => _markChanged(),
-                                          maxLength: 2000,
-                                          decoration: InputDecoration(
-                                            labelText: provider.displayName,
-                                            hintText: configured
-                                                ? '비워 두면 저장된 키 유지'
-                                                : 'API Key 입력',
-                                            helperText: configured
-                                                ? '서버에 저장된 키가 있습니다.'
-                                                : '아직 저장된 키가 없습니다.',
-                                            border: const OutlineInputBorder(),
-                                            suffixIcon: IconButton(
-                                              tooltip:
-                                                  _visibleApiKeys.contains(
-                                                    provider,
-                                                  )
-                                                  ? 'API Key 숨기기'
-                                                  : 'API Key 표시',
-                                              onPressed: _saving
-                                                  ? null
-                                                  : () => setState(() {
-                                                      if (!_visibleApiKeys.add(
-                                                        provider,
-                                                      )) {
-                                                        _visibleApiKeys.remove(
-                                                          provider,
-                                                        );
-                                                      }
-                                                    }),
-                                              icon: Icon(
+                        ],
+                        const SizedBox(height: 12),
+                        Text(
+                          'API Key',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              children: [
+                                for (
+                                  var index = 0;
+                                  index < LlmApiKeyProvider.values.length;
+                                  index++
+                                ) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      final provider =
+                                          LlmApiKeyProvider.values[index];
+                                      final configured =
+                                          widget
+                                              .initialSettings
+                                              .apiKeyConfigured[provider] ??
+                                          false;
+                                      return TextFormField(
+                                        key: ValueKey(
+                                          'llm-api-key-${provider.id}',
+                                        ),
+                                        controller:
+                                            _apiKeyControllers[provider],
+                                        enabled: !_saving,
+                                        obscureText: !_visibleApiKeys.contains(
+                                          provider,
+                                        ),
+                                        autocorrect: false,
+                                        enableSuggestions: false,
+                                        onChanged: (_) => _markChanged(),
+                                        maxLength: 2000,
+                                        decoration: InputDecoration(
+                                          labelText: provider.displayName,
+                                          hintText: configured
+                                              ? '비워 두면 저장된 키 유지'
+                                              : 'API Key 입력',
+                                          helperText: configured
+                                              ? '서버에 저장된 키가 있습니다.'
+                                              : '아직 저장된 키가 없습니다.',
+                                          border: const OutlineInputBorder(),
+                                          suffixIcon: IconButton(
+                                            tooltip:
                                                 _visibleApiKeys.contains(
+                                                  provider,
+                                                )
+                                                ? 'API Key 숨기기'
+                                                : 'API Key 표시',
+                                            onPressed: _saving
+                                                ? null
+                                                : () => setState(() {
+                                                    if (!_visibleApiKeys.add(
                                                       provider,
-                                                    )
-                                                    ? Icons
-                                                          .visibility_off_outlined
-                                                    : Icons.visibility_outlined,
-                                              ),
+                                                    )) {
+                                                      _visibleApiKeys.remove(
+                                                        provider,
+                                                      );
+                                                    }
+                                                  }),
+                                            icon: Icon(
+                                              _visibleApiKeys.contains(provider)
+                                                  ? Icons
+                                                        .visibility_off_outlined
+                                                  : Icons.visibility_outlined,
                                             ),
                                           ),
-                                        );
-                                      },
-                                    ),
-                                    if (index !=
-                                        LlmApiKeyProvider.values.length - 1)
-                                      const SizedBox(height: 14),
-                                  ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  if (index !=
+                                      LlmApiKeyProvider.values.length - 1)
+                                    const SizedBox(height: 14),
                                 ],
-                              ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          const Card(
-                            child: ListTile(
-                              leading: Icon(Icons.security_rounded),
-                              title: Text('API Key는 서버에만 보관됩니다.'),
-                              subtitle: Text(
-                                '키 원문은 다시 클라이언트로 전송되지 않으며 서버에서 암호화해 저장합니다. '
-                                'Ollama는 서버 컴퓨터의 로컬 인스턴스에서 실행됩니다.',
-                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Card(
+                          child: ListTile(
+                            leading: Icon(Icons.security_rounded),
+                            title: Text('API Key는 서버에만 보관됩니다.'),
+                            subtitle: Text(
+                              '키 원문은 다시 클라이언트로 전송되지 않으며 서버에서 암호화해 저장합니다. '
+                              'Ollama는 서버 컴퓨터의 로컬 인스턴스에서 실행됩니다.',
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ],
@@ -680,10 +679,10 @@ class _ProfileCard extends StatelessWidget {
             LayoutBuilder(
               builder: (context, constraints) {
                 final modelField = _ModelDropdown(
-                  key: ValueKey(
-                    '${draft.id}-${draft.provider.id}-${draft.model}-'
-                    '${modelCatalog?.value?.refreshedAt.toIso8601String()}',
-                  ),
+                  // Loading/refresh timestamps and selected values are data,
+                  // not widget identity. Form fields update initialValue in
+                  // didUpdateWidget without replacing their semantics nodes.
+                  key: ValueKey('llm-model-field-${draft.id}'),
                   selectedModel: draft.model,
                   profileId: draft.id,
                   catalog: modelCatalog,
@@ -768,10 +767,7 @@ class _ProfileCard extends StatelessWidget {
             if (draft.provider == LlmProviderKind.ollama) ...[
               const SizedBox(height: 14),
               _ContextWindowDropdown(
-                key: ValueKey(
-                  '${draft.id}-${draft.provider.id}-${draft.model}-'
-                  '${draft.contextWindowTokens}-${modelCatalog?.value?.refreshedAt}',
-                ),
+                key: ValueKey('llm-context-field-${draft.id}'),
                 profileId: draft.id,
                 provider: draft.provider,
                 selectedTokens: draft.contextWindowTokens,

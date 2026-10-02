@@ -12,6 +12,7 @@ public sealed class SyncDbContext(DbContextOptions<SyncDbContext> options)
     public DbSet<AiGenerationRecord> AiGenerationRecords =>
         Set<AiGenerationRecord>();
     public DbSet<LlmProfileRecord> LlmProfiles => Set<LlmProfileRecord>();
+    public DbSet<DocumentJobRecord> DocumentJobs => Set<DocumentJobRecord>();
     public DbSet<LlmPurposeAssignmentRecord> LlmPurposeAssignments =>
         Set<LlmPurposeAssignmentRecord>();
     public DbSet<LlmProviderSecretRecord> LlmProviderSecrets =>
@@ -74,6 +75,19 @@ public sealed class SyncDbContext(DbContextOptions<SyncDbContext> options)
             entity.Property(secret => secret.Provider).HasMaxLength(32);
         });
     }
+}
+
+public sealed class DocumentJobRecord
+{
+    public required string Id { get; set; }
+    public required string FileName { get; set; }
+    public string Status { get; set; } = "queued";
+    public string CheckpointJson { get; set; } = "{}";
+    public required string VisionProfileJson { get; set; }
+    public required string ConceptProfileJson { get; set; }
+    public string? ResultJson { get; set; }
+    public string? Error { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class SyncEntityRecord

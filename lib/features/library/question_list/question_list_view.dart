@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
+import 'package:review_platform/core/documents/document_job_providers.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
@@ -24,6 +25,7 @@ class QuestionListView extends ConsumerWidget {
     final provider = questionListViewModelProvider(folderId);
     final questions = ref.watch(provider);
     final sources = ref.watch(documentSourcesProvider(folderId));
+    final jobs = ref.watch(folderDocumentJobsProvider(folderId));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 24, 4, 96),
@@ -75,10 +77,34 @@ class QuestionListView extends ConsumerWidget {
                 const SizedBox(height: 12),
                 if (supportsPdfDrop) ...[
                   const Text(
-                    '이 자료 영역에 PDF 파일을 끌어다 놓아 가져올 수 있어요. (1개 · 최대 25MB)',
+                    '이 자료 영역에 PDF 파일을 끌어다 놓아 가져올 수 있어요. (1개 · 용량 제한은 서버 설정에 따릅니다.)',
                   ),
                   const SizedBox(height: 12),
                 ],
+                for (final row in jobs.value ?? [])
+                  Builder(
+                    builder: (context) {
+                      final job = row.job;
+                      return Card(
+                        child: ListTile(
+                          key: Key('pdf-job-${job.id}'),
+                          leading: Icon(
+                            job.isActive
+                                ? Icons.hourglass_top_rounded
+                                : Icons.picture_as_pdf_rounded,
+                          ),
+                          title: Text(job.fileName),
+                          subtitle: Text(
+                            '${job.statusLabel}${job.totalPages > 0 ? ' · ${job.progressLabel}' : ''}',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push(
+                            AppRoutes.documentsForJob(folderId, job.id),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 sources.when(
                   loading: () => const Center(
                     child: Padding(
@@ -93,7 +119,8 @@ class QuestionListView extends ConsumerWidget {
                     onRetry: () =>
                         ref.invalidate(documentSourcesProvider(folderId)),
                   ),
-                  data: (items) => items.isEmpty
+                  data: (items) =>
+                      items.isEmpty && (jobs.value?.isEmpty ?? true)
                       ? const Card(
                           child: Padding(
                             padding: EdgeInsets.all(24),

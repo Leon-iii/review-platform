@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind, SemanticsAction;
 
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
@@ -124,6 +125,98 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('llm-profiles-settings-tile')));
     await tester.pumpAndSettle();
+  }
+
+  for (final openAi in [false, true]) {
+    testWidgets(
+      'AI 설정 접근성: 툴팁 전환·지연된 목록 갱신에도 입력 노드를 유지한다 (OpenAI=$openAi)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          final api = _RefreshingLlmProfileApi(openAi: openAi);
+          await openLlmProfiles(tester, api);
+          final scroll = find.byKey(const Key('llm-profile-scroll-view'));
+          expect(tester.widget(scroll), isA<SingleChildScrollView>());
+          // Do not reintroduce the two-pane ListView semantics / tooltip path.
+          expect(
+            find.descendant(of: scroll, matching: find.byType(Viewport)),
+            findsNothing,
+          );
+          final model = find.byKey(
+            const Key('llm-model-purpose-questionGeneration'),
+          );
+          final originalField = tester.element(model);
+          final originalId = tester.getSemantics(model).id;
+          final contextField = find.byKey(
+            const Key('llm-context-purpose-questionGeneration'),
+          );
+          final originalContext = openAi ? null : tester.element(contextField);
+          final refresh = find.byTooltip('모델 목록 새로고침');
+          expect(
+            tester
+                .getSemantics(refresh)
+                .getSemanticsData()
+                .hasAction(SemanticsAction.tap),
+            isTrue,
+          );
+          final mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          await mouse.addPointer(location: Offset.zero);
+          addTearDown(mouse.removePointer);
+          await mouse.moveTo(tester.getCenter(refresh));
+          await tester.pumpAndSettle();
+          final filter = find.byKey(
+            const Key('llm-model-filter-purpose-questionGeneration'),
+          );
+          await mouse.moveTo(tester.getCenter(filter));
+          await tester.pumpAndSettle();
+          await mouse.moveTo(Offset.zero);
+          await tester.pumpAndSettle();
+
+          api.modelGate = Completer<void>();
+          await tester.tap(refresh);
+          await tester
+              .pump(); // Do not settle while indeterminate progress animates.
+          expect(tester.element(model), same(originalField));
+          expect(tester.getSemantics(model).id, originalId);
+          if (!openAi) {
+            expect(tester.element(contextField), same(originalContext));
+          }
+          api.modelGate!.complete();
+          await tester.pumpAndSettle();
+          expect(tester.element(model), same(originalField));
+          expect(tester.getSemantics(model).id, originalId);
+          if (!openAi) {
+            expect(tester.element(contextField), same(originalContext));
+          }
+          expect(api.saveCalls, 0);
+
+          await tester.ensureVisible(
+            find.byKey(const Key('llm-api-key-openai')),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .getSemantics(find.byKey(const Key('llm-api-key-openai')))
+                .getSemanticsData()
+                .label,
+            contains('OpenAI'),
+          );
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        } finally {
+          semantics.dispose();
+        }
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
   }
 
   testWidgets('프로필 화면 진입과 모델 목록 갱신만으로는 자동 저장하지 않는다', (tester) async {
@@ -448,11 +541,19 @@ void main() {
   testWidgets('여러 용도의 대기 중인 변경을 한 번에 저장한다', (tester) async {
     final api = _FakeLlmProfileApi(openAi: true);
     await openLlmProfiles(tester, api);
-    await _setReasoningEffort(tester, 'high');
-    await _setReasoningEffort(
-      tester,
-      'low',
-      purpose: LlmPurpose.conceptExtraction,
+    // Make both edits inside the debounce window. Waiting for scroll/scrollbar
+    // animations between edits can legitimately finish the first autosave.
+    final generation = tester.widget<Slider>(
+      find.byKey(const Key('llm-reasoning-slider-purpose-questionGeneration')),
+    );
+    final extraction = tester.widget<Slider>(
+      find.byKey(const Key('llm-reasoning-slider-purpose-conceptExtraction')),
+    );
+    generation.onChanged!(
+      _reasoningOptions(generation).indexOf('high').toDouble(),
+    );
+    extraction.onChanged!(
+      _reasoningOptions(extraction).indexOf('low').toDouble(),
     );
     await _waitForProfileAutosave(tester);
     expect(api.saveCalls, 1);
@@ -1181,6 +1282,34 @@ void main() {
     expect(find.text('전자기학 폴더를 생성했어요.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    '문제 관리와 폴더 헤더의 문제 추가 아이콘은 없고 문제 영역 버튼은 유지한다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await DriftFolderRepository(database).createFolder(name: '전자기학');
+      await tester.pumpWidget(buildApp());
+
+      await tester.tap(find.text('문제 관리'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('문제 추가'), findsNothing);
+      expect(tester.widget<AppBar>(find.byType(AppBar)).actions, isNull);
+
+      await tester.tap(find.text('전자기학'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('문제 추가'), findsNothing);
+      expect(tester.widget<AppBar>(find.byType(AppBar)).actions, isNull);
+      expect(find.byKey(const Key('add-question-button')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
 
   testWidgets('폴더에 객관식 문제를 추가한다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
@@ -1919,6 +2048,33 @@ class _FakeLlmProfileApi implements LlmProfileApi {
     );
     savedSettings = updated;
     return updated;
+  }
+}
+
+class _RefreshingLlmProfileApi extends _FakeLlmProfileApi {
+  _RefreshingLlmProfileApi({super.openAi});
+
+  Completer<void>? modelGate;
+  int _revision = 0;
+
+  @override
+  Future<LlmModelCatalog> getModels({
+    required SyncConfiguration configuration,
+    required LlmProviderKind provider,
+  }) async {
+    await modelGate?.future;
+    final catalog = await super.getModels(
+      configuration: configuration,
+      provider: provider,
+    );
+    return LlmModelCatalog(
+      provider: catalog.provider,
+      models: catalog.models,
+      contextWindows: catalog.contextWindows,
+      modelCapabilities: catalog.modelCapabilities,
+      modelMetadata: catalog.modelMetadata,
+      refreshedAt: catalog.refreshedAt.add(Duration(seconds: ++_revision)),
+    );
   }
 }
 

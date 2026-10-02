@@ -9,6 +9,22 @@ public interface ILlmProviderResolver
     Task<ILLMProvider> ResolveAsync(
         string purpose,
         CancellationToken cancellationToken = default);
+
+    async Task<LlmProfileDto> CaptureAsync(string purpose, CancellationToken cancellationToken = default)
+    {
+        var provider = await ResolveAsync(purpose, cancellationToken);
+        return new LlmProfileDto(purpose, purpose, provider.ProviderName,
+            provider.ModelName, DateTimeOffset.UtcNow, provider.ContextWindowTokens);
+    }
+
+    async Task<ILLMProvider> ResolveSnapshotAsync(LlmProfileDto profile,
+        CancellationToken cancellationToken = default)
+    {
+        var provider = await ResolveAsync(profile.Id, cancellationToken);
+        if (provider.ProviderName != profile.Provider || provider.ModelName != profile.Model)
+            throw new LlmProviderUnavailableException("작업 시작 시 선택한 모델을 사용할 수 없습니다.");
+        return provider;
+    }
 }
 
 public sealed class RuntimeLlmProviderResolver(
@@ -24,6 +40,15 @@ public sealed class RuntimeLlmProviderResolver(
         var profile = await profiles.GetActiveProfileAsync(
             purpose,
             cancellationToken);
+        return await ResolveSnapshotAsync(profile, cancellationToken);
+    }
+
+    public Task<LlmProfileDto> CaptureAsync(string purpose, CancellationToken cancellationToken = default) =>
+        profiles.GetActiveProfileAsync(purpose, cancellationToken);
+
+    public async Task<ILLMProvider> ResolveSnapshotAsync(LlmProfileDto profile,
+        CancellationToken cancellationToken = default)
+    {
         var apiKey = profile.Provider == "ollama"
             ? string.Empty
             : await apiKeyStore.GetAsync(profile.Provider, cancellationToken);

@@ -40,12 +40,17 @@ public sealed class PdfiumPageRenderer : IPdfPageRenderer
                 using var pdf = File.OpenRead(path);
                 using var image = new MemoryStream();
 #pragma warning disable CA1416 // PDFtoImage declares Windows/Linux/macOS support.
+                var size = Conversion.GetPageSize(pdf, page: pageNumber - 1, leaveOpen: true);
+                pdf.Position = 0;
+                if (size.Width <= 0 || size.Height <= 0)
+                    throw new DocumentImportException("PDF 페이지 크기가 올바르지 않습니다.");
                 Conversion.SaveJpeg(
                     image,
                     pdf,
                     page: pageNumber - 1,
                     options: new RenderOptions(
-                        Width: RenderWidth,
+                        Width: size.Width >= size.Height ? RenderWidth : null,
+                        Height: size.Height > size.Width ? RenderWidth : null,
                         WithAspectRatio: true));
 #pragma warning restore CA1416
                 var bytes = image.ToArray();

@@ -25,20 +25,6 @@ class FolderBrowserView extends ConsumerWidget {
           data: (state) => Text(state.currentFolder?.name ?? '문제 관리'),
           orElse: () => const Text('문제 관리'),
         ),
-        actions: [
-          IconButton(
-            tooltip: '문제 추가',
-            onPressed: folderId == null
-                ? null
-                : () => context.push(
-                    Uri(
-                      path: AppRoutes.newQuestion,
-                      queryParameters: {'folderId': folderId},
-                    ).toString(),
-                  ),
-            icon: const Icon(Icons.note_add_outlined),
-          ),
-        ],
       ),
       body: browserState.when(
         loading: () => const Center(child: CircularProgressIndicator()),

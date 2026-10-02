@@ -1,5 +1,6 @@
 import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/core/documents/document_providers.dart';
+import 'package:review_platform/core/documents/document_job_providers.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
@@ -18,6 +19,7 @@ Future<List<StudySource>> documentSources(Ref ref, String folderId) {
 @riverpod
 class DocumentImportController extends _$DocumentImportController {
   bool _importInProgress = false;
+  String? activeJobId;
   @override
   FutureOr<StudySourceWithConcepts?> build(String folderId) => null;
 
@@ -59,12 +61,20 @@ class DocumentImportController extends _$DocumentImportController {
       throw const ValidationFailure('설정에서 개인 서버 주소와 접근 토큰을 먼저 저장해 주세요.');
     }
     if (!ref.mounted) return false;
+    final coordinator = ref.read(documentJobCoordinatorProvider);
+    if (coordinator != null) {
+      final jobId = await coordinator.upload(folderId, picked);
+      if (!ref.mounted) return true;
+      activeJobId = jobId;
+      state = const AsyncData(null);
+      return true;
+    }
     final result = await ref
         .read(remoteDocumentApiProvider)
         .importPdf(
           configuration: configuration,
           fileName: picked.fileName,
-          bytes: picked.bytes,
+          bytes: await picked.readBytes(),
         );
     if (!ref.mounted) return false;
     final saved = await ref
@@ -235,7 +245,10 @@ class DocumentImportController extends _$DocumentImportController {
     return result.changedCount;
   }
 
-  void showImportPrompt() => state = const AsyncData(null);
+  void showImportPrompt() {
+    activeJobId = null;
+    state = const AsyncData(null);
+  }
 
   void _updateConcept(
     String id,

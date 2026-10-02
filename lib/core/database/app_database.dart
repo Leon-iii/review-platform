@@ -19,6 +19,7 @@ import 'package:review_platform/core/database/tables/quiz_sessions.dart';
 import 'package:review_platform/core/database/tables/sync_outbox.dart';
 import 'package:review_platform/core/database/tables/sync_states.dart';
 import 'package:review_platform/core/database/tables/study_sources.dart';
+import 'package:review_platform/core/database/tables/document_jobs.dart';
 import 'package:uuid/uuid.dart';
 
 part 'app_database.g.dart';
@@ -37,6 +38,7 @@ part 'app_database.g.dart';
     StudySources,
     Concepts,
     QuestionSources,
+    DocumentJobs,
   ],
   daos: [
     FolderDao,
@@ -54,7 +56,7 @@ final class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'review_platform'));
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -109,6 +111,7 @@ final class AppDatabase extends _$AppDatabase {
       if (from >= 8 && from < 10) {
         await migrator.addColumn(concepts, concepts.importance);
       }
+      if (from < 11) await migrator.createTable(documentJobs);
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');

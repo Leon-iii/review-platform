@@ -51,7 +51,7 @@ final class QuestionListViewModelProvider
 }
 
 String _$questionListViewModelHash() =>
-    r'1cf537a7663b9bd409cee03a6b4f881303b6ff36';
+    r'6050a7e6e7b235d5a48879034a383eb5e385b640';
 
 final class QuestionListViewModelFamily extends $Family
     with
