@@ -22,6 +22,18 @@ class QuestionListViewModel extends _$QuestionListViewModel {
     return ref.read(questionRepositoryProvider).approveQuestion(id);
   }
 
+  Future<void> moveQuestion({required String id, required String folderId}) {
+    return ref
+        .read(questionRepositoryProvider)
+        .moveQuestion(id: id, folderId: folderId);
+  }
+
+  Future<void> moveSource({required String id, required String folderId}) {
+    return ref
+        .read(sourceRepositoryProvider)
+        .moveSource(id: id, folderId: folderId);
+  }
+
   Future<void> renameSource({required String id, required String fileName}) {
     return ref
         .read(sourceRepositoryProvider)

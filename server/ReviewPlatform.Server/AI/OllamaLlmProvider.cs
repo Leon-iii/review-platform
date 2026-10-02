@@ -24,6 +24,8 @@ public sealed class OllamaLlmProvider(
 
     public string ModelName => settings.Model;
 
+    public int? ContextWindowTokens => settings.ContextWindowTokens;
+
     public async Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default)
@@ -67,13 +69,9 @@ public sealed class OllamaLlmProvider(
                     },
                     ["stream"] = false,
                     ["format"] = schema,
-                    ["options"] = new
-                    {
-                        temperature = 0,
-                        num_predict = Math.Min(
+                    ["options"] = BuildGenerationOptions(Math.Min(
                             16_000,
-                            800 + input.QuestionBudgetForTokenLimit * 700)
-                    }
+                            800 + input.QuestionBudgetForTokenLimit * 700))
                 }, JsonOptions),
                 Encoding.UTF8,
                 "application/json");
@@ -204,12 +202,8 @@ public sealed class OllamaLlmProvider(
                     ["think"] = false,
                     ["format"] = schema,
                     ["keep_alive"] = "10m",
-                    ["options"] = new
-                    {
-                        temperature = 0,
-                        num_ctx = contextWindow,
-                        num_predict = outputTokenBudget
-                    }
+                    ["options"] = BuildGenerationOptions(
+                        outputTokenBudget, contextWindow)
                 }, JsonOptions),
                 Encoding.UTF8,
                 "application/json");
@@ -322,12 +316,7 @@ public sealed class OllamaLlmProvider(
                 ["stream"] = false,
                 ["format"] = schema,
                 ["keep_alive"] = 0,
-                ["options"] = new
-                {
-                    temperature = 0,
-                    num_ctx = 8_192,
-                    num_predict = 3_500
-                }
+                ["options"] = BuildGenerationOptions(3_500, 8_192)
             }, JsonOptions),
             Encoding.UTF8,
             "application/json");
@@ -510,11 +499,7 @@ public sealed class OllamaLlmProvider(
                 ["stream"] = false,
                 ["think"] = false,
                 ["keep_alive"] = unloadAfterResponse ? (object)0 : "5m",
-                ["options"] = new
-                {
-                    temperature = 0,
-                    num_predict = 8_000
-                }
+                ["options"] = BuildGenerationOptions(8_000)
             }, JsonOptions),
             Encoding.UTF8,
             "application/json");
@@ -972,6 +957,23 @@ public sealed class OllamaLlmProvider(
     {
         var baseUri = new Uri(settings.BaseUrl.Trim().TrimEnd('/') + "/");
         return new Uri(baseUri, path);
+    }
+
+    private Dictionary<string, object> BuildGenerationOptions(
+        int outputTokenBudget,
+        int? automaticContextWindow = null)
+    {
+        var contextWindow = settings.ContextWindowTokens ?? automaticContextWindow;
+        var options = new Dictionary<string, object>
+        {
+            ["temperature"] = 0,
+            // Reserve room for input when a small manual window is selected.
+            ["num_predict"] = settings.ContextWindowTokens is int manualWindow
+                ? Math.Min(outputTokenBudget, manualWindow / 2)
+                : outputTokenBudget
+        };
+        if (contextWindow is not null) options["num_ctx"] = contextWindow.Value;
+        return options;
     }
 
     private static int SelectRevisionContextWindow(

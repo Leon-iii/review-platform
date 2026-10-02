@@ -135,7 +135,7 @@ public sealed class DocumentProcessingService
                 LlmPurposes.ConceptExtraction,
                 cancellationToken);
             var concepts = new List<GeneratedConceptDraft>();
-            foreach (var chunk in BuildChunks(usablePages))
+            foreach (var chunk in BuildChunks(usablePages, conceptProvider))
             {
                 var input = new ConceptExtractionInput(
                     sourceId,
@@ -423,25 +423,34 @@ public sealed class DocumentProcessingService
         value.Count(character => !char.IsWhiteSpace(character));
 
     private static IReadOnlyList<IReadOnlyList<ExtractedDocumentPage>> BuildChunks(
-        IReadOnlyList<ExtractedDocumentPage> pages)
+        IReadOnlyList<ExtractedDocumentPage> pages,
+        ILLMProvider provider)
     {
+        // Small batches are a local Ollama performance policy, not a cloud limit.
+        if (provider.ProviderName != "ollama") return [pages];
+        var targetCharacters = provider.ContextWindowTokens is int contextWindow
+            ? Math.Max(1_024, (contextWindow / 2 - 1_000) * 2)
+            : TargetChunkCharacters;
+        var maximumPages = provider.ContextWindowTokens is null
+            ? MaximumPagesPerConceptChunk
+            : MaximumPageCount;
         var chunks = new List<IReadOnlyList<ExtractedDocumentPage>>();
         var current = new List<ExtractedDocumentPage>();
         var currentLength = 0;
         foreach (var page in pages.Where(page => !string.IsNullOrWhiteSpace(page.Text)))
         {
-            for (var offset = 0; offset < page.Text.Length; offset += TargetChunkCharacters)
+            for (var offset = 0; offset < page.Text.Length; offset += targetCharacters)
             {
                 var segmentLength = Math.Min(
-                    TargetChunkCharacters,
+                    targetCharacters,
                     page.Text.Length - offset);
                 var segment = new ExtractedDocumentPage(
                     page.PageNumber,
                     page.Text.Substring(offset, segmentLength),
                     page.ExtractionMethod);
                 if (current.Count > 0 &&
-                    (currentLength + segment.Text.Length > TargetChunkCharacters ||
-                     current.Count >= MaximumPagesPerConceptChunk))
+                    (currentLength + segment.Text.Length > targetCharacters ||
+                     current.Count >= maximumPages))
                 {
                     chunks.Add(current.ToList());
                     current.Clear();

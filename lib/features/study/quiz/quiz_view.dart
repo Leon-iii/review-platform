@@ -16,6 +16,7 @@ class QuizView extends ConsumerWidget {
     final quiz = ref.watch(quizViewModelProvider(sessionId));
 
     return Scaffold(
+      key: const Key('quiz-view'),
       appBar: AppBar(title: const Text('문제 풀기')),
       body: quiz.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -183,12 +184,17 @@ class QuizView extends ConsumerWidget {
           .read(quizViewModelProvider(sessionId).notifier)
           .submit();
       if (!context.mounted) return;
+      if (result.showImmediateFeedback) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(result.grade.isCorrect ? '정답이에요.' : '오답이에요.'),
+            ),
+          );
+      }
       if (result.completed) {
         context.go(AppRoutes.studyResult(sessionId));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.grade.isCorrect ? '정답이에요.' : '오답이에요.')),
-        );
       }
     } catch (error) {
       if (!context.mounted) return;

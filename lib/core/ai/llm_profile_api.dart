@@ -16,6 +16,7 @@ abstract interface class LlmProfileApi {
   Future<LlmProfileSettings> updateSettings({
     required SyncConfiguration configuration,
     required LlmProfileSettings settings,
+    Map<LlmApiKeyProvider, String> apiKeys = const {},
   });
 }
 
@@ -58,6 +59,28 @@ class HttpLlmProfileApi implements LlmProfileApi {
         provider: LlmProviderKind.fromId(body['provider']! as String),
         models: [for (final model in body['models']! as List) model as String],
         refreshedAt: DateTime.parse(body['refreshedAt']! as String).toUtc(),
+        contextWindows: {
+          for (final entry in Map<String, Object?>.from(
+            (body['contextWindows'] as Map?) ?? const {},
+          ).entries)
+            entry.key: entry.value! as int,
+        },
+        modelCapabilities: {
+          for (final entry in Map<String, Object?>.from(
+            (body['modelCapabilities'] as Map?) ?? const {},
+          ).entries)
+            entry.key: _capabilities(
+              Map<String, Object?>.from(entry.value! as Map),
+            ),
+        },
+        modelMetadata: {
+          for (final entry in Map<String, Object?>.from(
+            (body['modelMetadata'] as Map?) ?? const {},
+          ).entries)
+            entry.key: _metadata(
+              Map<String, Object?>.from(entry.value! as Map),
+            ),
+        },
       );
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
@@ -71,13 +94,14 @@ class HttpLlmProfileApi implements LlmProfileApi {
   Future<LlmProfileSettings> updateSettings({
     required SyncConfiguration configuration,
     required LlmProfileSettings settings,
+    Map<LlmApiKeyProvider, String> apiKeys = const {},
   }) async {
     final response = await _send(
       () => _client
           .put(
             _endpoint(configuration.serverUrl),
             headers: _headers(configuration),
-            body: jsonEncode(settings.toJson()),
+            body: jsonEncode(settings.toJson(apiKeys: apiKeys)),
           )
           .timeout(const Duration(seconds: 20)),
     );
@@ -91,19 +115,22 @@ class HttpLlmProfileApi implements LlmProfileApi {
       rethrow;
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
-        NetworkFailure('LLM 프로필 서버에 연결할 수 없어요.', cause: error),
+        NetworkFailure('용도별 AI 설정 서버에 연결할 수 없어요.', cause: error),
         stackTrace,
       );
     }
   }
 
   LlmProfileSettings _parse(http.Response response) {
-    final body = _parseBody(response, requestName: 'LLM 프로필');
+    final body = _parseBody(response, requestName: '용도별 AI 설정');
 
     try {
       final profiles = body['profiles']! as List;
       final rawAssignments = Map<String, Object?>.from(
         body['assignments']! as Map,
+      );
+      final rawApiKeyConfigured = Map<String, Object?>.from(
+        body['apiKeyConfigured']! as Map,
       );
       return LlmProfileSettings(
         profiles: [
@@ -114,10 +141,14 @@ class HttpLlmProfileApi implements LlmProfileApi {
           for (final purpose in LlmPurpose.values)
             purpose: rawAssignments[purpose.id]! as String,
         },
+        apiKeyConfigured: {
+          for (final provider in LlmApiKeyProvider.values)
+            provider: rawApiKeyConfigured[provider.id] == true,
+        },
       );
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
-        NetworkFailure('LLM 프로필 응답 형식이 올바르지 않아요.', cause: error),
+        NetworkFailure('용도별 AI 설정 응답 형식이 올바르지 않아요.', cause: error),
         stackTrace,
       );
     }
@@ -129,6 +160,24 @@ class HttpLlmProfileApi implements LlmProfileApi {
     provider: LlmProviderKind.fromId(json['provider']! as String),
     model: json['model']! as String,
     updatedAt: DateTime.parse(json['updatedAt']! as String).toUtc(),
+    contextWindowTokens: json['contextWindowTokens'] as int?,
+    reasoningEffort: json['reasoningEffort'] as String?,
+  );
+
+  LlmModelCapabilities _capabilities(Map<String, Object?> json) =>
+      LlmModelCapabilities(
+        isKnown: json['isKnown'] == true,
+        reasoningEfforts: [
+          for (final effort in (json['reasoningEfforts'] as List?) ?? const [])
+            effort as String,
+        ],
+        defaultReasoningEffort: json['defaultReasoningEffort'] as String?,
+        supportsReasoning: json['supportsReasoning'] == true,
+      );
+
+  LlmModelMetadata _metadata(Map<String, Object?> json) => LlmModelMetadata(
+    lifecycle: LlmModelLifecycle.fromId(json['lifecycle'] as String?),
+    isSnapshot: json['isSnapshot'] == true,
   );
 
   Map<String, Object?> _parseBody(

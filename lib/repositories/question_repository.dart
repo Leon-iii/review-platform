@@ -22,6 +22,8 @@ abstract interface class QuestionRepository {
 
   Future<void> updateQuestion(String id, QuestionDraft draft);
 
+  Future<void> moveQuestion({required String id, required String folderId});
+
   Future<void> deleteQuestion(String id);
 
   Future<void> approveQuestion(String id);
@@ -134,6 +136,30 @@ class DriftQuestionRepository implements QuestionRepository {
         );
       });
     }, '문제를 수정하지 못했어요.');
+  }
+
+  @override
+  Future<void> moveQuestion({required String id, required String folderId}) {
+    return _guard(() async {
+      await _database.transaction(() async {
+        final question = await _requireQuestion(id);
+        await _requireFolder(folderId);
+        if (question.folderId == folderId) return;
+
+        final now = DateTime.now().toUtc();
+        // Keep choice/answer IDs and history intact; moving is not an edit.
+        await _database.questionDao.updateQuestion(
+          id,
+          QuestionsCompanion(folderId: Value(folderId), updatedAt: Value(now)),
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.question.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      });
+    }, '문제를 이동하지 못했어요.');
   }
 
   @override

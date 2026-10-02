@@ -1,5 +1,7 @@
 import 'package:review_platform/domain/enums/question_type.dart';
 
+enum AnswerFeedbackTiming { immediate, afterCompletion }
+
 class QuizFilter {
   const QuizFilter({
     required this.rootFolderId,
@@ -9,6 +11,8 @@ class QuizFilter {
     this.onlyWrongQuestions = false,
     this.maxCorrectRate,
     this.shuffle = true,
+    this.enabledDifficulties = const {1, 2, 3, 4, 5},
+    this.feedbackTiming = AnswerFeedbackTiming.immediate,
   });
 
   final String rootFolderId;
@@ -18,6 +22,8 @@ class QuizFilter {
   final bool onlyWrongQuestions;
   final double? maxCorrectRate;
   final bool shuffle;
+  final Set<int> enabledDifficulties;
+  final AnswerFeedbackTiming feedbackTiming;
 
   Map<String, Object?> toJson() => {
     'rootFolderId': rootFolderId,
@@ -29,6 +35,8 @@ class QuizFilter {
     'onlyWrongQuestions': onlyWrongQuestions,
     'maxCorrectRate': maxCorrectRate,
     'shuffle': shuffle,
+    'enabledDifficulties': enabledDifficulties.toList()..sort(),
+    'feedbackTiming': feedbackTiming.name,
   };
 
   factory QuizFilter.fromJson(Map<String, Object?> json) {
@@ -45,6 +53,16 @@ class QuizFilter {
       onlyWrongQuestions: json['onlyWrongQuestions']! as bool,
       maxCorrectRate: (json['maxCorrectRate'] as num?)?.toDouble(),
       shuffle: json['shuffle']! as bool,
+      enabledDifficulties: json['enabledDifficulties'] == null
+          ? const {1, 2, 3, 4, 5}
+          : {
+              for (final difficulty in json['enabledDifficulties']! as List)
+                difficulty as int,
+            },
+      feedbackTiming: AnswerFeedbackTiming.values.firstWhere(
+        (timing) => timing.name == json['feedbackTiming'],
+        orElse: () => AnswerFeedbackTiming.immediate,
+      ),
     );
   }
 }

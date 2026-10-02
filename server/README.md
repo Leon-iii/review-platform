@@ -35,8 +35,43 @@ $env:Llm__BaseUrl = 'http://127.0.0.1:11434'
 위 환경 변수는 프로필 DB가 비어 있을 때 최초 기본 프로필을 만드는 부트스트랩
 설정입니다. 이후 Provider, Model, Ollama Base URL과 용도별 할당은
 `GET/PUT /api/llm/settings`로 조회·변경하며 서버 재시작 없이 새 요청부터 적용됩니다.
-현재 지원 용도는 `questionGeneration`, `conceptExtraction`, `documentVision`입니다. API Key는 이 API의
-요청이나 응답에 포함되지 않고 서버 실행 환경에만 남습니다.
+현재 지원 용도는 `questionGeneration`, `conceptExtraction`, `conceptRevision`,
+`documentVision`입니다. `PUT /api/llm/settings`에서는 OpenAI, Gemini, Claude API Key를
+선택적으로 저장할 수 있습니다. 서버는 키를 Data Protection으로 암호화하며,
+`GET`과 `PUT` 응답에는 원문 대신 Provider별 설정 여부만 반환합니다.
+
+프로필의 `contextWindowTokens`가 `null`이면 자동 모드입니다. 기존 프로필은
+데이터를 보존하면서 자동 모드로 업그레이드합니다. Ollama의 수동 크기는
+`/api/show`의 모델 최대 컨텍스트 정보로 검증하고 모든 작업의 `num_ctx`에
+적용합니다. 작은 수동 창에서는 출력 예산을 창의 절반 이하로 제한합니다.
+클라우드 Provider는 자동 모드를 사용하며 로컬 `num_ctx` 튜닝과
+8,000자·8페이지 PDF 배치 제한을 적용하지 않습니다. 출력 토큰 예산과
+파일·페이지·텍스트 크기 등 앱의 입력 검증은 별도로 유지합니다.
+
+OpenAI 프로필의 `reasoningEffort`는 `null`(자동) 또는 해당 모델이 지원하는 값입니다.
+자동이면 Responses API의 `reasoning` 필드를 생략합니다. 지원 값은
+`AI/openai-model-capabilities.json`의 공식 문서 기반 내장 레지스트리에서 관리합니다.
+별칭과 스냅샷 ID를 정확히 대조하며 새 모델의 능력을 이름으로 추측하지 않습니다.
+`GET /api/llm/models?provider=openai` 응답의 `modelCapabilities`에는 각 모델의
+등록 여부와 추론 선택지를 포함합니다. 미등록 모델은 UI에서 주황색으로 표시하고
+자동만 허용합니다. 모델 목록 API는 능력 정보를 제공하지 않으므로 이 레지스트리는
+개발자가 공식 문서를 검토해 갱신해야 합니다.
+2026-10-01 검토 기준 79개 모델 ID(별칭·스냅샷 포함)를 등록했습니다.
+`supportsReasoning: true`이면서 추론 선택지가 비어 있으면 공식 문서에서 수동 값이
+명확하게 확인되지 않아 자동만 제공하는 정책입니다. 비추론 모델로 간주하지 않습니다.
+`supportsStructuredOutputs: false`인 모델과 Chat Completions 전용 검색 모델은
+목록에서 제외합니다. 저장·실행 시에도 등록된 비호환 모델을 거부합니다.
+모델 목록의 `modelMetadata`는 Provider 공통의 `lifecycle`과 `isSnapshot`을 제공합니다.
+`AI/llm-model-metadata.json`은 정확한 Provider·모델 ID별로 `current`, `legacy`,
+`deprecated`, `retired`를 관리하며, 미등록 모델은 `unknown`으로 반환합니다.
+`legacy`는 후속 모델이 있는 이전 세대에 대한 앱의 표시 분류이지, 사용 불가 판정이나
+OpenAI의 공식 legacy 지정과 동일한 뜻은 아닙니다. 지원 중단 예정과 종료는 별도로
+구분합니다. 구형/스냅샷 필터는 클라이언트 표시만 바꾸며 서버 원본 목록이나 프로필을
+삭제하지 않습니다. 다른 Provider는 JSON에 분류를 추가해 같은 필터를 재사용할 수
+있습니다. 기기별 설정은 앱 지원 디렉터리의 `llm_model_filters.json`에 Provider ID별로
+저장하며, 추후 지원할 Provider의 설정도 보존합니다.
+추론 모델은 내부 추론과 JSON 출력이 공유하는 `max_output_tokens`를 고려해 예산을
+확보하고, 지원하지 않는 수동 값은 API 호출 전에 거부합니다.
 
 Ollama Provider는 `/api/tags`로 연결 및 모델 설치 상태를 확인한 뒤 `/api/chat`에
 `stream: false`와 JSON Schema를 전달합니다. 최종 결과는 `message.content`만
@@ -47,15 +82,22 @@ PDF OCR 기본 모델은 `qwen3-vl:8b-instruct`입니다. `qwen3-vl:8b`가 구�
 `message.thinking`에만 반환하는 경우에도 해당 내용을 결과로 사용하지 않고, 설정을
 수정할 수 있는 명확한 오류를 반환합니다.
 
-OpenAI Provider를 사용하려면 서버를 실행하기 전에 다음 환경 변수를 설정합니다. API 키는 Flutter 앱, `appsettings.json`, Git 저장소에 저장하지 않습니다.
+OpenAI Provider를 사용하려면 앱의 `설정 → 용도별 AI 설정 → API Key`에서 키를
+저장합니다. 환경 변수는 DB에 해당 Provider 키가 아직 없을 때만 가져오는
+부트스트랩 수단입니다. 키를 `appsettings.json`이나 Git 저장소에 넣지 마세요.
 
 ```powershell
 $env:Llm__Provider = 'openai'
 $env:Llm__Model = 'gpt-4o-mini'
 $env:OPENAI_API_KEY = '<openai-api-key>'
+$env:GEMINI_API_KEY = '<gemini-api-key>'
+$env:ANTHROPIC_API_KEY = '<claude-api-key>'
 ```
 
-OpenAI 요청은 Responses API의 strict JSON Schema Structured Outputs를 사용하며 API 응답 저장을 비활성화합니다. Provider가 미설정이면 AI API는 503을 반환합니다.
+Claude 키는 `CLAUDE_API_KEY` 환경 변수 이름도 인식합니다. Gemini와 Claude는 현재
+키 보관만 지원하며 Provider 호출 연동은 후속 범위입니다. OpenAI 요청은 Responses
+API의 strict JSON Schema Structured Outputs를 사용하며 API 응답 저장을
+비활성화합니다. Provider가 미설정이면 AI API는 503을 반환합니다.
 
 PDF Import API는 최대 25MB, 300페이지의 PDF를 받고 PdfPig로 페이지별 텍스트
 레이어를 우선 추출합니다. 텍스트가 부족한 페이지는 PDFium으로 JPEG 렌더링한 뒤

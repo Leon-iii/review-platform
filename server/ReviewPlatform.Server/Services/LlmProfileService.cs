@@ -8,11 +8,14 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class LlmProfileService(
     SyncDbContext database,
-    IOptions<LlmOptions> bootstrapOptions)
+    IOptions<LlmOptions> bootstrapOptions,
+    ILlmApiKeyStore apiKeyStore,
+    OllamaModelMetadataService metadata)
 {
     public async Task EnsureInitializedAsync(
         CancellationToken cancellationToken = default)
     {
+        await apiKeyStore.EnsureBootstrapKeysAsync(cancellationToken);
         var options = bootstrapOptions.Value;
         var profiles = await database.LlmProfiles.ToListAsync(cancellationToken);
         var assignments = await database.LlmPurposeAssignments
@@ -83,7 +86,8 @@ public sealed class LlmProfileService(
             profiles.FirstOrDefault(profile =>
                 profile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase) &&
                 profile.Model.Contains("vl", StringComparison.OrdinalIgnoreCase));
-        if (visionProfile is null)
+        // An existing OCR assignment (including OpenAI) needs no spare Ollama profile.
+        if (assignedVisionProfileId is null && visionProfile is null)
         {
             visionProfile = new LlmProfileRecord
             {
@@ -97,10 +101,11 @@ public sealed class LlmProfileService(
             profiles.Add(visionProfile);
             database.LlmProfiles.Add(visionProfile);
         }
-        EnsureAssignment(
-            assignments,
-            LlmPurposes.DocumentVision,
-            visionProfile.Id);
+        if (assignedVisionProfileId is null)
+            EnsureAssignment(
+                assignments,
+                LlmPurposes.DocumentVision,
+                visionProfile!.Id);
 
         await database.SaveChangesAsync(cancellationToken);
     }
@@ -160,7 +165,9 @@ public sealed class LlmProfileService(
                 profile.Name,
                 profile.Provider,
                 profile.Model,
-                profile.UpdatedAt))
+                profile.UpdatedAt,
+                profile.ContextWindowTokens,
+                profile.ReasoningEffort))
             .ToListAsync(cancellationToken);
         var assignments = await database.LlmPurposeAssignments
             .AsNoTracking()
@@ -168,7 +175,12 @@ public sealed class LlmProfileService(
                 assignment => assignment.Purpose,
                 assignment => assignment.ProfileId,
                 cancellationToken);
-        return new LlmProfileSettingsResponse(profiles, assignments);
+        var apiKeyConfigured = await apiKeyStore.GetConfiguredAsync(
+            cancellationToken);
+        return new LlmProfileSettingsResponse(
+            profiles,
+            assignments,
+            apiKeyConfigured);
     }
 
     public async Task<LlmProfileSettingsResponse> UpdateSettingsAsync(
@@ -177,6 +189,23 @@ public sealed class LlmProfileService(
     {
         var profiles = ValidateProfiles(request.Profiles);
         var assignments = ValidateAssignments(request.Assignments, profiles);
+        foreach (var profile in profiles.Where(profile =>
+            profile.ContextWindowTokens is not null))
+        {
+            int maximum;
+            try
+            {
+                maximum = await metadata.GetContextWindowAsync(
+                    profile.Model, cancellationToken);
+            }
+            catch (LlmModelCatalogException exception)
+            {
+                throw new LlmProfileValidationException(exception.Message);
+            }
+            if (profile.ContextWindowTokens > maximum)
+                throw new LlmProfileValidationException(
+                    $"'{profile.Name}'의 컨텍스트 크기는 모델 최대 크기({maximum:N0} 토큰)를 초과할 수 없습니다.");
+        }
         var now = DateTimeOffset.UtcNow;
 
         await using var transaction = await database.Database.BeginTransactionAsync(
@@ -195,7 +224,9 @@ public sealed class LlmProfileService(
                 Provider = profile.Provider,
                 Model = profile.Model,
                 BaseUrl = LocalBaseUrl(profile.Provider),
-                UpdatedAt = now
+                UpdatedAt = now,
+                ContextWindowTokens = profile.ContextWindowTokens,
+                ReasoningEffort = profile.ReasoningEffort
             }));
         database.LlmPurposeAssignments.AddRange(assignments.Select(pair =>
             new LlmPurposeAssignmentRecord
@@ -204,6 +235,7 @@ public sealed class LlmProfileService(
                 ProfileId = pair.Value
             }));
         await database.SaveChangesAsync(cancellationToken);
+        await apiKeyStore.UpdateAsync(request.ApiKeys, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return await GetSettingsAsync(cancellationToken);
     }
@@ -234,7 +266,9 @@ public sealed class LlmProfileService(
             profile.Name,
             profile.Provider,
             profile.Model,
-            profile.UpdatedAt);
+            profile.UpdatedAt,
+            profile.ContextWindowTokens,
+            profile.ReasoningEffort);
     }
 
     private static IReadOnlyList<LlmProfileInput> ValidateProfiles(
@@ -276,11 +310,32 @@ public sealed class LlmProfileService(
                     "모델 이름은 1~128자로 입력해 주세요.");
             }
             var provider = NormalizeProvider(item.Provider);
+            if (provider == "openai" && OpenAiModelCapabilitiesRegistry.IsKnownIncompatible(model))
+                throw new LlmProfileValidationException(
+                    $"'{model}'은 이 앱에서 필요한 구조화 출력을 지원하지 않습니다. 다른 모델을 선택해 주세요.");
+            if (item.ContextWindowTokens is not null)
+            {
+                if (provider != "ollama")
+                    throw new LlmProfileValidationException(
+                        "클라우드 Provider의 컨텍스트 크기는 자동 모드를 사용해 주세요.");
+                if (item.ContextWindowTokens is < 4_096 or > 1_048_576)
+                    throw new LlmProfileValidationException(
+                        "컨텍스트 크기는 4,096~1,048,576 토큰 사이여야 합니다.");
+            }
+            var effort = string.IsNullOrWhiteSpace(item.ReasoningEffort)
+                ? null : item.ReasoningEffort.Trim().ToLowerInvariant();
+            if (effort is not null &&
+                (provider != "openai" ||
+                 !OpenAiModelCapabilitiesRegistry.SupportsEffort(model, effort)))
+                throw new LlmProfileValidationException(
+                    $"'{model}'에서 지원하지 않는 추론 수준입니다. 자동 모드 또는 지원하는 값을 선택해 주세요.");
             result.Add(new LlmProfileInput(
                 id,
                 name,
                 provider,
-                model));
+                model,
+                item.ContextWindowTokens,
+                effort));
         }
         return result;
     }

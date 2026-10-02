@@ -8,7 +8,9 @@ import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
+import 'package:review_platform/features/library/folder_browser/folder_browser_view_model.dart';
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
+import 'package:review_platform/shared/widgets/folder_picker.dart';
 
 class QuestionListView extends ConsumerWidget {
   const QuestionListView({required this.folderId, super.key});
@@ -75,6 +77,15 @@ class QuestionListView extends ConsumerWidget {
                           ),
                           onEdit: () =>
                               _renameSource(context, ref, provider, source),
+                          onMove: () => _moveItem(
+                            context,
+                            ref,
+                            title: 'PDF 강의자료 이동',
+                            itemLabel: 'PDF 강의자료',
+                            move: (targetId) => ref
+                                .read(provider.notifier)
+                                .moveSource(id: source.id, folderId: targetId),
+                          ),
                           onDelete: () =>
                               _deleteSource(context, ref, provider, source),
                         ),
@@ -147,6 +158,15 @@ class QuestionListView extends ConsumerWidget {
                           _approveQuestion(context, ref, provider, question),
                       onEdit: () =>
                           context.push(AppRoutes.editQuestion(question.id)),
+                      onMove: () => _moveItem(
+                        context,
+                        ref,
+                        title: '문제 이동',
+                        itemLabel: '문제',
+                        move: (targetId) => ref
+                            .read(provider.notifier)
+                            .moveQuestion(id: question.id, folderId: targetId),
+                      ),
                       onDelete: () =>
                           _deleteQuestion(context, ref, provider, question),
                     ),
@@ -159,6 +179,57 @@ class QuestionListView extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _moveItem(
+    BuildContext context,
+    WidgetRef ref, {
+    required String title,
+    required String itemLabel,
+    required Future<void> Function(String folderId) move,
+  }) async {
+    try {
+      final state = await ref.read(
+        folderBrowserViewModelProvider(folderId).future,
+      );
+      if (!context.mounted) return;
+      final folders = state.allFolders;
+      if (!folders.any((folder) => folder.id != folderId)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('이동할 다른 폴더를 먼저 만들어 주세요.')));
+        return;
+      }
+
+      final selection = await showFolderPicker(
+        context,
+        folders: folders,
+        selectedFolderId: folderId,
+        title: title,
+      );
+      if (selection == null || !context.mounted) return;
+      final targetId = selection.folderId;
+      if (targetId == null || targetId == folderId) return;
+
+      await move(targetId);
+      if (!context.mounted) return;
+      // PDF lists are future providers, unlike the live question/folder lists.
+      ref.invalidate(documentSourcesProvider(folderId));
+      ref.invalidate(documentSourcesProvider(targetId));
+      final target = folders.firstWhere((folder) => folder.id == targetId);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text('$itemLabel 항목을 ${target.name} 폴더로 이동했어요.')),
+        );
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error is AppFailure
+          ? error.message
+          : '$itemLabel 항목을 이동하지 못했어요.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _deleteQuestion(
@@ -328,12 +399,14 @@ class _PdfSourceCard extends StatelessWidget {
     required this.source,
     required this.onOpen,
     required this.onEdit,
+    required this.onMove,
     required this.onDelete,
   });
 
   final StudySource source;
   final VoidCallback onOpen;
   final VoidCallback onEdit;
+  final VoidCallback onMove;
   final VoidCallback onDelete;
 
   @override
@@ -352,17 +425,21 @@ class _PdfSourceCard extends StatelessWidget {
         ),
         onTap: onOpen,
         trailing: PopupMenuButton<_PdfSourceAction>(
+          key: ValueKey('pdf-source-menu-${source.id}'),
           tooltip: 'PDF 강의자료 메뉴',
           onSelected: (action) {
             switch (action) {
               case _PdfSourceAction.edit:
                 onEdit();
+              case _PdfSourceAction.move:
+                onMove();
               case _PdfSourceAction.delete:
                 onDelete();
             }
           },
           itemBuilder: (context) => const [
             PopupMenuItem(value: _PdfSourceAction.edit, child: Text('이름 변경')),
+            PopupMenuItem(value: _PdfSourceAction.move, child: Text('이동')),
             PopupMenuItem(value: _PdfSourceAction.delete, child: Text('삭제')),
           ],
         ),
@@ -376,12 +453,14 @@ class _QuestionCard extends StatelessWidget {
     required this.question,
     required this.onApprove,
     required this.onEdit,
+    required this.onMove,
     required this.onDelete,
   });
 
   final Question question;
   final VoidCallback onApprove;
   final VoidCallback onEdit;
+  final VoidCallback onMove;
   final VoidCallback onDelete;
 
   @override
@@ -418,6 +497,7 @@ class _QuestionCard extends StatelessWidget {
         ),
         isThreeLine: true,
         trailing: PopupMenuButton<_QuestionAction>(
+          key: ValueKey('question-menu-${question.id}'),
           tooltip: '문제 메뉴',
           onSelected: (action) {
             switch (action) {
@@ -425,6 +505,8 @@ class _QuestionCard extends StatelessWidget {
                 onApprove();
               case _QuestionAction.edit:
                 onEdit();
+              case _QuestionAction.move:
+                onMove();
               case _QuestionAction.delete:
                 onDelete();
             }
@@ -436,6 +518,7 @@ class _QuestionCard extends StatelessWidget {
                 child: Text('Draft 승인'),
               ),
             const PopupMenuItem(value: _QuestionAction.edit, child: Text('수정')),
+            const PopupMenuItem(value: _QuestionAction.move, child: Text('이동')),
             const PopupMenuItem(
               value: _QuestionAction.delete,
               child: Text('삭제'),
@@ -470,9 +553,9 @@ class _QuestionError extends StatelessWidget {
   }
 }
 
-enum _QuestionAction { approve, edit, delete }
+enum _QuestionAction { approve, edit, move, delete }
 
-enum _PdfSourceAction { edit, delete }
+enum _PdfSourceAction { edit, move, delete }
 
 String _sourceLabel(QuestionSourceReference reference) {
   final pages = reference.pageNumbers.isEmpty

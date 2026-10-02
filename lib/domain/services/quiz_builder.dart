@@ -37,6 +37,12 @@ class QuizBuilder {
     if (filter.enabledQuestionTypes.isEmpty) {
       throw const ValidationFailure('문제 유형을 하나 이상 선택해 주세요.');
     }
+    if (filter.enabledDifficulties.isEmpty) {
+      throw const ValidationFailure('난이도를 하나 이상 선택해 주세요.');
+    }
+    if (filter.enabledDifficulties.any((level) => level < 1 || level > 5)) {
+      throw const ValidationFailure('난이도는 1부터 5 사이여야 해요.');
+    }
     if (filter.maxCorrectRate case final rate?) {
       if (rate < 0 || rate > 1) {
         throw const ValidationFailure('정답률 기준은 0에서 1 사이여야 해요.');
@@ -58,6 +64,9 @@ class QuizBuilder {
         types: filter.enabledQuestionTypes,
       ),
     ];
+    eligible.removeWhere(
+      (question) => !filter.enabledDifficulties.contains(question.difficulty),
+    );
     if (filter.onlyWrongQuestions || filter.maxCorrectRate != null) {
       final attempts = await _attemptRepository.getAllAttempts();
       final attemptsByQuestion = <String, List<Attempt>>{};

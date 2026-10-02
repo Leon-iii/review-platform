@@ -8,6 +8,8 @@ public interface ILLMProvider
 
     string ModelName { get; }
 
+    int? ContextWindowTokens => null;
+
     Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default);

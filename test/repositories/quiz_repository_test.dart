@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/domain/enums/grading_type.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
@@ -30,6 +31,106 @@ void main() {
   });
 
   tearDown(() => database.close());
+
+  test('난이도와 문제 유형을 함께 필터링하고 세션 재개 시 설정을 보존한다', () async {
+    final root = await folderRepository.createFolder(name: '난이도');
+    final child = await folderRepository.createFolder(
+      name: '하위',
+      parentId: root,
+    );
+    await _createShortQuestion(questionRepository, root, '보통', difficulty: 3);
+    final selected = await _createShortQuestion(
+      questionRepository,
+      child,
+      '매우 어려움',
+      difficulty: 5,
+    );
+    await questionRepository.createQuestion(
+      QuestionDraft(
+        folderId: child,
+        type: QuestionType.multipleChoice,
+        prompt: '객관식 제외',
+        difficulty: 5,
+        choices: const [
+          QuestionChoiceDraft(text: '정답', isCorrect: true),
+          QuestionChoiceDraft(text: '오답', isCorrect: false),
+        ],
+      ),
+    );
+    final builder = QuizBuilder(
+      folderRepository,
+      questionRepository,
+      quizRepository,
+      attemptRepository,
+    );
+    final result = await builder.build(
+      QuizFilter(
+        rootFolderId: root,
+        enabledQuestionTypes: const {QuestionType.shortAnswer},
+        questionCount: 10,
+        enabledDifficulties: const {5},
+        feedbackTiming: AnswerFeedbackTiming.afterCompletion,
+      ),
+    );
+    final resumed = (await quizRepository.resumeSession(result.sessionId))!;
+    expect(resumed.items.single.questionId, selected);
+    expect(resumed.session.filter.enabledDifficulties, {5});
+    expect(
+      resumed.session.filter.feedbackTiming,
+      AnswerFeedbackTiming.afterCompletion,
+    );
+  });
+
+  for (final difficulties in [
+    <int>{},
+    {0},
+    {6},
+  ]) {
+    test('빈 난이도나 범위 밖 난이도 $difficulties 는 세션 생성 전에 거부한다', () async {
+      final root = await folderRepository.createFolder(name: '검증');
+      final builder = QuizBuilder(
+        folderRepository,
+        questionRepository,
+        quizRepository,
+        attemptRepository,
+      );
+      await expectLater(
+        builder.build(
+          QuizFilter(
+            rootFolderId: root,
+            enabledQuestionTypes: const {QuestionType.shortAnswer},
+            questionCount: 10,
+            enabledDifficulties: difficulties,
+          ),
+        ),
+        throwsA(isA<ValidationFailure>()),
+      );
+      expect(await database.select(database.quizSessions).get(), isEmpty);
+    });
+  }
+
+  test('선택한 난이도의 문제가 없으면 세션을 만들지 않는다', () async {
+    final root = await folderRepository.createFolder(name: '없음');
+    await _createShortQuestion(questionRepository, root, '보통', difficulty: 3);
+    final builder = QuizBuilder(
+      folderRepository,
+      questionRepository,
+      quizRepository,
+      attemptRepository,
+    );
+    await expectLater(
+      builder.build(
+        QuizFilter(
+          rootFolderId: root,
+          enabledQuestionTypes: const {QuestionType.shortAnswer},
+          questionCount: 10,
+          enabledDifficulties: const {1},
+        ),
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    expect(await database.select(database.quizSessions).get(), isEmpty);
+  });
 
   test('하위 폴더를 포함하고 제외 폴더를 제거해 세션을 구성한다', () async {
     final rootId = await folderRepository.createFolder(name: '전체');
@@ -212,13 +313,15 @@ void main() {
 Future<String> _createShortQuestion(
   DriftQuestionRepository repository,
   String folderId,
-  String prompt,
-) {
+  String prompt, {
+  int difficulty = 3,
+}) {
   return repository.createQuestion(
     QuestionDraft(
       folderId: folderId,
       type: QuestionType.shortAnswer,
       prompt: prompt,
+      difficulty: difficulty,
       acceptableAnswers: const ['정답'],
     ),
   );

@@ -13,8 +13,8 @@ public interface ILlmProviderResolver
 
 public sealed class RuntimeLlmProviderResolver(
     LlmProfileService profiles,
+    ILlmApiKeyStore apiKeyStore,
     IHttpClientFactory httpClientFactory,
-    IOptions<LlmOptions> bootstrapOptions,
     ILoggerFactory loggerFactory) : ILlmProviderResolver
 {
     public async Task<ILLMProvider> ResolveAsync(
@@ -24,6 +24,9 @@ public sealed class RuntimeLlmProviderResolver(
         var profile = await profiles.GetActiveProfileAsync(
             purpose,
             cancellationToken);
+        var apiKey = profile.Provider == "ollama"
+            ? string.Empty
+            : await apiKeyStore.GetAsync(profile.Provider, cancellationToken);
         var options = Options.Create(new LlmOptions
         {
             Provider = profile.Provider,
@@ -31,7 +34,13 @@ public sealed class RuntimeLlmProviderResolver(
             BaseUrl = profile.Provider == "ollama"
                 ? LlmOptions.LocalOllamaBaseUrl
                 : string.Empty,
-            ApiKey = bootstrapOptions.Value.ApiKey
+            ApiKey = apiKey,
+            ContextWindowTokens = profile.Provider == "ollama"
+                ? profile.ContextWindowTokens
+                : null,
+            ReasoningEffort = profile.Provider == "openai"
+                ? profile.ReasoningEffort
+                : null
         });
         return profile.Provider switch
         {

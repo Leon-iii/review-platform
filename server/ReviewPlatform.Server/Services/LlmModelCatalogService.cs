@@ -1,6 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 using ReviewPlatform.Server.AI;
 using ReviewPlatform.Server.Contracts;
 
@@ -8,7 +8,9 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class LlmModelCatalogService(
     IHttpClientFactory httpClientFactory,
-    IOptions<LlmOptions> options)
+    ILlmApiKeyStore apiKeyStore,
+    ILogger<LlmModelCatalogService> logger,
+    OllamaModelMetadataService metadata)
 {
     private static readonly Uri OpenAiModelsEndpoint = new(
         "https://api.openai.com/v1/models");
@@ -18,17 +20,60 @@ public sealed class LlmModelCatalogService(
         CancellationToken cancellationToken = default)
     {
         var normalized = provider?.Trim().ToLowerInvariant();
-        var models = normalized switch
+        logger.LogInformation(
+            "LLM model catalog refresh started. Provider={Provider}",
+            normalized ?? "(null)");
+        try
         {
-            "ollama" => await GetOllamaModelsAsync(cancellationToken),
-            "openai" => await GetOpenAiModelsAsync(cancellationToken),
-            _ => throw new LlmModelCatalogException(
-                "모델 목록 Provider는 ollama 또는 openai여야 합니다.")
-        };
-        return new LlmModelCatalogResponse(
-            normalized,
-            models,
-            DateTimeOffset.UtcNow);
+            var models = normalized switch
+            {
+                "ollama" => await GetOllamaModelsAsync(cancellationToken),
+                "openai" => await GetOpenAiModelsAsync(cancellationToken),
+                _ => throw new LlmModelCatalogException(
+                    "모델 목록 Provider는 ollama 또는 openai여야 합니다.")
+            };
+            logger.LogInformation(
+                "LLM model catalog refresh succeeded. Provider={Provider} ModelCount={ModelCount}",
+                normalized,
+                models.Count);
+            var contextWindows = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (normalized == "ollama")
+            {
+                foreach (var model in models)
+                {
+                    try
+                    {
+                        contextWindows[model] = await metadata.GetContextWindowAsync(
+                            model, cancellationToken);
+                    }
+                    catch (LlmModelCatalogException exception)
+                    {
+                        // A metadata failure must not hide the installed model list.
+                        logger.LogWarning(exception,
+                            "Ollama context metadata unavailable. Model={Model}", model);
+                    }
+                }
+            }
+            return new LlmModelCatalogResponse(
+                normalized,
+                models,
+                DateTimeOffset.UtcNow,
+                contextWindows,
+                normalized == "openai"
+                    ? models.ToDictionary(model => model,
+                        OpenAiModelCapabilitiesRegistry.Get, StringComparer.Ordinal)
+                    : null,
+                models.ToDictionary(model => model,
+                    model => LlmModelMetadataRegistry.Get(normalized, model), StringComparer.Ordinal));
+        }
+        catch (LlmModelCatalogException exception)
+        {
+            logger.LogWarning(
+                exception,
+                "LLM model catalog refresh failed. Provider={Provider}",
+                normalized ?? "(null)");
+            throw;
+        }
     }
 
     private async Task<IReadOnlyList<string>> GetOllamaModelsAsync(
@@ -74,11 +119,22 @@ public sealed class LlmModelCatalogService(
     private async Task<IReadOnlyList<string>> GetOpenAiModelsAsync(
         CancellationToken cancellationToken)
     {
-        var apiKey = options.Value.ApiKey?.Trim() ?? string.Empty;
+        string apiKey;
+        try
+        {
+            apiKey = (await apiKeyStore.GetAsync(
+                LlmApiKeyProviders.OpenAi,
+                cancellationToken)).Trim();
+        }
+        catch (LlmApiKeyStoreException exception)
+        {
+            throw new LlmModelCatalogException(exception.Message, exception);
+        }
         if (apiKey.Length == 0)
         {
             throw new LlmModelCatalogException(
-                "OPENAI_API_KEY가 서버에 설정되지 않았습니다.");
+                "OpenAI API Key가 서버에 저장되지 않았습니다. " +
+                "설정 > LLM 프로필의 API Key 영역에서 저장해 주세요.");
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, OpenAiModelsEndpoint);
@@ -91,6 +147,13 @@ public sealed class LlmModelCatalogService(
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            if (response.StatusCode is HttpStatusCode.Unauthorized or
+                HttpStatusCode.Forbidden)
+            {
+                throw new LlmModelCatalogException(
+                    "OpenAI API Key 인증에 실패했습니다. " +
+                    "설정 > LLM 프로필에서 키를 다시 저장해 주세요.");
+            }
             throw new LlmModelCatalogException(
                 $"OpenAI 모델 목록 요청이 실패했습니다: {(int)response.StatusCode}");
         }
@@ -120,6 +183,7 @@ public sealed class LlmModelCatalogService(
 
     internal static bool IsSupportedOpenAiModel(string id)
     {
+        if (OpenAiModelCapabilitiesRegistry.IsKnownIncompatible(id)) return false;
         var normalized = id.ToLowerInvariant();
         var baseModel = normalized.StartsWith("ft:", StringComparison.Ordinal)
             ? normalized[3..]
@@ -147,7 +211,8 @@ public sealed class LlmModelCatalogService(
             "tts",
             "image",
             "moderation",
-            "search-preview"
+            "search-preview",
+            "search-api"
         ];
         return incompatibleKinds.All(kind =>
             !baseModel.Contains(kind, StringComparison.Ordinal));

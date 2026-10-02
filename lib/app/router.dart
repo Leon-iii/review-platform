@@ -8,6 +8,7 @@ import 'package:review_platform/features/library/folder_browser/folder_browser_v
 import 'package:review_platform/features/library/question_editor/question_editor_view.dart';
 import 'package:review_platform/features/settings/settings_view.dart';
 import 'package:review_platform/features/settings/llm_profiles/llm_profiles_view.dart';
+import 'package:review_platform/features/settings/llm_profiles/llm_profiles_view_model.dart';
 import 'package:review_platform/features/settings/local_server/local_server_view.dart';
 import 'package:review_platform/features/statistics/statistics_view.dart';
 import 'package:review_platform/features/study/quiz/quiz_view.dart';
@@ -94,6 +95,9 @@ GoRouter router(Ref ref) {
               GoRoute(
                 path: 'llm-profiles',
                 builder: (context, state) => const LlmProfilesView(),
+                onExit: (context, state) => ref
+                    .read(llmProfilesControllerProvider.notifier)
+                    .prepareToLeave(),
               ),
             ],
           ),

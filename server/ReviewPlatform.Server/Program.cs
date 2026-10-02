@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using ReviewPlatform.Server.AI;
 using ReviewPlatform.Server.Auth;
@@ -18,6 +19,8 @@ var connectionString = builder.Configuration.GetConnectionString("SyncDatabase")
 builder.Services.AddDbContext<SyncDbContext>(options =>
     options.UseSqlite(connectionString));
 builder.Services.Configure<SyncAuthOptions>(builder.Configuration.GetSection("Sync"));
+builder.Services.AddDataProtection()
+    .SetApplicationName("ReviewPlatform.Server");
 builder.Services.AddOptions<LlmOptions>()
     .Bind(builder.Configuration.GetSection("Llm"))
     .Validate(
@@ -41,7 +44,9 @@ builder.Services.AddScoped<QuestionGenerationService>();
 builder.Services.AddScoped<DocumentProcessingService>();
 builder.Services.AddScoped<ConceptRevisionService>();
 builder.Services.AddScoped<LlmProfileService>();
+builder.Services.AddScoped<ILlmApiKeyStore, LlmApiKeyStore>();
 builder.Services.AddScoped<LlmModelCatalogService>();
+builder.Services.AddScoped<OllamaModelMetadataService>();
 builder.Services.AddScoped<ILlmProviderResolver, RuntimeLlmProviderResolver>();
 builder.Services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
 builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
@@ -112,7 +117,8 @@ app.MapPut("/api/llm/settings", async (
             request,
             cancellationToken));
     }
-    catch (LlmProfileValidationException exception)
+    catch (Exception exception) when (
+        exception is LlmProfileValidationException or LlmApiKeyStoreException)
     {
         return Results.BadRequest(new { error = exception.Message });
     }

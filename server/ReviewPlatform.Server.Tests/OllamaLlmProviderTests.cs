@@ -755,9 +755,53 @@ public sealed class OllamaLlmProviderTests
         Assert.Single(questions);
     }
 
+    [Theory]
+    [InlineData(4_096)]
+    [InlineData(32_768)]
+    public async Task ManualContextWindow_IsAppliedToEveryOperation(int tokens)
+    {
+        var handler = new RecordingHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/tags"
+                ? JsonResponse(HttpStatusCode.OK, new
+                {
+                    models = new[] { new { name = "qwen3:8b" } }
+                })
+                : JsonResponse(HttpStatusCode.OK, new
+                {
+                    message = new
+                    {
+                        content = """{"questions":[],"concepts":[],"revisions":[],"text":"페이지 내용"}"""
+                    },
+                    done = true
+                }));
+        var provider = CreateProvider(handler, contextWindowTokens: tokens);
+        await provider.GenerateQuestionsAsync(Input(), TestContext.Current.CancellationToken);
+        await provider.ExtractConceptsAsync(new ConceptExtractionInput(
+            "source", "자료.pdf", [new ExtractedDocumentPage(1, "개념 설명")],
+            ConceptExtractionPrompt.Version), TestContext.Current.CancellationToken);
+        await provider.ReviseConceptsAsync(new ConceptRevisionInput(
+            "source", "자료.pdf", 1, "문장 수정",
+            [new ConceptRevisionContext("c1", "제목", "내용", [1], "held")],
+            ["c1"], ConceptRevisionPrompt.Version), TestContext.Current.CancellationToken);
+        await provider.ExtractPageContentAsync(new DocumentVisionInput(
+            "자료.pdf", 1, "image/jpeg", [1, 2], new string('a', 64),
+            DocumentVisionPrompt.Version), TestContext.Current.CancellationToken);
+
+        var requests = handler.Requests.Where(request => request.Path == "/api/chat").ToList();
+        Assert.Equal(4, requests.Count);
+        Assert.All(requests, request =>
+        {
+            using var json = JsonDocument.Parse(request.Body!);
+            var options = json.RootElement.GetProperty("options");
+            Assert.Equal(tokens, options.GetProperty("num_ctx").GetInt32());
+            Assert.InRange(options.GetProperty("num_predict").GetInt32(), 1, tokens / 2);
+        });
+    }
+
     private static OllamaLlmProvider CreateProvider(
         HttpMessageHandler handler,
-        string apiKey = "")
+        string apiKey = "",
+        int? contextWindowTokens = null)
     {
         return new OllamaLlmProvider(
             new HttpClient(handler),
@@ -766,7 +810,8 @@ public sealed class OllamaLlmProviderTests
                 Provider = "ollama",
                 Model = "qwen3:8b",
                 BaseUrl = "http://127.0.0.1:11434",
-                ApiKey = apiKey
+                ApiKey = apiKey,
+                ContextWindowTokens = contextWindowTokens
             }),
             NullLogger<OllamaLlmProvider>.Instance);
     }

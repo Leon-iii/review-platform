@@ -88,9 +88,9 @@ class SettingsView extends ConsumerWidget {
                     child: ListTile(
                       key: const Key('llm-profiles-settings-tile'),
                       leading: const Icon(Icons.psychology_alt_rounded),
-                      title: const Text('LLM 프로필'),
+                      title: const Text('용도별 AI 설정'),
                       subtitle: const Text(
-                        '문제 생성과 PDF 개념 추출에 사용할 모델을 각각 설정합니다.',
+                        '문제 생성·개념 추출·개념 수정·OCR의 모델과 옵션을 각각 설정합니다.',
                       ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => context.go(AppRoutes.llmProfiles),

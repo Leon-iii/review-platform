@@ -23,6 +23,13 @@ class StudySetupView extends ConsumerStatefulWidget {
 }
 
 class _StudySetupViewState extends ConsumerState<StudySetupView> {
+  static const _difficultyLabels = {
+    1: '매우 쉬움',
+    2: '쉬움',
+    3: '보통',
+    4: '어려움',
+    5: '매우 어려움',
+  };
   late String? _folderId;
   final Set<QuestionType> _types = {
     QuestionType.multipleChoice,
@@ -31,6 +38,8 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
   };
   int _questionCount = 10;
   bool _shuffle = true;
+  RangeValues _difficultyRange = const RangeValues(1, 5);
+  AnswerFeedbackTiming _feedbackTiming = AnswerFeedbackTiming.immediate;
   late bool _onlyWrong;
 
   @override
@@ -46,6 +55,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
     final startState = ref.watch(studySetupViewModelProvider);
 
     return Scaffold(
+      key: const Key('study-setup-view'),
       appBar: AppBar(title: const Text('문제 풀기 설정')),
       body: folders.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -134,6 +144,48 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                             ],
                           ),
                           const SizedBox(height: 28),
+                          Text(
+                            '난이도',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _difficultyRange.start == _difficultyRange.end
+                                ? _difficultyLabel(_difficultyRange.start)
+                                : '${_difficultyLabel(_difficultyRange.start)} ~ '
+                                      '${_difficultyLabel(_difficultyRange.end)}',
+                            key: const Key('difficulty-range-label'),
+                          ),
+                          RangeSlider(
+                            key: const Key('difficulty-range-slider'),
+                            min: 1,
+                            max: 5,
+                            divisions: 4,
+                            values: _difficultyRange,
+                            labels: RangeLabels(
+                              _difficultyLabel(_difficultyRange.start),
+                              _difficultyLabel(_difficultyRange.end),
+                            ),
+                            semanticFormatterCallback: _difficultyLabel,
+                            onChanged: (values) => setState(() {
+                              _difficultyRange = RangeValues(
+                                values.start.roundToDouble(),
+                                values.end.roundToDouble(),
+                              );
+                            }),
+                          ),
+                          const Row(
+                            children: [
+                              Expanded(child: Text('1 · 매우 쉬움')),
+                              Expanded(
+                                child: Text(
+                                  '5 · 매우 어려움',
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 28),
                           DropdownButtonFormField<int>(
                             key: const Key('question-count-field'),
                             initialValue: _questionCount,
@@ -152,6 +204,44 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                                 setState(() => _questionCount = value);
                               }
                             },
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            '정답 공개 시점',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Slider(
+                            key: const Key('answer-feedback-slider'),
+                            min: 0,
+                            max: 1,
+                            divisions: 1,
+                            value:
+                                _feedbackTiming ==
+                                    AnswerFeedbackTiming.immediate
+                                ? 0
+                                : 1,
+                            label:
+                                _feedbackTiming ==
+                                    AnswerFeedbackTiming.immediate
+                                ? '바로 확인'
+                                : '끝난 후 확인',
+                            semanticFormatterCallback: (value) =>
+                                value.round() == 0 ? '바로 확인' : '끝난 후 확인',
+                            onChanged: (value) => setState(() {
+                              _feedbackTiming = value.round() == 0
+                                  ? AnswerFeedbackTiming.immediate
+                                  : AnswerFeedbackTiming.afterCompletion;
+                            }),
+                          ),
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [Text('바로 확인'), Text('끝난 후 확인')],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _feedbackTiming == AnswerFeedbackTiming.immediate
+                                ? '각 답안을 제출하면 바로 정답·오답을 알려줍니다.'
+                                : '풀이 중에는 정답·오답을 숨기고, 학습 종료 후 결과 화면에서 확인합니다.',
                           ),
                           const SizedBox(height: 12),
                           SwitchListTile(
@@ -212,6 +302,11 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
     });
   }
 
+  String _difficultyLabel(double value) {
+    final level = value.round();
+    return '$level · ${_difficultyLabels[level]}';
+  }
+
   Future<void> _start(String folderId) async {
     try {
       final result = await ref
@@ -223,6 +318,15 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
               questionCount: _questionCount,
               onlyWrongQuestions: _onlyWrong,
               shuffle: _shuffle,
+              enabledDifficulties: Set.unmodifiable({
+                for (
+                  var level = _difficultyRange.start.round();
+                  level <= _difficultyRange.end.round();
+                  level++
+                )
+                  level,
+              }),
+              feedbackTiming: _feedbackTiming,
             ),
           );
       if (mounted) context.go(AppRoutes.studySession(result.sessionId));

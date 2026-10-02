@@ -3,6 +3,7 @@ import 'package:review_platform/domain/enums/grading_type.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/quiz_session.dart';
+import 'package:review_platform/domain/models/quiz_filter.dart';
 import 'package:review_platform/domain/services/answer_grader.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -51,10 +52,15 @@ class QuizRuntimeState {
 }
 
 class QuizSubmission {
-  const QuizSubmission({required this.grade, required this.completed});
+  const QuizSubmission({
+    required this.grade,
+    required this.completed,
+    required this.showImmediateFeedback,
+  });
 
   final GradeResult grade;
   final bool completed;
+  final bool showImmediateFeedback;
 }
 
 @riverpod
@@ -169,7 +175,13 @@ class QuizViewModel extends _$QuizViewModel {
           questionStartedAt: DateTime.now().toUtc(),
         ),
       );
-      return QuizSubmission(grade: grade, completed: completed);
+      return QuizSubmission(
+        grade: grade,
+        completed: completed,
+        showImmediateFeedback:
+            current.details.session.filter.feedbackTiming ==
+            AnswerFeedbackTiming.immediate,
+      );
     } catch (_) {
       state = AsyncData(current.copyWith(isSubmitting: false));
       rethrow;

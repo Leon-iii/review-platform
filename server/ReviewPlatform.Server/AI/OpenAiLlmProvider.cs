@@ -167,11 +167,38 @@ public sealed class OpenAiLlmProvider(
             throw new LlmProviderUnavailableException(
                 "OpenAI 모델이 설정되지 않았습니다.");
         }
+        if (OpenAiModelCapabilitiesRegistry.IsKnownIncompatible(settings.Model))
+            throw new LlmProviderUnavailableException(
+                "선택한 OpenAI 모델은 이 앱에서 필요한 구조화 출력을 지원하지 않습니다. 다른 모델을 선택해 주세요.");
+        if (settings.ReasoningEffort is not null &&
+            !OpenAiModelCapabilitiesRegistry.SupportsEffort(
+                settings.Model, settings.ReasoningEffort))
+            throw new LlmProviderUnavailableException(
+                "선택한 OpenAI 모델에서 지원하지 않는 추론 수준입니다. 자동 모드로 변경해 주세요.");
+    }
+
+    private Dictionary<string, object?> ApplyReasoning(Dictionary<string, object?> request)
+    {
+        var capabilities = OpenAiModelCapabilitiesRegistry.Get(settings.Model);
+        if (settings.ReasoningEffort is not null)
+            request["reasoning"] = new { effort = settings.ReasoningEffort };
+        // Reasoning and visible JSON share max_output_tokens. Reserve room so a
+        // small edit cannot exhaust its entire budget before emitting any JSON.
+        var effort = settings.ReasoningEffort ?? capabilities.DefaultReasoningEffort;
+        var outputBudget = (int)request["max_output_tokens"]!;
+        if (capabilities.SupportsReasoning && effort != "none")
+        {
+            var reserve = effort is "high" or "xhigh" or "max" ? 48_000 : 24_000;
+            outputBudget = Math.Max(25_000, outputBudget + reserve);
+        }
+        request["max_output_tokens"] = Math.Min(outputBudget,
+            capabilities.MaxOutputTokens ?? outputBudget);
+        return request;
     }
 
     private object BuildRequest(QuestionGenerationInput input)
     {
-        return new Dictionary<string, object?>
+        return ApplyReasoning(new Dictionary<string, object?>
         {
             ["model"] = settings.Model,
             ["store"] = false,
@@ -202,12 +229,12 @@ public sealed class OpenAiLlmProvider(
                     ["schema"] = QuestionGenerationPrompt.BuildQuestionSchema(input)
                 }
             }
-        };
+        });
     }
 
     private object BuildConceptRequest(ConceptExtractionInput input)
     {
-        return new Dictionary<string, object?>
+        return ApplyReasoning(new Dictionary<string, object?>
         {
             ["model"] = settings.Model,
             ["store"] = false,
@@ -236,12 +263,12 @@ public sealed class OpenAiLlmProvider(
                     ["schema"] = ConceptExtractionPrompt.BuildSchema(input)
                 }
             }
-        };
+        });
     }
 
     private object BuildConceptRevisionRequest(ConceptRevisionInput input)
     {
-        return new Dictionary<string, object?>
+        return ApplyReasoning(new Dictionary<string, object?>
         {
             ["model"] = settings.Model,
             ["store"] = false,
@@ -272,7 +299,7 @@ public sealed class OpenAiLlmProvider(
                     ["schema"] = ConceptRevisionPrompt.BuildSchema(input)
                 }
             }
-        };
+        });
     }
 
     private static IReadOnlyList<GeneratedQuestionDraft> ParseResponse(string body)
@@ -353,6 +380,12 @@ public sealed class OpenAiLlmProvider(
         if (root.TryGetProperty("status", out var status) &&
             status.GetString() != "completed")
         {
+            if (root.TryGetProperty("incomplete_details", out var details) &&
+                details.ValueKind == JsonValueKind.Object &&
+                details.TryGetProperty("reason", out var reason) &&
+                reason.GetString() == "max_output_tokens")
+                throw new LlmProviderRequestException(
+                    $"OpenAI {operation}의 추론·출력 토큰 한도에 도달했습니다. 추론 수준을 낮추거나 작업 범위를 줄여 주세요.");
             throw new LlmProviderRequestException(
                 $"OpenAI가 {operation}을 완료하지 못했습니다.");
         }

@@ -33,13 +33,56 @@ public static class ServerDatabaseInitializer
                 "Provider" TEXT NOT NULL,
                 "Model" TEXT NOT NULL,
                 "BaseUrl" TEXT NOT NULL,
-                "UpdatedAt" TEXT NOT NULL
+                "UpdatedAt" TEXT NOT NULL,
+                "ContextWindowTokens" INTEGER NULL,
+                "ReasoningEffort" TEXT NULL
             );
             CREATE TABLE IF NOT EXISTS "LlmPurposeAssignments" (
                 "Purpose" TEXT NOT NULL CONSTRAINT "PK_LlmPurposeAssignments" PRIMARY KEY,
                 "ProfileId" TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS "LlmProviderSecrets" (
+                "Provider" TEXT NOT NULL CONSTRAINT "PK_LlmProviderSecrets" PRIMARY KEY,
+                "ProtectedValue" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
             """,
             cancellationToken);
+
+        // EnsureCreated does not update an existing SQLite schema.
+        var connection = database.Database.GetDbConnection();
+        await database.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA table_info(\"LlmProfiles\")";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            var hasContextColumn = false;
+            var hasReasoningColumn = false;
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (reader.GetString(1) == "ContextWindowTokens")
+                    hasContextColumn = true;
+                if (reader.GetString(1) == "ReasoningEffort")
+                    hasReasoningColumn = true;
+            }
+            await reader.DisposeAsync();
+            if (!hasContextColumn)
+            {
+                await database.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE \"LlmProfiles\" ADD COLUMN \"ContextWindowTokens\" INTEGER NULL",
+                    cancellationToken);
+            }
+            if (!hasReasoningColumn)
+            {
+                await database.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE \"LlmProfiles\" ADD COLUMN \"ReasoningEffort\" TEXT NULL",
+                    cancellationToken);
+            }
+        }
+        finally
+        {
+            await database.Database.CloseConnectionAsync();
+        }
     }
 }

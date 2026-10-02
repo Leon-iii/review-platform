@@ -14,17 +14,14 @@ class LocalServerView extends ConsumerStatefulWidget {
 
 class _LocalServerViewState extends ConsumerState<LocalServerView> {
   final _formKey = GlobalKey<FormState>();
-  final _apiKeyController = TextEditingController();
   final _portController = TextEditingController();
   final _logScrollController = ScrollController();
-  bool _obscureApiKey = true;
   bool _autoStart = true;
   bool _startRequested = false;
   bool _settingsApplied = false;
 
   @override
   void dispose() {
-    _apiKeyController.dispose();
     _portController.dispose();
     _logScrollController.dispose();
     super.dispose();
@@ -50,8 +47,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
     }
 
     final status = state.runtime.status;
-    final isStarting =
-        _startRequested || status == LocalServerStatus.starting;
+    final isStarting = _startRequested || status == LocalServerStatus.starting;
     final isBusy =
         _startRequested ||
         state.isSavingSettings ||
@@ -98,40 +94,8 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  TextFormField(
-                                    key: const Key(
-                                      'local-server-api-key-field',
-                                    ),
-                                    controller: _apiKeyController,
-                                    enabled: !isBusy,
-                                    obscureText: _obscureApiKey,
-                                    autocorrect: false,
-                                    enableSuggestions: false,
-                                    decoration: InputDecoration(
-                                      labelText: 'OpenAI API Key (선택)',
-                                      hintText: state.hasApiKey
-                                          ? '비워 두면 저장된 키 유지'
-                                          : 'OpenAI 프로필을 사용할 때만 필요',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: IconButton(
-                                        tooltip: _obscureApiKey
-                                            ? 'API Key 표시'
-                                            : 'API Key 숨기기',
-                                        onPressed: () => setState(
-                                          () =>
-                                              _obscureApiKey = !_obscureApiKey,
-                                        ),
-                                        icon: Icon(
-                                          _obscureApiKey
-                                              ? Icons.visibility_outlined
-                                              : Icons.visibility_off_outlined,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
                                   const Text(
-                                    'Provider와 모델은 공통 LLM 프로필 화면에서 '
+                                    'Provider, 모델, API Key는 용도별 AI 설정 화면에서 '
                                     '서버 실행 중에도 변경할 수 있습니다.',
                                   ),
                                   const SizedBox(height: 14),
@@ -211,7 +175,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                                       strokeWidth: 2,
                                                     ),
                                               )
-                                              : const Icon(
+                                            : const Icon(
                                                 Icons.play_arrow_rounded,
                                               ),
                                         label: Text(
@@ -307,9 +271,8 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
     try {
       await ref
           .read(localServerControllerProvider.notifier)
-          .saveSettings(config: config, apiKey: _apiKeyController.text);
+          .saveSettings(config: config, apiKey: '');
       if (!mounted) return;
-      _apiKeyController.clear();
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('로컬 서버 설정을 저장했어요.')));
     } catch (error) {
@@ -325,9 +288,8 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
     try {
       await ref
           .read(localServerControllerProvider.notifier)
-          .start(config: config, apiKey: _apiKeyController.text);
+          .start(config: config, apiKey: '');
       if (!mounted) return;
-      _apiKeyController.clear();
     } catch (error) {
       _showError(error);
     } finally {

@@ -64,9 +64,6 @@ class FolderPickerField extends StatelessWidget {
       rootLabel: rootLabel,
     );
     if (selection == null) return;
-    if (selection.folderId != null) {
-      _RecentFolders.record(selection.folderId!);
-    }
     onChanged(selection.folderId);
   }
 }
@@ -83,6 +80,7 @@ Future<FolderPickerSelection?> showFolderPicker(
   String? selectedFolderId,
   bool allowRoot = false,
   String rootLabel = '최상위',
+  String title = '폴더 선택',
 }) {
   final useDialog = switch (defaultTargetPlatform) {
     TargetPlatform.windows ||
@@ -97,6 +95,7 @@ Future<FolderPickerSelection?> showFolderPicker(
     selectedFolderId: selectedFolderId,
     allowRoot: allowRoot,
     rootLabel: rootLabel,
+    title: title,
   );
 
   if (useDialog) {
@@ -130,12 +129,14 @@ class _FolderPickerPanel extends StatefulWidget {
     required this.selectedFolderId,
     required this.allowRoot,
     required this.rootLabel,
+    required this.title,
   });
 
   final List<Folder> folders;
   final String? selectedFolderId;
   final bool allowRoot;
   final String rootLabel;
+  final String title;
 
   @override
   State<_FolderPickerPanel> createState() => _FolderPickerPanelState();
@@ -199,7 +200,7 @@ class _FolderPickerPanelState extends State<_FolderPickerPanel> {
             children: [
               Expanded(
                 child: Text(
-                  '폴더 선택',
+                  widget.title,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -300,6 +301,7 @@ class _FolderPickerPanelState extends State<_FolderPickerPanel> {
   }
 
   void _select(String? folderId) {
+    if (folderId != null) _RecentFolders.record(folderId);
     Navigator.of(context).pop(FolderPickerSelection(folderId));
   }
 }

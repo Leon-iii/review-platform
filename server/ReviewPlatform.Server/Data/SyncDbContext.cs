@@ -14,6 +14,8 @@ public sealed class SyncDbContext(DbContextOptions<SyncDbContext> options)
     public DbSet<LlmProfileRecord> LlmProfiles => Set<LlmProfileRecord>();
     public DbSet<LlmPurposeAssignmentRecord> LlmPurposeAssignments =>
         Set<LlmPurposeAssignmentRecord>();
+    public DbSet<LlmProviderSecretRecord> LlmProviderSecrets =>
+        Set<LlmProviderSecretRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,6 +66,12 @@ public sealed class SyncDbContext(DbContextOptions<SyncDbContext> options)
             entity.HasKey(assignment => assignment.Purpose);
             entity.Property(assignment => assignment.Purpose).HasMaxLength(64);
             entity.Property(assignment => assignment.ProfileId).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<LlmProviderSecretRecord>(entity =>
+        {
+            entity.HasKey(secret => secret.Provider);
+            entity.Property(secret => secret.Provider).HasMaxLength(32);
         });
     }
 }
@@ -116,10 +124,20 @@ public sealed class LlmProfileRecord
     public required string Model { get; set; }
     public required string BaseUrl { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public int? ContextWindowTokens { get; set; }
+
+    public string? ReasoningEffort { get; set; }
 }
 
 public sealed class LlmPurposeAssignmentRecord
 {
     public required string Purpose { get; set; }
     public required string ProfileId { get; set; }
+}
+
+public sealed class LlmProviderSecretRecord
+{
+    public required string Provider { get; set; }
+    public required string ProtectedValue { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
 }

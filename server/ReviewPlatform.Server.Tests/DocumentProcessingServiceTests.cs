@@ -339,9 +339,31 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
         }
     }
 
-    private sealed class ChunkRecordingProvider : ILLMProvider
+    [Theory]
+    [InlineData("openai", null)]
+    [InlineData("gemini", null)]
+    [InlineData("claude", null)]
+    [InlineData("ollama", 32_768)]
+    public async Task LargeContextProfiles_DoNotUseSmallLocalPageBatches(
+        string providerName, int? tokens)
     {
-        public string ProviderName => "fake";
+        var pages = Enumerable.Range(1, 18).Select(page =>
+            new ExtractedDocumentPage(page, new string('가', 1_000))).ToList();
+        var provider = new ChunkRecordingProvider(providerName, tokens);
+        var service = CreateService(
+            new FakePdfTextExtractor(new PdfTextExtractionResult(18, pages)), provider);
+        await using var content = PdfLikeStream();
+        await service.ImportPdfAsync(content, "자료.pdf", content.Length,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(18, Assert.Single(provider.Inputs).Pages.Count);
+    }
+
+    private sealed class ChunkRecordingProvider(
+        string providerName = "ollama", int? contextWindowTokens = null) : ILLMProvider
+    {
+        public string ProviderName => providerName;
+
+        public int? ContextWindowTokens => contextWindowTokens;
 
         public string ModelName => "fake-model";
 

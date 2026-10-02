@@ -63,6 +63,10 @@ public sealed class OpenAiLlmProviderTests
         var root = request.RootElement;
         Assert.Equal("test-model", root.GetProperty("model").GetString());
         Assert.False(root.GetProperty("store").GetBoolean());
+        Assert.False(root.TryGetProperty("num_ctx", out _));
+        Assert.False(root.TryGetProperty("options", out _));
+        Assert.False(root.TryGetProperty("reasoning", out _));
+        Assert.Null(((ILLMProvider)provider).ContextWindowTokens);
         var format = root.GetProperty("text").GetProperty("format");
         Assert.Equal("json_schema", format.GetProperty("type").GetString());
         Assert.True(format.GetProperty("strict").GetBoolean());
@@ -141,7 +145,9 @@ public sealed class OpenAiLlmProviderTests
 
     private static OpenAiLlmProvider CreateProvider(
         HttpMessageHandler handler,
-        string apiKey = "test-api-key")
+        string apiKey = "test-api-key",
+        string model = "test-model",
+        string? effort = null)
     {
         return new OpenAiLlmProvider(
             new HttpClient(handler),
@@ -149,8 +155,99 @@ public sealed class OpenAiLlmProviderTests
             {
                 Provider = "openai",
                 ApiKey = apiKey,
-                Model = "test-model"
+                Model = model,
+                ReasoningEffort = effort
             }));
+    }
+
+    [Theory]
+    [InlineData("gpt-5-mini", "high", true)]
+    [InlineData("gpt-5-mini", null, true)]
+    [InlineData("gpt-5.1", "none", false)]
+    [InlineData("gpt-4o-mini", null, false)]
+    [InlineData("gpt-7-future", null, false)]
+    [InlineData("gpt-6-luna", "max", true)]
+    [InlineData("gpt-6-luna", "none", false)]
+    [InlineData("gpt-6-luna", null, true)]
+    [InlineData("gpt-5.6-terra", "high", true)]
+    [InlineData("gpt-5.4-mini", "xhigh", true)]
+    [InlineData("gpt-5.5-pro", "xhigh", true)]
+    [InlineData("gpt-5-pro", "high", true)]
+    [InlineData("o3-pro", null, true)]
+    [InlineData("gpt-5.1-codex", null, true)]
+    [InlineData("gpt-4.5-preview", null, false)]
+    public async Task Reasoning_SendsOnlyExplicitSupportedEffortWithAppropriateBudget(
+        string model, string? effort, bool reservesReasoning)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "completed", output = new[] {
+                new { type = "message", content = new[] {
+                    new { type = "output_text", text = "{\"questions\":[]}" } } } } }));
+        await CreateProvider(handler, model: model, effort: effort).GenerateQuestionsAsync(
+            Input(), TestContext.Current.CancellationToken);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal(effort is not null, request.RootElement.TryGetProperty("reasoning", out var reasoning));
+        if (effort is not null)
+            Assert.Equal(effort, reasoning.GetProperty("effort").GetString());
+        var budget = request.RootElement.GetProperty("max_output_tokens").GetInt32();
+        Assert.Equal(reservesReasoning, budget >= 25_000);
+        Assert.InRange(budget, 1, 128_000);
+    }
+
+    [Theory]
+    [InlineData("gpt-5-mini", "none")]
+    [InlineData("gpt-7-future", "high")]
+    [InlineData("gpt-4o-mini", "low")]
+    [InlineData("gpt-5.5-pro", "low")]
+    [InlineData("gpt-5-pro", "medium")]
+    [InlineData("gpt-5.1-codex", "high")]
+    public async Task UnsupportedReasoning_FailsBeforeSendingRequest(string model, string effort)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException());
+        await Assert.ThrowsAsync<LlmProviderUnavailableException>(() =>
+            CreateProvider(handler, model: model, effort: effort).GenerateQuestionsAsync(
+                Input(), TestContext.Current.CancellationToken));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Theory]
+    [InlineData("gpt-5.4-pro")]
+    [InlineData("gpt-5.2-pro-2025-12-11")]
+    [InlineData("o1-mini")]
+    [InlineData("o3-deep-research")]
+    [InlineData("gpt-4o-2024-05-13")]
+    public async Task KnownIncompatibleModels_FailBeforeSendingRequest(string model)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException());
+        var error = await Assert.ThrowsAsync<LlmProviderUnavailableException>(() =>
+            CreateProvider(handler, model: model).GenerateQuestionsAsync(
+                Input(), TestContext.Current.CancellationToken));
+        Assert.Contains("구조화 출력", error.Message);
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task AutomaticOnlyReasoning_ClampsBudgetToKnownOutputLimit()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "completed", output = new[] {
+                new { type = "message", content = new[] {
+                    new { type = "output_text", text = "{\"questions\":[]}" } } } } }));
+        await CreateProvider(handler, model: "o1-preview").GenerateQuestionsAsync(
+            Input() with { QuestionCount = 100 }, TestContext.Current.CancellationToken);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal(32768, request.RootElement.GetProperty("max_output_tokens").GetInt32());
+        Assert.False(request.RootElement.TryGetProperty("reasoning", out _));
+    }
+
+    [Fact]
+    public async Task IncompleteOutput_ExplainsReasoningTokenLimit()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "incomplete", incomplete_details = new { reason = "max_output_tokens" } }));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).GenerateQuestionsAsync(Input(), TestContext.Current.CancellationToken));
+        Assert.Contains("추론·출력 토큰 한도", error.Message);
     }
 
     private static QuestionGenerationInput Input() => new(

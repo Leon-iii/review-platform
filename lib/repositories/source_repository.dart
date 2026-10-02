@@ -26,6 +26,8 @@ abstract interface class SourceRepository {
 
   Future<void> renameSource({required String id, required String fileName});
 
+  Future<void> moveSource({required String id, required String folderId});
+
   Future<void> deleteSource(String id);
 
   Future<void> setConceptApproval({required String id, required bool approved});
@@ -185,6 +187,34 @@ class DriftSourceRepository implements SourceRepository {
         concepts: _sortConcepts(conceptRows.map(_conceptFromRow)),
       );
     }, '학습 자료를 불러오지 못했어요.');
+  }
+
+  @override
+  Future<void> moveSource({required String id, required String folderId}) {
+    return _guard(() async {
+      await _database.transaction(() async {
+        final source = await _database.sourceDao.getSource(id);
+        if (source == null) {
+          throw const ValidationFailure('학습 자료를 찾을 수 없어요.');
+        }
+        if (await _database.folderDao.getActiveFolder(folderId) == null) {
+          throw const ValidationFailure('자료를 이동할 폴더를 찾을 수 없어요.');
+        }
+        if (source.folderId == folderId) return;
+
+        // Concepts and question source references keep the same source ID.
+        await _database.sourceDao.updateSource(
+          id,
+          StudySourcesCompanion(folderId: Value(folderId)),
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.source.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: DateTime.now().toUtc(),
+        );
+      });
+    }, 'PDF 강의자료를 이동하지 못했어요.');
   }
 
   @override

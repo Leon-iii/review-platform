@@ -5,6 +5,7 @@ import 'package:review_platform/app/router.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/attempt.dart';
+import 'package:review_platform/domain/models/quiz_filter.dart';
 import 'package:review_platform/features/study/result/quiz_result_view_model.dart';
 
 class QuizResultView extends ConsumerWidget {
@@ -17,6 +18,7 @@ class QuizResultView extends ConsumerWidget {
     final result = ref.watch(quizResultProvider(sessionId));
 
     return Scaffold(
+      key: const Key('quiz-result-view'),
       appBar: AppBar(title: const Text('퀴즈 결과')),
       body: result.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -69,12 +71,22 @@ class QuizResultView extends ConsumerWidget {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '오답 문제',
+                      summary.session.filter.feedbackTiming ==
+                              AnswerFeedbackTiming.afterCompletion
+                          ? '문제별 결과'
+                          : '오답 문제',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
                   const SizedBox(height: 10),
-                  if (summary.wrongAttempts.isEmpty)
+                  if (summary.session.filter.feedbackTiming ==
+                      AnswerFeedbackTiming.afterCompletion)
+                    for (final attempt in summary.attempts)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _AnswerResultCard(attempt: attempt),
+                      )
+                  else if (summary.wrongAttempts.isEmpty)
                     const Card(
                       child: Padding(
                         padding: EdgeInsets.all(20),
@@ -91,7 +103,7 @@ class QuizResultView extends ConsumerWidget {
                     for (final attempt in summary.wrongAttempts)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: _WrongAnswerCard(attempt: attempt),
+                        child: _AnswerResultCard(attempt: attempt),
                       ),
                   if (summary.wrongAttempts.isNotEmpty &&
                       summary.session.sourceFolderId != null) ...[
@@ -136,14 +148,15 @@ class QuizResultView extends ConsumerWidget {
   }
 }
 
-class _WrongAnswerCard extends StatelessWidget {
-  const _WrongAnswerCard({required this.attempt});
+class _AnswerResultCard extends StatelessWidget {
+  const _AnswerResultCard({required this.attempt});
 
   final Attempt attempt;
 
   @override
   Widget build(BuildContext context) {
     final question = attempt.questionSnapshot;
+    final isCorrect = attempt.score == attempt.maxScore;
     final submittedAnswer = switch (question.type) {
       QuestionType.multipleChoice || QuestionType.trueFalse =>
         question.choices
@@ -169,11 +182,15 @@ class _WrongAnswerCard extends StatelessWidget {
 
     return Card(
       child: ExpansionTile(
+        key: Key('quiz-answer-result-${attempt.questionId}'),
         leading: Icon(
-          Icons.cancel_outlined,
-          color: Theme.of(context).colorScheme.error,
+          isCorrect
+              ? Icons.check_circle_outline_rounded
+              : Icons.cancel_outlined,
+          color: isCorrect ? Colors.green : Theme.of(context).colorScheme.error,
         ),
         title: Text(question.prompt),
+        subtitle: Text(isCorrect ? '정답' : '오답'),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
