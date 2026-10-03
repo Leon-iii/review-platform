@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/features/library/question_editor/question_editor_view_model.dart';
 
@@ -22,7 +24,7 @@ class QuestionEditorView extends ConsumerWidget {
         error: (error, stackTrace) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(error is AppFailure ? error.message : '문제를 불러오지 못했어요.'),
+            child: AppErrorNotice(error: error, fallback: '문제를 불러오지 못했어요.'),
           ),
         ),
         data: (loadedQuestion) {
@@ -69,6 +71,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
   late QuestionType _type;
   late int _correctChoiceIndex;
   late int _difficulty;
+  late ConceptImportance _importance;
   bool _isSaving = false;
 
   @override
@@ -77,6 +80,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
     final question = widget.initialQuestion;
     _type = question?.type ?? QuestionType.multipleChoice;
     _difficulty = question?.difficulty ?? 3;
+    _importance = question?.importance ?? ConceptImportance.medium;
     _promptController = TextEditingController(text: question?.prompt ?? '');
     _explanationController = TextEditingController(
       text: question?.explanation ?? '',
@@ -209,6 +213,34 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                       alignLabelWithHint: true,
                       border: OutlineInputBorder(),
                     ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    '중요도 · ${_importance.label}',
+                    key: const Key('question-importance-label'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Slider(
+                    key: const Key('question-importance-slider'),
+                    min: 1,
+                    max: 5,
+                    divisions: 4,
+                    value: _importance.weight.toDouble(),
+                    label: _importance.label,
+                    onChanged:
+                        widget.initialQuestion?.inheritsImportance == true ||
+                            _isSaving
+                        ? null
+                        : (value) => setState(
+                            () => _importance =
+                                ConceptImportance.values[value.round() - 1],
+                          ),
+                  ),
+                  Text(
+                    widget.initialQuestion?.inheritsImportance == true
+                        ? '출처 개념의 중요도를 따릅니다. 개념에서 수정하면 연결된 문제에도 반영됩니다.'
+                        : '복습 출제 비중에 사용됩니다. 난이도와는 별개입니다.',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 28),
                   FilledButton.icon(
@@ -398,6 +430,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       prompt: _promptController.text,
       explanation: _explanationController.text,
       difficulty: _difficulty,
+      importance: _importance,
       choices: switch (_type) {
         QuestionType.multipleChoice => [
           for (var index = 0; index < _choiceControllers.length; index++)
@@ -426,8 +459,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       if (!mounted) return;
       setState(() => _isSaving = false);
       final message = error is AppFailure ? error.message : '문제를 저장하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 }

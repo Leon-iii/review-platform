@@ -2,6 +2,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:review_platform/core/sync/remote_sync_api.dart';
 import 'package:review_platform/core/sync/sync_credentials_store.dart';
+import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/domain/services/automatic_sync_controller.dart';
 import 'package:review_platform/domain/services/sync_coordinator.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
@@ -41,6 +42,12 @@ AutomaticSyncController automaticSyncController(Ref ref) {
     ref.watch(syncCredentialsStoreProvider),
     ref.watch(syncCoordinatorProvider),
     ref.watch(syncRepositoryProvider).watchStatus(),
+    canSynchronize: (configuration) async {
+      if (!ref.read(isWindowsPlatformProvider)) return true;
+      return ref
+          .read(localServerStartupCoordinatorProvider)
+          .canPoll(configuration.serverUrl);
+    },
   );
   ref.onDispose(controller.dispose);
   return controller;

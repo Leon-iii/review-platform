@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/core/server/local_server_config.dart';
@@ -312,8 +313,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
     final message = error is AppFailure
         ? error.message
         : '로컬 서버 작업을 완료하지 못했어요.';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showAppError(context, message);
   }
 
   void _scrollLogsToBottom() {
@@ -388,10 +388,7 @@ class _StatusPanel extends StatelessWidget {
             ],
             if (error case final message?) ...[
               const SizedBox(height: 8),
-              Text(
-                message,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+              AppErrorNotice(error: message),
             ],
             if (exitCode case final code?) Text('Exit code: $code'),
           ],

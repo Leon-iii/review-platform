@@ -143,6 +143,197 @@ public sealed class OpenAiLlmProviderTests
         Assert.DoesNotContain("private refusal detail", exception.Message);
     }
 
+    [Fact]
+    public async Task DocumentVision_SendsImageAndReturnsTextUsingSelectedProfile()
+    {
+        var handler = new RecordingHandler(_ => VisionResponse("  표와 수식: E = mc²\n한국어  "));
+        var result = await CreateProvider(handler, model: "gpt-6.1-sol", effort: "medium")
+            .ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken);
+        Assert.Equal("표와 수식: E = mc²\n한국어", result.Text);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        var root = request.RootElement;
+        Assert.Equal("gpt-6.1-sol", root.GetProperty("model").GetString());
+        Assert.False(root.GetProperty("store").GetBoolean());
+        Assert.Equal("medium", root.GetProperty("reasoning").GetProperty("effort").GetString());
+        Assert.True(root.GetProperty("max_output_tokens").GetInt32() >= 25_000);
+        Assert.False(root.TryGetProperty("options", out _));
+        var content = root.GetProperty("input")[1].GetProperty("content");
+        Assert.Equal("input_text", content[0].GetProperty("type").GetString());
+        Assert.Contains("PAGE: 3", content[0].GetProperty("text").GetString());
+        Assert.Equal("input_image", content[1].GetProperty("type").GetString());
+        Assert.Equal("data:image/png;base64,AQID", content[1].GetProperty("image_url").GetString());
+        Assert.Equal("high", content[1].GetProperty("detail").GetString());
+        var format = root.GetProperty("text").GetProperty("format");
+        Assert.True(format.GetProperty("strict").GetBoolean());
+        Assert.Equal("json_schema", format.GetProperty("type").GetString());
+        Assert.False(format.GetProperty("schema").GetProperty("additionalProperties").GetBoolean());
+        Assert.Equal("Bearer", handler.AuthorizationScheme);
+        Assert.DoesNotContain("test-api-key", handler.RequestBody);
+    }
+
+    [Fact]
+    public async Task DocumentVision_ReturnsTypedRegionsAndRequiresTheirKindsInSchema()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, new
+        {
+            status = "completed",
+            output = new[] { new { type = "message", content = new[] { new
+            {
+                type = "output_text",
+                text = """{"regions":[{"kind":"diagram","text":"A → B","visualRegion":true},{"kind":"table","text":"|열|값|","visualRegion":false}]}"""
+            } } } }
+        }));
+        var result = await CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken);
+        Assert.Equal(["diagram", "table"], result.Regions!.Select(region => region.Kind));
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        var itemSchema = request.RootElement.GetProperty("text").GetProperty("format").GetProperty("schema")
+            .GetProperty("properties").GetProperty("regions").GetProperty("items");
+        Assert.Equal(["text", "diagram", "table", "uncertain"], itemSchema.GetProperty("properties")
+            .GetProperty("kind").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+        Assert.Contains(itemSchema.GetProperty("required").EnumerateArray(), value => value.GetString() == "kind");
+    }
+
+    [Fact]
+    public async Task DocumentVision_BlankPageIsValid()
+    {
+        var handler = new RecordingHandler(_ => VisionResponse(""));
+        var result = await CreateProvider(handler).ExtractPageContentAsync(
+            VisionInput(), TestContext.Current.CancellationToken);
+        Assert.Empty(result.Text);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"text\":null}")]
+    [InlineData("not json")]
+    public async Task DocumentVision_InvalidResultIsProviderFailure(string output)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "completed", output = new[] { new { type = "message",
+                content = new[] { new { type = "output_text", text = output } } } } }));
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DocumentVision_IncompleteOutputIsNotSavedAsPartialText()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "incomplete", incomplete_details = new { reason = "max_output_tokens" } }));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        Assert.Contains("추론·출력 토큰 한도", error.Message);
+    }
+
+    [Fact]
+    public async Task DocumentVision_RefusalIsSafeFailure()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "completed", output = new[] { new { type = "message",
+                content = new[] { new { type = "refusal", refusal = "private detail" } } } } }));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        Assert.Contains("거절", error.Message);
+        Assert.DoesNotContain("private detail", error.Message);
+    }
+
+    [Fact]
+    public async Task DocumentVision_ApiFailureHidesUpstreamSecrets()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.BadRequest,
+            new { error = new { code = "invalid_image", message = "test-api-key private detail" } }));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        Assert.Contains("400", error.Message);
+        Assert.Contains("invalid_image", error.Message);
+        Assert.DoesNotContain("test-api-key", error.Message);
+    }
+
+    [Fact]
+    public async Task DocumentVision_MissingKeyOrInvalidImageDoesNotSendRequest()
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException());
+        await Assert.ThrowsAsync<LlmProviderUnavailableException>(() =>
+            CreateProvider(handler, apiKey: "").ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        foreach (var input in new[] {
+            VisionInput() with { ImageBytes = [] },
+            VisionInput() with { ImageBytes = new byte[12 * 1024 * 1024 + 1] },
+            VisionInput() with { MimeType = "text/plain" } })
+            await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+                CreateProvider(handler).ExtractPageContentAsync(input, TestContext.Current.CancellationToken));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task DocumentVision_TimeoutIsReadableAndCallerCancellationPropagates()
+    {
+        var handler = new RecordingHandler(_ => throw new TaskCanceledException());
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        Assert.Contains("시간이 초과", error.Message);
+        Assert.Contains("p.3", error.Message);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), cancellation.Token));
+    }
+
+    [Fact]
+    public async Task DocumentVision_OversizedOutputIsRejected()
+    {
+        var handler = new RecordingHandler(_ => VisionResponse(new string('x', 50_001)));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        Assert.Contains("너무 깁니다", error.Message);
+    }
+
+    [Fact]
+    public async Task DocumentVision_ConnectionErrorIsReadable()
+    {
+        var handler = new RecordingHandler(_ => throw new HttpRequestException("private detail"));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractPageContentAsync(VisionInput(), TestContext.Current.CancellationToken));
+        Assert.Contains("연결하지 못했습니다", error.Message);
+        Assert.DoesNotContain("private detail", error.Message);
+    }
+
+    [Fact]
+    public async Task DocumentVision_CombinesOutputTextPartsAndIgnoresReasoning()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "completed", output = new object[] {
+                new { type = "reasoning", summary = Array.Empty<object>() },
+                new { type = "message", content = new[] {
+                    new { type = "output_text", text = "{\"text\":\"" },
+                    new { type = "output_text", text = "OCR 결과\"}" } } } } }));
+        var result = await CreateProvider(handler).ExtractPageContentAsync(
+            VisionInput(), TestContext.Current.CancellationToken);
+        Assert.Equal("OCR 결과", result.Text);
+    }
+
+    [Fact]
+    public async Task InvalidConceptSchema_IdentifiesStageWithoutExposingUpstreamMessage()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.BadRequest,
+            new { error = new { code = "invalid_json_schema", message = "private upstream detail" } }));
+        var error = await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateProvider(handler).ExtractConceptsAsync(new ConceptExtractionInput("source", "자료.pdf",
+                [new ExtractedDocumentPage(1, "내용")], ConceptExtractionPrompt.Version),
+                TestContext.Current.CancellationToken));
+        Assert.Contains("개념 추출", error.Message);
+        Assert.Contains("JSON Schema", error.Message);
+        Assert.Contains("400 (invalid_json_schema)", error.Message);
+        Assert.DoesNotContain("private upstream detail", error.Message);
+    }
+
+    private static DocumentVisionInput VisionInput() => new(
+        "강의.pdf", 3, "image/png", [1, 2, 3], "image-hash", DocumentVisionPrompt.Version);
+
+    private static HttpResponseMessage VisionResponse(string text) =>
+        JsonResponse(HttpStatusCode.OK, new { status = "completed", output = new[] {
+            new { type = "message", content = new[] {
+                new { type = "output_text", text = JsonSerializer.Serialize(new { text }) } } } } });
+
     private static OpenAiLlmProvider CreateProvider(
         HttpMessageHandler handler,
         string apiKey = "test-api-key",

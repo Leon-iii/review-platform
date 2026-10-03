@@ -1,7 +1,9 @@
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/app/app.dart';
@@ -114,6 +116,123 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<Slider>(finder).value, importance.index.toDouble());
   }
+
+  RenderParagraph paragraphFor(WidgetTester tester, Finder text) =>
+      tester.renderObject<RenderParagraph>(
+        find.descendant(of: text, matching: find.byType(RichText)),
+      );
+
+  testWidgets(
+    'PC 개념 제목과 본문만 마우스로 선택·복사하고 모바일은 기존 동작을 유지한다',
+    (tester) async {
+      final desktop = defaultTargetPlatform == TargetPlatform.windows;
+      await tester.binding.setSurfaceSize(
+        desktop ? const Size(1100, 1000) : const Size(390, 800),
+      );
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('home-view'))),
+      );
+      container
+          .read(routerProvider)
+          .go(
+            AppRoutes.documentsForSource(
+              saved.source.folderId,
+              saved.source.id,
+            ),
+          );
+      await tester.pumpAndSettle();
+      final concept = saved.concepts.first;
+      final title = find.byKey(Key('concept-title-${concept.id}'));
+      final content = find.byKey(Key('concept-content-${concept.id}'));
+      for (final text in [title, content]) {
+        expect(
+          find.ancestor(of: text, matching: find.byType(SelectionArea)),
+          desktop ? findsOneWidget : findsNothing,
+        );
+      }
+      expect(
+        find.ancestor(
+          of: find.byKey(Key('concept-approval-${concept.id}')),
+          matching: find.byType(SelectionArea),
+        ),
+        findsNothing,
+      );
+      if (desktop) {
+        String? clipboard;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'Clipboard.setData') {
+              clipboard = (call.arguments as Map)['text'] as String;
+            }
+            if (call.method == 'Clipboard.getData') return {'text': clipboard};
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        for (final text in [content, title]) {
+          await tester.ensureVisible(text);
+          await tester.pumpAndSettle();
+          final paragraph = paragraphFor(tester, text);
+          final value = tester.widget<Text>(text).data!;
+          final start =
+              paragraph.localToGlobal(
+                paragraph.getOffsetForCaret(
+                  const TextPosition(offset: 0),
+                  Rect.zero,
+                ),
+              ) +
+              const Offset(1, 8);
+          final end =
+              paragraph.localToGlobal(
+                paragraph.getOffsetForCaret(
+                  TextPosition(offset: value.length - 1),
+                  Rect.zero,
+                ),
+              ) +
+              const Offset(0, 8);
+          final mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          await mouse.addPointer(location: start);
+          await mouse.down(start);
+          await mouse.moveTo(end);
+          await mouse.up();
+          await tester.pumpAndSettle();
+          clipboard = null;
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+          await tester.pumpAndSettle();
+          expect(clipboard, isNotNull);
+          expect(clipboard!.length, greaterThan(1));
+          expect(value, contains(clipboard!));
+          expect(
+            content,
+            findsOneWidget,
+          ); // Title drag must not collapse the card.
+          await mouse.removePointer();
+        }
+      }
+      await tapVisible(tester, find.byKey(Key('concept-toggle-${concept.id}')));
+      expect(content, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
 
   for (final mode in ['independent', 'group', 'cancel']) {
     testWidgets(
@@ -437,12 +556,9 @@ void main() {
         );
         expect(tester.widget<Text>(title).maxLines, 1);
         expect(tester.widget<Text>(title).overflow, TextOverflow.ellipsis);
-        expect(
-          tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
-          isTrue,
-        );
+        expect(paragraphFor(tester, title).didExceedMaxLines, isTrue);
         final shortTitle = find.byKey(Key('concept-title-${second.id}'));
-        final shortParagraph = tester.renderObject<RenderParagraph>(shortTitle);
+        final shortParagraph = paragraphFor(tester, shortTitle);
         final shortTitleFits =
             scale == 1.0 || defaultTargetPlatform == TargetPlatform.windows;
         expect(shortParagraph.didExceedMaxLines, !shortTitleFits);
@@ -458,9 +574,7 @@ void main() {
           closeTo(8, 0.1),
         );
         final manualTitle = find.byKey(Key('concept-title-${manual.id}'));
-        final manualParagraph = tester.renderObject<RenderParagraph>(
-          manualTitle,
-        );
+        final manualParagraph = paragraphFor(tester, manualTitle);
         expect(manualParagraph.didExceedMaxLines, !shortTitleFits);
         if (shortTitleFits) {
           expect(
@@ -837,12 +951,23 @@ void main() {
       expect(contents.controller!.text, contains('첫 개념'));
       expect(contents.controller!.text, contains('둘째 개념'));
       expect(contents.controller!.text, isNot(contains('보류 개념')));
+      final importanceToggle = find.byKey(
+        const Key('ai-concept-importance-switch'),
+      );
+      expect(tester.widget<SwitchListTile>(importanceToggle).value, true);
+      await tapVisible(tester, importanceToggle);
+      expect(tester.widget<SwitchListTile>(importanceToggle).value, false);
       await tapVisible(
         tester,
         find.byKey(const Key('generate-ai-questions-button')),
       );
       expect(remote.callCount, 1);
       expect(remote.lastRequest!.sourceText, contents.controller!.text);
+      expect(remote.lastRequest!.reflectConceptImportance, false);
+      expect(remote.lastRequest!.concepts.map((c) => c.id).toSet(), {
+        saved.concepts[0].id,
+        saved.concepts[1].id,
+      });
       final generated = (await tester.runAsync(
         () =>
             DriftQuestionRepository(database)
@@ -853,8 +978,15 @@ void main() {
       for (final question in generated) {
         final reference = question.sourceReferences.single;
         expect(reference.sourceId, saved.source.id);
-        expect(reference.conceptId, isNull);
-        expect(reference.pageNumbers, [1, 2, 4]);
+        expect(
+          reference.conceptId,
+          isIn([saved.concepts[0].id, saved.concepts[1].id]),
+        );
+        final concept = saved.concepts.firstWhere(
+          (c) => c.id == reference.conceptId,
+        );
+        expect(reference.pageNumbers, concept.pageNumbers);
+        expect(question.importance, concept.importance);
       }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

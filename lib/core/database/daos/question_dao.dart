@@ -12,14 +12,19 @@ class QuestionDao extends DatabaseAccessor<AppDatabase>
   QuestionDao(super.attachedDatabase);
 
   Stream<List<QuestionRow>> watchActiveQuestions(String folderId) {
-    return (select(questions)
-          ..where(
-            (question) =>
-                question.folderId.equals(folderId) &
-                question.deletedAt.isNull(),
-          )
-          ..orderBy([(question) => OrderingTerm.desc(question.updatedAt)]))
-        .watch();
+    return customSelect(
+      'SELECT * FROM questions WHERE folder_id = ? AND deleted_at IS NULL '
+      'ORDER BY updated_at DESC',
+      variables: [Variable.withString(folderId)],
+      readsFrom: {
+        questions,
+        attachedDatabase.concepts,
+        attachedDatabase.questionSources,
+        attachedDatabase.studySources,
+      },
+    ).watch().map(
+      (rows) => rows.map((row) => questions.map(row.data)).toList(),
+    );
   }
 
   Future<QuestionRow?> getActiveQuestion(String id) {

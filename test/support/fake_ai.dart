@@ -9,6 +9,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
   int callCount = 0;
   Completer<void>? gate;
   AiQuestionGenerationRequest? lastRequest;
+  bool invalidConceptId = false;
 
   @override
   Future<AiQuestionGenerationResult> generateQuestions({
@@ -38,12 +39,24 @@ class FakeRemoteAiApi implements RemoteAiApi {
       ),
       questions: [
         for (var index = 0; index < questionCount; index++)
-          _question(types[index % types.length], index),
+          _question(
+            types[index % types.length],
+            index,
+            request.concepts.isEmpty
+                ? null
+                : invalidConceptId
+                ? 'unknown-concept'
+                : request.concepts[index % request.concepts.length].id,
+          ),
       ],
     );
   }
 
-  AiGeneratedQuestion _question(QuestionType type, int index) {
+  AiGeneratedQuestion _question(
+    QuestionType type,
+    int index,
+    String? primaryConceptId,
+  ) {
     if (type == QuestionType.multipleChoice) {
       return AiGeneratedQuestion(
         type: type,
@@ -56,6 +69,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
         sourceIds: const [],
         explanation: '생성된 해설',
         difficulty: 2,
+        primaryConceptId: primaryConceptId,
       );
     }
     if (type == QuestionType.trueFalse) {
@@ -70,6 +84,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
         sourceIds: const [],
         explanation: '생성된 해설',
         difficulty: 1,
+        primaryConceptId: primaryConceptId,
       );
     }
     return AiGeneratedQuestion(
@@ -80,6 +95,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
       sourceIds: const [],
       explanation: '생성된 해설',
       difficulty: 1,
+      primaryConceptId: primaryConceptId,
     );
   }
 }

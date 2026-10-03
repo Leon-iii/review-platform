@@ -8,7 +8,12 @@ public sealed record GenerateQuestionsRequest(
     string? GenerationMode = null,
     string? AutomaticDensity = null,
     int MinimumDifficulty = 1,
-    int MaximumDifficulty = 5);
+    int MaximumDifficulty = 5,
+    IReadOnlyList<QuestionGenerationConcept>? Concepts = null,
+    bool ReflectConceptImportance = false);
+
+public sealed record QuestionGenerationConcept(
+    string Id, string Title, string Content, string Importance = "medium");
 
 public sealed record GeneratedQuestionChoice(string Text, bool IsCorrect);
 
@@ -19,7 +24,8 @@ public sealed record GeneratedQuestionDraft(
     IReadOnlyList<string> AcceptableAnswers,
     string? Explanation,
     int? Difficulty,
-    IReadOnlyList<string> SourceIds)
+    IReadOnlyList<string> SourceIds,
+    string? PrimaryConceptId = null)
 {
     public string Status => "draft";
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -9,11 +10,14 @@ import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
+import 'package:review_platform/features/documents/document_job_delete_button.dart';
 import 'package:review_platform/features/library/folder_browser/folder_browser_view_model.dart';
 import 'package:review_platform/features/library/question_list/question_list_view_model.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
 import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
+import 'package:review_platform/shared/widgets/pdf_review_option.dart';
+import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 
 class QuestionListView extends ConsumerWidget {
   const QuestionListView({required this.folderId, super.key});
@@ -76,6 +80,7 @@ class QuestionListView extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 if (supportsPdfDrop) ...[
+                  const PdfReviewOption(),
                   const Text(
                     '이 자료 영역에 PDF 파일을 끌어다 놓아 가져올 수 있어요. (1개 · 용량 제한은 서버 설정에 따릅니다.)',
                   ),
@@ -89,7 +94,9 @@ class QuestionListView extends ConsumerWidget {
                         child: ListTile(
                           key: Key('pdf-job-${job.id}'),
                           leading: Icon(
-                            job.isActive
+                            job.isAwaitingReview
+                                ? Icons.fact_check_outlined
+                                : job.isActive
                                 ? Icons.hourglass_top_rounded
                                 : Icons.picture_as_pdf_rounded,
                           ),
@@ -97,7 +104,29 @@ class QuestionListView extends ConsumerWidget {
                           subtitle: Text(
                             '${job.statusLabel}${job.totalPages > 0 ? ' · ${job.progressLabel}' : ''}',
                           ),
-                          trailing: const Icon(Icons.chevron_right),
+                          trailing: DocumentJobDeleteButton(
+                            jobId: job.id,
+                            fileName: job.fileName,
+                            menu: true,
+                            deleteEnabled: job.status != 'uploading',
+                            onMove: () => _moveItem(
+                              context,
+                              ref,
+                              title: '자료 이동',
+                              itemLabel: '자료',
+                              move: (targetId) async {
+                                final coordinator = ref.read(
+                                  documentJobCoordinatorProvider,
+                                );
+                                if (coordinator == null) {
+                                  throw const ValidationFailure(
+                                    'PDF 작업을 이동할 수 없어요.',
+                                  );
+                                }
+                                await coordinator.move(job.id, targetId);
+                              },
+                            ),
+                          ),
                           onTap: () => context.push(
                             AppRoutes.documentsForJob(folderId, job.id),
                           ),
@@ -296,12 +325,7 @@ class QuestionListView extends ConsumerWidget {
                       onChanged: (value) => name = value,
                     ),
                     if (errorMessage != null)
-                      Text(
-                        errorMessage!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
+                      AppErrorNotice(error: errorMessage!),
                   ],
                 ),
               ),
@@ -338,6 +362,7 @@ class QuestionListView extends ConsumerWidget {
                                 ? error.message
                                 : '자료를 만들지 못했어요.';
                           });
+                          showAppError(dialogContext, errorMessage!);
                         }
                       },
                 child: Text(saving ? '생성 중…' : '만들기'),
@@ -398,8 +423,7 @@ class QuestionListView extends ConsumerWidget {
       final message = error is AppFailure
           ? error.message
           : '$itemLabel 항목을 이동하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 
@@ -433,8 +457,7 @@ class QuestionListView extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '문제를 삭제하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 
@@ -452,8 +475,7 @@ class QuestionListView extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '문제를 승인하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 
@@ -512,8 +534,7 @@ class QuestionListView extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '자료 이름을 변경하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 
@@ -555,8 +576,7 @@ class QuestionListView extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '자료를 삭제하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 }
@@ -662,6 +682,7 @@ class _QuestionCard extends StatelessWidget {
               }}${question.status.name == 'draft' ? ' · Draft' : ''}',
             ),
             Text('난이도 ${question.difficulty}/5'),
+            ConceptImportanceBadge(importance: question.importance),
             if (question.sourceReferences.isNotEmpty)
               Text(_sourceLabel(question.sourceReferences.first)),
           ],
@@ -709,18 +730,7 @@ class _QuestionError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            Text(message),
-            const SizedBox(height: 12),
-            OutlinedButton(onPressed: onRetry, child: const Text('다시 시도')),
-          ],
-        ),
-      ),
-    );
+    return AppErrorNotice(error: message, onRetry: onRetry);
   }
 }
 

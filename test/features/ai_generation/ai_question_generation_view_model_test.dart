@@ -6,16 +6,98 @@ import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/database/database_providers.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/enums/question_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
+import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/features/ai_generation/ai_question_generation_view_model.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
+import 'package:review_platform/repositories/source_repository.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 
 import '../../support/fake_ai.dart';
 import '../../support/fake_sync.dart';
 
 void main() {
+  for (final invalidId in [false, true]) {
+    test('문항별 주개념 연결을 검증하고 중요도를 상속한다 (잘못된 ID: $invalidId)', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final folder = await DriftFolderRepository(db).createFolder(name: '자료');
+      final sources = DriftSourceRepository(db);
+      final source = (await sources.createSource(
+        folderId: folder,
+        name: '자료',
+      )).source;
+      final concepts = [
+        await sources.addConcept(
+          sourceId: source.id,
+          title: '지엽적',
+          content: '충분히 긴 개념 내용입니다.',
+          importance: ConceptImportance.veryLow,
+        ),
+        await sources.addConcept(
+          sourceId: source.id,
+          title: '핵심',
+          content: '충분히 긴 핵심 개념 내용입니다.',
+          importance: ConceptImportance.veryHigh,
+        ),
+      ];
+      final remote = FakeRemoteAiApi()..invalidConceptId = invalidId;
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWithValue(db),
+          remoteAiApiProvider.overrideWithValue(remote),
+          syncCredentialsStoreProvider.overrideWithValue(
+            MemorySyncCredentialsStore(
+              configuration: const SyncConfiguration(
+                serverUrl: 'http://127.0.0.1:5080',
+                accessToken: 'token',
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final provider = aiQuestionGenerationControllerProvider(folder);
+      final request = container
+          .read(provider.notifier)
+          .generate(
+            folderId: folder,
+            sourceText: '구조화된 개념 내용으로 문제를 생성합니다.',
+            questionCount: 2,
+            questionTypes: {QuestionType.shortAnswer},
+            minimumDifficulty: 4,
+            maximumDifficulty: 5,
+            concepts: concepts,
+            reflectConceptImportance: true,
+            sourceReference: QuestionSourceDraft(
+              sourceId: source.id,
+              pageNumbers: const [],
+            ),
+          );
+      final questions = container.read(questionRepositoryProvider);
+      if (invalidId) {
+        await expectLater(request, throwsA(isA<ValidationFailure>()));
+        expect(await questions.watchQuestions(folder).first, isEmpty);
+      } else {
+        await request;
+        for (var i = 0; i < 2; i++) {
+          final item = container.read(provider).requireValue!.items[i];
+          final question = (await questions.getQuestion(item.questionId))!;
+          expect(question.primaryConceptId, concepts[i].id);
+          expect(question.importance, concepts[i].importance);
+          expect(question.difficulty, 1);
+          expect(question.status, QuestionStatus.draft);
+        }
+      }
+      final json = remote.lastRequest!.toJson();
+      expect(json['reflectConceptImportance'], true);
+      expect((json['concepts']! as List).last['importance'], 'veryHigh');
+    });
+  }
+
   test('생성 결과를 Draft로 저장하고 모두 승인한다', () async {
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);

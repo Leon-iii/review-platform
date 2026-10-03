@@ -24,10 +24,24 @@ public sealed class DocumentCheckpoint
     public int TotalPages { get; set; }
     public int TotalChunks { get; set; }
     public string Stage { get; set; } = "queued";
+    public bool ReviewBeforeConcepts { get; set; }
+    public bool ReviewConfirmed { get; set; }
+    public int ReviewRevision { get; set; }
+    public Dictionary<int, List<DocumentReviewBlock>> ReviewPages { get; set; } = [];
 }
+
+public sealed record DocumentReviewBlock(string Text, bool Independent = false,
+    bool Excluded = false, bool VisualRegion = false, string Kind = DocumentContentKinds.Uncertain);
+public sealed record DocumentReviewPage(int PageNumber, int TotalPages, string OriginalText,
+    IReadOnlyList<DocumentReviewBlock> Blocks, int Revision, bool Edited,
+    IReadOnlyList<DocumentReviewBlock>? OriginalBlocks = null, bool ReadOnly = false);
+public sealed record SaveDocumentReviewRequest(int Revision, IReadOnlyList<DocumentReviewBlock>? Blocks);
+public sealed record ConfirmDocumentReviewRequest(int Revision);
+public sealed class DocumentReviewRequiredException : Exception;
 
 public sealed record DocumentJobResponse(
     string Id, string FileName, string Status, string Stage,
     int CompletedPages, int TotalPages, int CompletedChunks, int TotalChunks,
     string? Error, DateTimeOffset UpdatedAt,
-    string VisionModel, string ConceptModel);
+    string VisionModel, string ConceptModel,
+    bool ReviewBeforeConcepts = false, bool ReviewConfirmed = false);

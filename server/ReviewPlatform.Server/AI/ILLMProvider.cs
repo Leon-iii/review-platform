@@ -53,21 +53,25 @@ public sealed record QuestionGenerationInput(
     int MaximumQuestionsPerConcept = 0,
     int MinimumDifficulty = 1,
     int MaximumDifficulty = 5,
-    int MaximumQuestionsPerRequest = 120)
+    int MaximumQuestionsPerRequest = 120,
+    IReadOnlyList<QuestionConceptPlan>? ConceptPlans = null,
+    bool ReflectConceptImportance = false)
 {
+    public int? PlannedQuestionCount => ConceptPlans is { Count: > 0 }
+        ? ConceptPlans.Sum(plan => plan.QuestionCount) : null;
     public string SourceReference => string.IsNullOrWhiteSpace(SourceLabel)
         ? "provided-source"
         : SourceLabel;
 
     public bool IsAutomatic => GenerationMode == "automatic";
 
-    public int MinimumOutputQuestions => IsAutomatic ? 1 : QuestionCount;
+    public int MinimumOutputQuestions => PlannedQuestionCount ?? (IsAutomatic ? 1 : QuestionCount);
 
-    public int MaximumOutputQuestions => IsAutomatic
+    public int MaximumOutputQuestions => PlannedQuestionCount ?? (IsAutomatic
         ? MaximumQuestionsPerRequest
-        : QuestionCount;
+        : QuestionCount);
 
-    public int QuestionBudgetForTokenLimit => IsAutomatic
+    public int QuestionBudgetForTokenLimit => PlannedQuestionCount ?? (IsAutomatic
         ? Math.Min(MaximumQuestionsPerRequest, AutomaticDensity switch
         {
             "low" => 10,
@@ -75,8 +79,10 @@ public sealed record QuestionGenerationInput(
             "high" => 30,
             _ => 20
         })
-        : QuestionCount;
+        : QuestionCount);
 }
+
+public sealed record QuestionConceptPlan(QuestionGenerationConcept Concept, int QuestionCount);
 
 public sealed class LlmProviderUnavailableException(
     string message,

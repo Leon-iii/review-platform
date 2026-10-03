@@ -92,8 +92,10 @@ app.MapPost("/api/documents/jobs/{id}", async (string id, string fileName,
     {
         var bodyLimit = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = documentLimits.MaximumFileSize;
+        if (!bool.TryParse(request.Query["reviewBeforeConcepts"].FirstOrDefault() ?? "false", out var reviewBeforeConcepts))
+            return Results.BadRequest(new { error = "OCR 검토 설정이 올바르지 않습니다." });
         return Results.Json(await service.UploadAsync(id, fileName, request.Body,
-            request.ContentLength ?? 0, cancellationToken), statusCode: StatusCodes.Status202Accepted);
+            request.ContentLength ?? 0, cancellationToken, reviewBeforeConcepts), statusCode: StatusCodes.Status202Accepted);
     }
     catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
     catch (LlmProviderUnavailableException exception)
@@ -109,6 +111,17 @@ app.MapGet("/api/documents/jobs/{id}/result", async (string id, DocumentJobServi
     CancellationToken cancellationToken) => await service.GetResultAsync(id, cancellationToken) is { } json
         ? Results.Content(json, "application/json")
         : Results.NotFound(new { error = "PDF 분석 결과가 아직 준비되지 않았습니다." }));
+app.MapDelete("/api/documents/jobs/{id}", async (string id, DocumentJobService service,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        await service.DeleteAsync(id, cancellationToken);
+        return Results.NoContent();
+    }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
+
 app.MapPost("/api/documents/jobs/{id}/cancel", async (string id, DocumentJobService service,
     CancellationToken cancellationToken) => await service.CancelAsync(id, cancellationToken) is { } result
         ? Results.Ok(result) : Results.NotFound());
@@ -119,6 +132,35 @@ app.MapPost("/api/documents/jobs/{id}/retry", async (string id, DocumentJobServi
     {
         return await service.RetryAsync(id, cancellationToken) is { } result ? Results.Ok(result) : Results.NotFound();
     }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
+
+app.MapGet("/api/documents/jobs/{id}/review/pages/{pageNumber:int}", async (string id, int pageNumber,
+    DocumentJobService service, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await service.GetReviewPageAsync(id, pageNumber, cancellationToken)); }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
+app.MapPut("/api/documents/jobs/{id}/review/pages/{pageNumber:int}", async (string id, int pageNumber,
+    SaveDocumentReviewRequest request, DocumentJobService service, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await service.SaveReviewPageAsync(id, pageNumber, request, cancellationToken)); }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
+app.MapGet("/api/documents/jobs/{id}/review/pages/{pageNumber:int}/image", async (string id, int pageNumber,
+    DocumentJobService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var image = await service.GetReviewImageAsync(id, pageNumber, cancellationToken);
+        return Results.File(image.ImageBytes, image.MimeType);
+    }
+    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
+app.MapPost("/api/documents/jobs/{id}/review/confirm", async (string id, ConfirmDocumentReviewRequest request,
+    DocumentJobService service, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await service.ConfirmReviewAsync(id, request, cancellationToken)); }
     catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
 });
 

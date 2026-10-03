@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -83,8 +84,10 @@ class HomeView extends ConsumerWidget {
                                 child: statistics.when(
                                   loading: () =>
                                       const LinearProgressIndicator(),
-                                  error: (error, stackTrace) =>
-                                      const Text('학습 기록을 불러오지 못했어요.'),
+                                  error: (error, stackTrace) => AppErrorNotice(
+                                    error: error,
+                                    fallback: '학습 기록을 불러오지 못했어요.',
+                                  ),
                                   data: (summary) => Text(
                                     summary.lastAnsweredAt == null
                                         ? '아직 학습 기록이 없어요.'

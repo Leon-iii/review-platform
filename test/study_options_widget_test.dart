@@ -55,6 +55,40 @@ void main() {
     TargetPlatform.windows,
     TargetPlatform.android,
   });
+  testWidgets('중요 개념 우선 토글을 끄면 기존 출제로 시작하고 재개 시 보존한다', (tester) async {
+    await tester.binding.setSurfaceSize(
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1100, 1000)
+          : const Size(390, 800),
+    );
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await questions.createQuestion(
+      QuestionDraft(
+        folderId: folderId,
+        type: QuestionType.shortAnswer,
+        prompt: '테스트 문제',
+        acceptableAnswers: const ['정답'],
+      ),
+    );
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.byKey(const Key('start-study-button')));
+    final toggle = find.byKey(const Key('important-concepts-switch'));
+    expect(tester.widget<SwitchListTile>(toggle).value, true);
+    await tapVisible(tester, toggle);
+    expect(tester.widget<SwitchListTile>(toggle).value, false);
+    await tapVisible(tester, find.byKey(const Key('start-quiz-button')));
+    final sessions = (await tester.runAsync(
+      () => database.select(database.quizSessions).get(),
+    ))!;
+    final details = (await tester.runAsync(
+      () => quizzes.resumeSession(sessions.single.id),
+    ))!;
+    expect(details.session.filter.prioritizeImportantConcepts, false);
+    expect(tester.takeException(), null);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  }, variant: platforms);
   testWidgets('난이도 슬라이더의 양쪽 손잡이를 1~5에서 2~4로 조절한다', (tester) async {
     await tester.binding.setSurfaceSize(
       defaultTargetPlatform == TargetPlatform.windows
@@ -144,7 +178,7 @@ void main() {
       tester.widget<SwitchListTile>(finder).contentPadding,
       EdgeInsets.zero,
     );
-    expect(find.byType(SwitchListTile), findsNWidgets(3));
+    expect(find.byType(SwitchListTile), findsNWidgets(4));
     expect(find.text('정답 공개 시점'), findsNothing);
     expect(find.byType(Slider), findsNothing);
     await tapVisible(tester, finder);
@@ -291,13 +325,24 @@ void main() {
           await tester.ensureVisible(field);
           await tester.pumpAndSettle();
           await tester.enterText(field, '정답');
+        } else if (question.type == QuestionType.trueFalse) {
+          expect(find.byKey(const Key('submit-answer-button')), findsNothing);
+          await tapVisible(
+            tester,
+            find.byKey(const Key('true-false-x-button')),
+          );
         } else {
           final choice = question.choices.singleWhere(
             (choice) => choice.isCorrect == correct,
           );
           await tapVisible(tester, find.byKey(Key('choice-${choice.id}')));
         }
-        await tapVisible(tester, find.byKey(const Key('submit-answer-button')));
+        if (question.type != QuestionType.trueFalse) {
+          await tapVisible(
+            tester,
+            find.byKey(const Key('submit-answer-button')),
+          );
+        }
         if (timing == AnswerFeedbackTiming.immediate) {
           expect(find.text(correct ? '정답이에요.' : '오답이에요.'), findsOneWidget);
         } else {

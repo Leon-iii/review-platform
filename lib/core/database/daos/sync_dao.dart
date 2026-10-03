@@ -97,8 +97,10 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
 
   Stream<SyncDatabaseStatus> watchStatus() async* {
     await getState();
+    // Drift shares query streams by SQL + arguments, not readsFrom. Use a
+    // distinct query so statistics cannot replace this stream's dependencies.
     final changes = customSelect(
-      'SELECT 1 AS value',
+      'SELECT 1 AS sync_status_change',
       readsFrom: {syncOutbox, syncStates},
     ).watch();
     await for (final _ in changes) {

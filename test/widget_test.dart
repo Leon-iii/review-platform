@@ -143,12 +143,12 @@ void main() {
             findsNothing,
           );
           final model = find.byKey(
-            const Key('llm-model-purpose-questionGeneration'),
+            const Key('llm-model-purpose-documentVision'),
           );
           final originalField = tester.element(model);
           final originalId = tester.getSemantics(model).id;
           final contextField = find.byKey(
-            const Key('llm-context-purpose-questionGeneration'),
+            const Key('llm-context-purpose-documentVision'),
           );
           final originalContext = openAi ? null : tester.element(contextField);
           final refresh = find.byTooltip('모델 목록 새로고침');
@@ -167,7 +167,7 @@ void main() {
           await mouse.moveTo(tester.getCenter(refresh));
           await tester.pumpAndSettle();
           final filter = find.byKey(
-            const Key('llm-model-filter-purpose-questionGeneration'),
+            const Key('llm-model-filter-purpose-documentVision'),
           );
           await mouse.moveTo(tester.getCenter(filter));
           await tester.pumpAndSettle();
@@ -218,6 +218,37 @@ void main() {
       }),
     );
   }
+
+  testWidgets(
+    '작업별 모델 설정은 OCR·개념 추출·개념 수정·문제 생성 순으로 표시한다',
+    (tester) async {
+      final api = _FakeLlmProfileApi(openAi: true);
+      await openLlmProfiles(tester, api);
+      final positions = [
+        for (final purpose in [
+          LlmPurpose.documentVision,
+          LlmPurpose.conceptExtraction,
+          LlmPurpose.conceptRevision,
+          LlmPurpose.questionGeneration,
+        ])
+          tester
+              .getTopLeft(
+                find.byKey(Key('llm-purpose-title-purpose-${purpose.id}')),
+              )
+              .dy,
+      ];
+      for (var index = 1; index < positions.length; index++) {
+        expect(positions[index], greaterThan(positions[index - 1]));
+      }
+      await _waitForProfileAutosave(tester);
+      expect(api.saveCalls, 0);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
 
   testWidgets('프로필 화면 진입과 모델 목록 갱신만으로는 자동 저장하지 않는다', (tester) async {
     final api = _FakeLlmProfileApi(openAi: true);
@@ -347,7 +378,10 @@ void main() {
     await tester.enterText(keyField, 'gemini-test-secret');
     await _waitForProfileAutosave(tester);
     expect(api.savedSettings, isNull);
-    expect(find.text('테스트 서버 저장 실패'), findsOneWidget);
+    expect(find.byKey(const Key('app-error-dialog')), findsOneWidget);
+    expect(find.text('테스트 서버 저장 실패'), findsNWidgets(2));
+    await tester.tap(find.byKey(const Key('acknowledge-app-error')));
+    await tester.pumpAndSettle();
     expect(
       tester.widget<TextFormField>(keyField).controller!.text,
       'gemini-test-secret',
@@ -445,6 +479,8 @@ void main() {
     await tester.tap(find.text('통계'));
     await tester.pumpAndSettle();
     expect(find.text('저장하지 않고 나갈까요?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('acknowledge-app-error')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('계속 편집'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('llm-profiles-view')), findsOneWidget);
@@ -468,6 +504,8 @@ void main() {
     await openLlmProfiles(tester, api);
     await _setReasoningEffort(tester, 'high');
     await tester.tap(find.text('통계'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('acknowledge-app-error')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('변경사항 버리기'));
     await tester.pumpAndSettle();
@@ -598,6 +636,8 @@ void main() {
     final provider = find.byKey(
       const Key('llm-provider-purpose-questionGeneration'),
     );
+    await tester.ensureVisible(provider);
+    await tester.pumpAndSettle();
     await tester.tap(provider);
     await tester.pumpAndSettle();
     await tester.tap(find.text(LlmProviderKind.openAi.displayName).last);
@@ -1232,6 +1272,8 @@ void main() {
     await tester.tap(oldSwitch);
     await tester.pumpAndSettle();
     expect(find.text('모델 필터 설정을 저장하지 못했습니다. 다시 시도해 주세요.'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('acknowledge-app-error')));
+    await tester.pumpAndSettle();
     await tester.tap(filterButton);
     await tester.pumpAndSettle();
     expect(tester.widget<CheckedPopupMenuItem>(oldSwitch).checked, isTrue);

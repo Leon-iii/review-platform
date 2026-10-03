@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_status.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
@@ -84,6 +85,7 @@ class DriftQuestionRepository implements QuestionRepository {
               prompt: draft.prompt,
               explanation: Value(draft.explanation),
               difficulty: Value(draft.difficulty),
+              importance: Value(draft.importance.name),
               createdAt: now,
               updatedAt: now,
             ),
@@ -124,6 +126,7 @@ class DriftQuestionRepository implements QuestionRepository {
             prompt: Value(validated.prompt),
             explanation: Value(validated.explanation),
             difficulty: Value(validated.difficulty),
+            importance: Value(validated.importance.name),
             updatedAt: Value(now),
           ),
         );
@@ -290,12 +293,18 @@ class DriftQuestionRepository implements QuestionRepository {
     final answers = results[1] as List<AcceptableAnswerRow>;
     final sourceRows = results[2] as List<QuestionSourceRow>;
     final sourceReferences = <QuestionSourceReference>[];
+    var importance = ConceptImportance.fromStorage(row.importance);
+    var inherited = false;
     for (final reference in sourceRows) {
       final source = await _database.sourceDao.getSource(reference.sourceId);
       if (source == null) continue;
       final concept = reference.conceptId == null
           ? null
           : await _database.sourceDao.getConcept(reference.conceptId!);
+      if (concept != null && !inherited) {
+        importance = ConceptImportance.fromStorage(concept.importance);
+        inherited = true;
+      }
       sourceReferences.add(
         QuestionSourceReference(
           sourceId: source.id,
@@ -336,6 +345,7 @@ class DriftQuestionRepository implements QuestionRepository {
       updatedAt: row.updatedAt.toUtc(),
       deletedAt: row.deletedAt?.toUtc(),
       sourceReferences: List.unmodifiable(sourceReferences),
+      importance: importance,
     );
   }
 
@@ -354,6 +364,10 @@ class DriftQuestionRepository implements QuestionRepository {
       if (concept == null || concept.sourceId != reference.sourceId) {
         throw const ValidationFailure('문제의 출처 개념이 올바르지 않아요.');
       }
+      await _database.questionDao.updateQuestion(
+        questionId,
+        QuestionsCompanion(importance: Value(concept.importance)),
+      );
     }
     await _database.sourceDao.insertQuestionSource(
       QuestionSourcesCompanion.insert(

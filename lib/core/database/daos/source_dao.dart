@@ -45,6 +45,9 @@ class SourceDao extends DatabaseAccessor<AppDatabase> with _$SourceDaoMixin {
   }
 
   Future<void> deleteSourceGraph(String sourceId) async {
+    await preserveQuestionImportance(
+      (await getConcepts(sourceId)).map((concept) => concept.id),
+    );
     await (delete(
       questionSources,
     )..where((reference) => reference.sourceId.equals(sourceId))).go();
@@ -57,6 +60,7 @@ class SourceDao extends DatabaseAccessor<AppDatabase> with _$SourceDaoMixin {
   }
 
   Future<void> deleteConcept(String id) async {
+    await preserveQuestionImportance([id]);
     await (update(questionSources)
           ..where((reference) => reference.conceptId.equals(id)))
         .write(const QuestionSourcesCompanion(conceptId: Value(null)));
@@ -102,9 +106,34 @@ class SourceDao extends DatabaseAccessor<AppDatabase> with _$SourceDaoMixin {
   }
 
   Future<List<QuestionSourceRow>> getQuestionSources(String questionId) {
-    return (select(
+    return (select(questionSources)
+          ..where((source) => source.questionId.equals(questionId))
+          ..orderBy([(source) => OrderingTerm.asc(source.id)]))
+        .get();
+  }
+
+  // Cache the live primary concept's importance before its link is removed.
+  // Pull deletions use this too, without creating an outbound echo.
+  Future<Set<String>> preserveQuestionImportance(Iterable<String> ids) async {
+    final references = await (select(
       questionSources,
-    )..where((source) => source.questionId.equals(questionId))).get();
+    )..where((row) => row.conceptId.isIn(ids.toList()))).get();
+    final questionIds = references.map((row) => row.questionId).toSet();
+    for (final questionId in questionIds) {
+      final links = await getQuestionSources(questionId);
+      for (final link in links) {
+        final concept = link.conceptId == null
+            ? null
+            : await getConcept(link.conceptId!);
+        if (concept == null) continue;
+        await attachedDatabase.questionDao.updateQuestion(
+          questionId,
+          QuestionsCompanion(importance: Value(concept.importance)),
+        );
+        break;
+      }
+    }
+    return questionIds;
   }
 
   Future<void> replaceQuestionSources(

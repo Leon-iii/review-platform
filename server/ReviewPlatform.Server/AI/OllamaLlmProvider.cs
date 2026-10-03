@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using ReviewPlatform.Server.Contracts;
+using ReviewPlatform.Server.Services;
 
 namespace ReviewPlatform.Server.AI;
 
@@ -359,18 +360,15 @@ public sealed class OllamaLlmProvider(
         var page = input.Pages.SingleOrDefault();
         if (page is not null && page.Text.Length > 2_000)
         {
-            var middle = page.Text.Length / 2;
-            if (middle < page.Text.Length && char.IsLowSurrogate(page.Text[middle]))
-            {
-                middle--;
-            }
+            var segments = DocumentExtractionSegments.Split(page.Text, page.Text.Length / 2);
+            var middle = segments.Count / 2;
             left = input with
             {
-                Pages = [page with { Text = page.Text[..middle] }]
+                Pages = segments.Take(middle).Select(text => page with { Text = text }).ToList()
             };
             right = input with
             {
-                Pages = [page with { Text = page.Text[middle..] }]
+                Pages = segments.Skip(middle).Select(text => page with { Text = text }).ToList()
             };
             return true;
         }
@@ -755,6 +753,9 @@ public sealed class OllamaLlmProvider(
         {
             using var document = JsonDocument.Parse(body);
             var root = document.RootElement;
+            if (root.TryGetProperty("done_reason", out var reason) && reason.ValueKind == JsonValueKind.String &&
+                reason.GetString() == "length")
+                throw new LlmProviderRequestException("Ollama의 문서 이미지 응답이 출력 한도에서 잘렸습니다. 부분 결과는 저장하지 않습니다.");
             if (root.TryGetProperty("done", out var done) &&
                 done.ValueKind == JsonValueKind.False)
             {
@@ -797,14 +798,16 @@ public sealed class OllamaLlmProvider(
                 return new DocumentVisionResult(string.Empty);
             }
 
-            var text = TryExtractVisionText(rawContent) ??
-                StripMarkdownCodeFence(rawContent.Trim());
-            if (text.Length > 50_000)
+            try
             {
-                throw new LlmProviderRequestException(
-                    "Ollama의 문서 이미지 응답이 너무 깁니다.");
+                return DocumentVisionOutput.Parse(rawContent, allowPlainText: true);
             }
-            return new DocumentVisionResult(text.Trim());
+            catch (JsonException)
+            {
+                // Preserve the existing compatibility repair for unescaped newlines.
+                return DocumentVisionOutput.Parse(
+                    EscapeUnescapedJsonControlCharacters(StripMarkdownCodeFence(rawContent.Trim())), allowPlainText: true);
+            }
         }
         catch (LlmProviderRequestException)
         {
@@ -815,56 +818,6 @@ public sealed class OllamaLlmProvider(
             throw new LlmProviderRequestException(
                 "Ollama의 문서 이미지 응답을 해석하지 못했습니다.",
                 exception);
-        }
-    }
-
-    private static string? TryExtractVisionText(string content)
-    {
-        var candidate = StripMarkdownCodeFence(content.Trim());
-        if (TryReadVisionText(candidate, out var text)) return text;
-
-        var repaired = EscapeUnescapedJsonControlCharacters(candidate);
-        if (!string.Equals(repaired, candidate, StringComparison.Ordinal) &&
-            TryReadVisionText(repaired, out text))
-        {
-            return text;
-        }
-
-        return LooksLikeJson(candidate) ? null : candidate;
-    }
-
-    private static bool TryReadVisionText(
-        string candidate,
-        out string? text,
-        int depth = 0)
-    {
-        text = null;
-        try
-        {
-            using var document = JsonDocument.Parse(candidate);
-            var root = document.RootElement;
-            if (root.ValueKind == JsonValueKind.String)
-            {
-                var nested = root.GetString();
-                return depth < 2 &&
-                    nested is not null &&
-                    TryReadVisionText(
-                        StripMarkdownCodeFence(nested.Trim()),
-                        out text,
-                        depth + 1);
-            }
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("text", out var textProperty) ||
-                textProperty.ValueKind != JsonValueKind.String)
-            {
-                return false;
-            }
-            text = textProperty.GetString();
-            return text is not null;
-        }
-        catch (JsonException)
-        {
-            return false;
         }
     }
 

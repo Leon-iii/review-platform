@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/domain/models/pdf_import_job.dart';
+import 'package:review_platform/domain/models/document_ocr_review.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/study_source.dart';
@@ -37,9 +38,11 @@ abstract interface class RemoteDocumentJobApi {
   Future<PdfImportJob> uploadJob(
     SyncConfiguration configuration,
     String id,
-    PickedPdfDocument document,
-  );
+    PickedPdfDocument document, {
+    bool reviewBeforeConcepts = false,
+  });
   Future<PdfImportJob?> getJob(SyncConfiguration configuration, String id);
+  Future<void> deleteJob(SyncConfiguration configuration, String id);
   Future<PdfImportJob> changeJob(
     SyncConfiguration configuration,
     String id,
@@ -48,6 +51,31 @@ abstract interface class RemoteDocumentJobApi {
   Future<DocumentImportResult> jobResult(
     SyncConfiguration configuration,
     String id,
+  );
+}
+
+abstract interface class RemoteDocumentReviewApi {
+  Future<OcrReviewPage> reviewPage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+  );
+  Future<OcrReviewPage> saveReviewPage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+    int revision,
+    List<OcrReviewBlock> blocks,
+  );
+  Future<Uint8List> reviewImage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+  );
+  Future<PdfImportJob> confirmReview(
+    SyncConfiguration configuration,
+    String id,
+    int revision,
   );
 }
 
@@ -64,7 +92,11 @@ class _PdfUploadRequest extends http.BaseRequest {
   }
 }
 
-class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
+class HttpRemoteDocumentApi
+    implements
+        RemoteDocumentApi,
+        RemoteDocumentJobApi,
+        RemoteDocumentReviewApi {
   HttpRemoteDocumentApi(this._client);
 
   final http.Client _client;
@@ -135,13 +167,16 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
   Future<PdfImportJob> uploadJob(
     SyncConfiguration configuration,
     String id,
-    PickedPdfDocument document,
-  ) async {
+    PickedPdfDocument document, {
+    bool reviewBeforeConcepts = false,
+  }) async {
     final request = _PdfUploadRequest(
-      _jobUri(
-        configuration,
-        'jobs/$id',
-      ).replace(queryParameters: {'fileName': document.fileName}),
+      _jobUri(configuration, 'jobs/$id').replace(
+        queryParameters: {
+          'fileName': document.fileName,
+          'reviewBeforeConcepts': '$reviewBeforeConcepts',
+        },
+      ),
       document,
     )..headers['x-sync-token'] = configuration.accessToken;
     try {
@@ -175,6 +210,14 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
   }
 
   @override
+  Future<void> deleteJob(SyncConfiguration configuration, String id) async {
+    final response = await _jobRequest(configuration, 'DELETE', 'jobs/$id');
+    if (response.statusCode == 204 || response.statusCode == 404) return;
+    _decode(response);
+    throw const NetworkFailure('PDF 작업 삭제 응답 형식이 올바르지 않아요.');
+  }
+
+  @override
   Future<PdfImportJob> changeJob(
     SyncConfiguration configuration,
     String id,
@@ -205,6 +248,7 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
           'failed',
           'cancelled',
           'completed',
+          'awaiting_review',
         }.contains(data['status'])) {
       throw const NetworkFailure('PDF 작업 응답 형식이 올바르지 않아요.');
     }
@@ -218,11 +262,16 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
   Future<http.Response> _jobRequest(
     SyncConfiguration configuration,
     String method,
-    String path,
-  ) async {
+    String path, {
+    Map<String, Object?>? body,
+  }) async {
     try {
       final request = http.Request(method, _jobUri(configuration, path))
         ..headers['x-sync-token'] = configuration.accessToken;
+      if (body != null) {
+        request.headers['content-type'] = 'application/json; charset=utf-8';
+        request.body = jsonEncode(body);
+      }
       return await http.Response.fromStream(
         await _client.send(request).timeout(const Duration(seconds: 30)),
       ).timeout(const Duration(seconds: 30));
@@ -232,6 +281,87 @@ class HttpRemoteDocumentApi implements RemoteDocumentApi, RemoteDocumentJobApi {
         stackTrace,
       );
     }
+  }
+
+  OcrReviewPage _reviewPage(Map<String, Object?> body) {
+    try {
+      final page = OcrReviewPage.fromJson(body);
+      if (page.pageNumber < 1 ||
+          page.pageNumber > page.totalPages ||
+          page.revision < 0 ||
+          page.blocks.isEmpty) {
+        throw const FormatException('Invalid review page');
+      }
+      return page;
+    } catch (error) {
+      throw NetworkFailure('OCR 검토 응답 형식이 올바르지 않아요.', cause: error);
+    }
+  }
+
+  @override
+  Future<OcrReviewPage> reviewPage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+  ) async => _reviewPage(
+    _decode(
+      await _jobRequest(configuration, 'GET', 'jobs/$id/review/pages/$page'),
+    ),
+  );
+  @override
+  Future<OcrReviewPage> saveReviewPage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+    int revision,
+    List<OcrReviewBlock> blocks,
+  ) async => _reviewPage(
+    _decode(
+      await _jobRequest(
+        configuration,
+        'PUT',
+        'jobs/$id/review/pages/$page',
+        body: {
+          'revision': revision,
+          'blocks': [for (final block in blocks) block.toJson()],
+        },
+      ),
+    ),
+  );
+  @override
+  Future<PdfImportJob> confirmReview(
+    SyncConfiguration configuration,
+    String id,
+    int revision,
+  ) async => _job(
+    _decode(
+      await _jobRequest(
+        configuration,
+        'POST',
+        'jobs/$id/review/confirm',
+        body: {'revision': revision},
+      ),
+    ),
+  );
+  @override
+  Future<Uint8List> reviewImage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+  ) async {
+    final response = await _jobRequest(
+      configuration,
+      'GET',
+      'jobs/$id/review/pages/$page/image',
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _decode(response);
+    }
+    if (!(response.headers['content-type'] ?? '').startsWith('image/') ||
+        response.bodyBytes.length > 12 * 1024 * 1024) {
+      throw const NetworkFailure('PDF 페이지 이미지 응답이 올바르지 않아요.');
+    }
+    return response.bodyBytes;
   }
 
   @override

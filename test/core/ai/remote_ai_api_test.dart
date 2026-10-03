@@ -41,6 +41,7 @@ void main() {
                 'explanation': '정의 확인 문제',
                 'difficulty': 2,
                 'sourceIds': [],
+                'primaryConceptId': 'concept-1',
               },
             ],
           }),
@@ -71,6 +72,7 @@ void main() {
     expect(result.questions.single.type, QuestionType.shortAnswer);
     expect(result.questions.single.acceptableAnswers, hasLength(1));
     expect(result.questions.single.difficulty, 2);
+    expect(result.questions.single.primaryConceptId, 'concept-1');
   });
 
   test('서버의 안전한 오류 메시지를 사용자에게 전달한다', () async {

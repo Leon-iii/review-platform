@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -8,10 +10,12 @@ import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/features/documents/document_job_panel.dart';
+import 'package:review_platform/features/documents/document_ocr_review_view.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:review_platform/shared/widgets/concept_status_badge.dart';
 import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
+import 'package:review_platform/shared/widgets/pdf_review_option.dart';
 
 class DocumentImportView extends ConsumerStatefulWidget {
   const DocumentImportView({
@@ -51,6 +55,11 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
       });
     }
     final state = ref.watch(controllerProvider);
+    ref.listen(controllerProvider, (previous, next) {
+      if (next.hasError && !identical(previous?.error, next.error)) {
+        showAppError(context, next.error!, fallback: '자료를 처리하지 못했어요.');
+      }
+    });
     final jobId =
         widget.initialJobId ??
         ref.read(controllerProvider.notifier).activeJobId;
@@ -102,6 +111,12 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
                           context.replace(
                             AppRoutes.documentsForFolder(widget.folderId),
                           );
+                        },
+                        onDeleted: () {
+                          ref
+                              .read(controllerProvider.notifier)
+                              .showImportPrompt();
+                          context.go(AppRoutes.folder(widget.folderId));
                         },
                       )
               : _ConceptReview(
@@ -162,6 +177,8 @@ class _ImportPrompt extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                         ],
+                        const PdfReviewOption(),
+                        const SizedBox(height: 12),
                         FilledButton.icon(
                           key: const Key('pick-pdf-button'),
                           onPressed: () =>
@@ -222,6 +239,23 @@ class _ConceptReview extends ConsumerWidget {
                         Text(
                           '${review.source.isManual ? '사용자 생성 자료' : '${review.source.pageCount}페이지'} · 개념 ${review.concepts.length}개',
                         ),
+                        if (!review.source.isManual) ...[
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            key: const Key('open-ocr-archive'),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => DocumentOcrReviewView(
+                                  jobId: review.source.id,
+                                  fileName: review.source.fileName,
+                                  readOnly: true,
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.compare_outlined),
+                            label: const Text('OCR 원문 대조'),
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         LayoutBuilder(
                           key: const Key('source-actions'),
@@ -541,12 +575,7 @@ class _ConceptReview extends ConsumerWidget {
                   ),
                   if (errorMessage != null) ...[
                     const SizedBox(height: 8),
-                    Text(
-                      errorMessage!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
+                    AppErrorNotice(error: errorMessage!),
                   ],
                 ],
               ),
@@ -598,6 +627,7 @@ class _ConceptReview extends ConsumerWidget {
                               ? error.message
                               : '개념 수정 요청을 처리하지 못했어요.';
                         });
+                        showAppError(dialogContext, errorMessage!);
                       }
                     },
               icon: isSending
@@ -633,13 +663,7 @@ class _ConceptReview extends ConsumerWidget {
           );
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error is AppFailure ? error.message : '개념 수정안을 적용하지 못했어요.',
-          ),
-        ),
-      );
+      showAppError(context, error, fallback: '개념 수정안을 적용하지 못했어요.');
       return;
     }
     if (!context.mounted) return;
@@ -988,6 +1012,20 @@ class _RevisionValue extends StatelessWidget {
   }
 }
 
+class _DesktopConceptSelection extends StatelessWidget {
+  const _DesktopConceptSelection({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.macOS ||
+    TargetPlatform.linux => SelectionArea(child: child),
+    _ => child,
+  };
+}
+
 class _ConceptCard extends ConsumerWidget {
   const _ConceptCard({
     required this.number,
@@ -1026,9 +1064,11 @@ class _ConceptCard extends ConsumerWidget {
                 children: _badges(compact: false),
               ),
               const SizedBox(height: 8),
-              Text(
-                concept.content,
-                key: ValueKey('concept-content-${concept.id}'),
+              _DesktopConceptSelection(
+                child: Text(
+                  concept.content,
+                  key: ValueKey('concept-content-${concept.id}'),
+                ),
               ),
               Divider(
                 key: ValueKey('concept-actions-divider-${concept.id}'),
@@ -1147,42 +1187,46 @@ class _ConceptCard extends ConsumerWidget {
                   child: Semantics(
                     button: true,
                     expanded: expanded,
-                    child: Tooltip(
-                      message:
-                          '${expanded ? '접기' : '펼치기'}: $number. ${concept.title}',
-                      child: InkWell(
-                        key: ValueKey('concept-toggle-${concept.id}'),
-                        onTap: onToggle,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            mainAxisSize: expanded
-                                ? MainAxisSize.max
-                                : MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                expanded
-                                    ? Icons.arrow_drop_down_rounded
-                                    : Icons.arrow_right_rounded,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                fit: expanded ? FlexFit.tight : FlexFit.loose,
-                                child: Text(
-                                  '$number. ${concept.title}',
-                                  key: ValueKey('concept-title-${concept.id}'),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium,
-                                  maxLines: expanded ? null : 1,
-                                  overflow: expanded
-                                      ? null
-                                      : TextOverflow.ellipsis,
+                    child: _DesktopConceptSelection(
+                      child: Tooltip(
+                        message:
+                            '${expanded ? '접기' : '펼치기'}: $number. ${concept.title}',
+                        child: InkWell(
+                          key: ValueKey('concept-toggle-${concept.id}'),
+                          onTap: onToggle,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              mainAxisSize: expanded
+                                  ? MainAxisSize.max
+                                  : MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  expanded
+                                      ? Icons.arrow_drop_down_rounded
+                                      : Icons.arrow_right_rounded,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  fit: expanded ? FlexFit.tight : FlexFit.loose,
+                                  child: Text(
+                                    '$number. ${concept.title}',
+                                    key: ValueKey(
+                                      'concept-title-${concept.id}',
+                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                    maxLines: expanded ? null : 1,
+                                    overflow: expanded
+                                        ? null
+                                        : TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -1246,13 +1290,7 @@ class _ConceptCard extends ConsumerWidget {
       await ref.read(provider.notifier).setApproved(concept.id, value);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error is AppFailure ? error.message : '검토 상태를 변경하지 못했어요.',
-          ),
-        ),
-      );
+      showAppError(context, error, fallback: '검토 상태를 변경하지 못했어요.');
     }
   }
 
@@ -1401,12 +1439,7 @@ Future<void> _showConceptEditor(
                       ),
                     if (errorMessage != null) ...[
                       const SizedBox(height: 12),
-                      Text(
-                        errorMessage!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
+                      AppErrorNotice(error: errorMessage!),
                     ],
                   ],
                 ),
@@ -1439,6 +1472,7 @@ Future<void> _showConceptEditor(
                               ? error.message
                               : '개념을 저장하지 못했어요.';
                         });
+                        showAppError(dialogContext, errorMessage!);
                       }
                     },
               child: Text(saving ? '저장 중…' : '저장'),
@@ -1505,13 +1539,7 @@ class _ImportError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.error_outline_rounded,
-              color: Theme.of(context).colorScheme.error,
-              size: 40,
-            ),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
+            AppErrorNotice(error: message),
             const SizedBox(height: 16),
             Wrap(
               spacing: 8,

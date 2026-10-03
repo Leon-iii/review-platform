@@ -5,6 +5,8 @@ enum ConceptImportance {
   high,
   veryHigh;
 
+  int get weight => index + 1;
+
   static ConceptImportance fromStorage(String? value) =>
       switch (value?.trim().toLowerCase()) {
         'verylow' => ConceptImportance.veryLow,

@@ -17,6 +17,8 @@ class Questions extends Table {
 
   IntColumn get difficulty => integer().nullable()();
 
+  TextColumn get importance => text().withDefault(const Constant('medium'))();
+
   DateTimeColumn get createdAt => dateTime()();
 
   DateTimeColumn get updatedAt => dateTime()();

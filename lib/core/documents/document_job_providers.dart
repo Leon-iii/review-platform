@@ -1,9 +1,11 @@
 import 'package:review_platform/domain/models/pdf_import_job.dart';
+import 'package:review_platform/core/errors/app_error_reporter.dart';
 import 'package:review_platform/core/database/database_providers.dart';
 import 'package:review_platform/core/documents/document_job_coordinator.dart';
 import 'package:review_platform/core/documents/document_providers.dart';
 import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
+import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/repositories/document_job_repository.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
@@ -38,6 +40,19 @@ DocumentJobCoordinator? documentJobCoordinator(Ref ref) {
     ref.watch(syncCredentialsStoreProvider),
     (folderId) {
       if (ref.mounted) ref.invalidate(documentSourcesProvider(folderId));
+    },
+    canPoll: (configuration) async {
+      if (!ref.read(isWindowsPlatformProvider)) return true;
+      return ref
+          .read(localServerStartupCoordinatorProvider)
+          .canPoll(configuration.serverUrl);
+    },
+    onError: (job) {
+      if (ref.mounted) {
+        ref
+            .read(appErrorReporterProvider.notifier)
+            .report(job.error!, title: 'PDF 작업 오류 · ${job.fileName}');
+      }
     },
   );
   ref.onDispose(coordinator.dispose);

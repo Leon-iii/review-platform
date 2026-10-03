@@ -493,6 +493,18 @@ class $QuestionsTable extends Questions
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _importanceMeta = const VerificationMeta(
+    'importance',
+  );
+  @override
+  late final GeneratedColumn<String> importance = GeneratedColumn<String>(
+    'importance',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('medium'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -535,6 +547,7 @@ class $QuestionsTable extends Questions
     prompt,
     explanation,
     difficulty,
+    importance,
     createdAt,
     updatedAt,
     deletedAt,
@@ -603,6 +616,12 @@ class $QuestionsTable extends Questions
         difficulty.isAcceptableOrUnknown(data['difficulty']!, _difficultyMeta),
       );
     }
+    if (data.containsKey('importance')) {
+      context.handle(
+        _importanceMeta,
+        importance.isAcceptableOrUnknown(data['importance']!, _importanceMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -662,6 +681,10 @@ class $QuestionsTable extends Questions
         DriftSqlType.int,
         data['${effectivePrefix}difficulty'],
       ),
+      importance: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}importance'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -691,6 +714,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
   final String prompt;
   final String? explanation;
   final int? difficulty;
+  final String importance;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
@@ -702,6 +726,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     required this.prompt,
     this.explanation,
     this.difficulty,
+    required this.importance,
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
@@ -720,6 +745,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     if (!nullToAbsent || difficulty != null) {
       map['difficulty'] = Variable<int>(difficulty);
     }
+    map['importance'] = Variable<String>(importance);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || deletedAt != null) {
@@ -741,6 +767,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       difficulty: difficulty == null && nullToAbsent
           ? const Value.absent()
           : Value(difficulty),
+      importance: Value(importance),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       deletedAt: deletedAt == null && nullToAbsent
@@ -762,6 +789,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       prompt: serializer.fromJson<String>(json['prompt']),
       explanation: serializer.fromJson<String?>(json['explanation']),
       difficulty: serializer.fromJson<int?>(json['difficulty']),
+      importance: serializer.fromJson<String>(json['importance']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
@@ -778,6 +806,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       'prompt': serializer.toJson<String>(prompt),
       'explanation': serializer.toJson<String?>(explanation),
       'difficulty': serializer.toJson<int?>(difficulty),
+      'importance': serializer.toJson<String>(importance),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
@@ -792,6 +821,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     String? prompt,
     Value<String?> explanation = const Value.absent(),
     Value<int?> difficulty = const Value.absent(),
+    String? importance,
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
@@ -803,6 +833,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     prompt: prompt ?? this.prompt,
     explanation: explanation.present ? explanation.value : this.explanation,
     difficulty: difficulty.present ? difficulty.value : this.difficulty,
+    importance: importance ?? this.importance,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
@@ -820,6 +851,9 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       difficulty: data.difficulty.present
           ? data.difficulty.value
           : this.difficulty,
+      importance: data.importance.present
+          ? data.importance.value
+          : this.importance,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
@@ -836,6 +870,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           ..write('prompt: $prompt, ')
           ..write('explanation: $explanation, ')
           ..write('difficulty: $difficulty, ')
+          ..write('importance: $importance, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt')
@@ -852,6 +887,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     prompt,
     explanation,
     difficulty,
+    importance,
     createdAt,
     updatedAt,
     deletedAt,
@@ -867,6 +903,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           other.prompt == this.prompt &&
           other.explanation == this.explanation &&
           other.difficulty == this.difficulty &&
+          other.importance == this.importance &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt);
@@ -880,6 +917,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
   final Value<String> prompt;
   final Value<String?> explanation;
   final Value<int?> difficulty;
+  final Value<String> importance;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
@@ -892,6 +930,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     this.prompt = const Value.absent(),
     this.explanation = const Value.absent(),
     this.difficulty = const Value.absent(),
+    this.importance = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -905,6 +944,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     required String prompt,
     this.explanation = const Value.absent(),
     this.difficulty = const Value.absent(),
+    this.importance = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.deletedAt = const Value.absent(),
@@ -924,6 +964,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     Expression<String>? prompt,
     Expression<String>? explanation,
     Expression<int>? difficulty,
+    Expression<String>? importance,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
@@ -937,6 +978,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
       if (prompt != null) 'prompt': prompt,
       if (explanation != null) 'explanation': explanation,
       if (difficulty != null) 'difficulty': difficulty,
+      if (importance != null) 'importance': importance,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
@@ -952,6 +994,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     Value<String>? prompt,
     Value<String?>? explanation,
     Value<int?>? difficulty,
+    Value<String>? importance,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
@@ -965,6 +1008,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
       prompt: prompt ?? this.prompt,
       explanation: explanation ?? this.explanation,
       difficulty: difficulty ?? this.difficulty,
+      importance: importance ?? this.importance,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -996,6 +1040,9 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     if (difficulty.present) {
       map['difficulty'] = Variable<int>(difficulty.value);
     }
+    if (importance.present) {
+      map['importance'] = Variable<String>(importance.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -1021,6 +1068,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
           ..write('prompt: $prompt, ')
           ..write('explanation: $explanation, ')
           ..write('difficulty: $difficulty, ')
+          ..write('importance: $importance, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -6701,6 +6749,7 @@ typedef $$QuestionsTableCreateCompanionBuilder = QuestionsCompanion Function({
   required String prompt,
   Value<String?> explanation,
   Value<int?> difficulty,
+  Value<String> importance,
   required DateTime createdAt,
   required DateTime updatedAt,
   Value<DateTime?> deletedAt,
@@ -6714,6 +6763,7 @@ typedef $$QuestionsTableUpdateCompanionBuilder = QuestionsCompanion Function({
   Value<String> prompt,
   Value<String?> explanation,
   Value<int?> difficulty,
+  Value<String> importance,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
@@ -6877,6 +6927,11 @@ class $$QuestionsTableFilterComposer
 
   ColumnFilters<int> get difficulty => $composableBuilder(
     column: $table.difficulty,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importance => $composableBuilder(
+    column: $table.importance,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7083,6 +7138,11 @@ class $$QuestionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get importance => $composableBuilder(
+    column: $table.importance,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7150,6 +7210,11 @@ class $$QuestionsTableAnnotationComposer
 
   GeneratedColumn<int> get difficulty => $composableBuilder(
     column: $table.difficulty,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get importance => $composableBuilder(
+    column: $table.importance,
     builder: (column) => column,
   );
 
@@ -7354,6 +7419,7 @@ class $$QuestionsTableTableManager
                 Value<String> prompt = const Value.absent(),
                 Value<String?> explanation = const Value.absent(),
                 Value<int?> difficulty = const Value.absent(),
+                Value<String> importance = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -7366,6 +7432,7 @@ class $$QuestionsTableTableManager
                 prompt: prompt,
                 explanation: explanation,
                 difficulty: difficulty,
+                importance: importance,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
@@ -7380,6 +7447,7 @@ class $$QuestionsTableTableManager
                 required String prompt,
                 Value<String?> explanation = const Value.absent(),
                 Value<int?> difficulty = const Value.absent(),
+                Value<String> importance = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -7392,6 +7460,7 @@ class $$QuestionsTableTableManager
                 prompt: prompt,
                 explanation: explanation,
                 difficulty: difficulty,
+                importance: importance,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,

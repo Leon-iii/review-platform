@@ -227,4 +227,4 @@ final class AutomaticSyncControllerProvider
 }
 
 String _$automaticSyncControllerHash() =>
-    r'803f1c48d8d843134416565f8f97900e3d9b3d85';
+    r'7a80c3a35e6a0b652f0942c38f8c93114e95a8f7';

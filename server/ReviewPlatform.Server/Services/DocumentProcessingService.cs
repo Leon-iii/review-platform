@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using ReviewPlatform.Server.AI;
 using ReviewPlatform.Server.Contracts;
 
@@ -122,7 +123,7 @@ public sealed class DocumentProcessingService
                     await ResolveVisionProviderAsync(cancellationToken),
                 cancellationToken);
             visionProvider = prepared.VisionProvider;
-            var usablePages = LimitExtractedText(prepared.Pages);
+            var usablePages = LimitExtractedText(DocumentReviewContent.AnnotatedPages(prepared.Pages));
             if (usablePages.Sum(page => CountContentCharacters(page.Text)) < 20)
             {
                 throw new DocumentImportException(
@@ -221,7 +222,14 @@ public sealed class DocumentProcessingService
         await saveCheckpoint(checkpoint);
         var prepared = await PreparePagesAsync(path, fileName, extraction.Pages,
             resolveVisionProvider, cancellationToken, checkpoint, saveCheckpoint);
-        var usablePages = LimitExtractedText(prepared.Pages);
+        if (checkpoint.ReviewBeforeConcepts && !checkpoint.ReviewConfirmed)
+        {
+            checkpoint.Stage = "awaiting_review";
+            await saveCheckpoint(checkpoint);
+            throw new DocumentReviewRequiredException();
+        }
+        var usablePages = LimitExtractedText(checkpoint.ReviewBeforeConcepts
+            ? DocumentReviewContent.ConfirmedPages(checkpoint) : DocumentReviewContent.AnnotatedPages(prepared.Pages));
         if (usablePages.Sum(page => CountContentCharacters(page.Text)) < 20)
             throw new DocumentImportException("PDF에서 학습할 수 있는 텍스트를 찾지 못했습니다.");
         var chunks = BuildChunks(usablePages, conceptProvider);
@@ -244,6 +252,15 @@ public sealed class DocumentProcessingService
         return new ImportDocumentResponse(new DocumentSourceMetadata(sourceId, fileName,
             await ComputeHashAsync(path, cancellationToken), extraction.PageCount,
             DetermineExtractionMethod(prepared.Metadata), DateTimeOffset.UtcNow), concepts, prepared.Metadata);
+    }
+
+    public Task<RenderedDocumentPage> RenderStoredPageAsync(string sourceId, int pageNumber,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(ResolveStorageRoot(), $"{Guid.Parse(sourceId):D}.pdf");
+        if (!File.Exists(path))
+            throw new DocumentImportException("서버에 원본 PDF 파일이 없습니다. 보관된 OCR 텍스트는 계속 열람할 수 있습니다.");
+        return pageRenderer.RenderAsync(path, pageNumber, cancellationToken);
     }
 
     public async Task StoreUploadAsync(string sourceId, Stream content, string fileName,
@@ -373,17 +390,24 @@ public sealed class DocumentProcessingService
                 pdfPath,
                 page.PageNumber,
                 cancellationToken);
-            var text = await pageTextCache.GetAsync(
+            var cached = await pageTextCache.GetAsync(
                 rendered.ContentHash,
                 visionProvider.ProviderName,
                 visionProvider.ModelName,
                 DocumentVisionPrompt.Version,
                 cancellationToken);
-            // Do not reuse oversized output from a previous failed attempt.
-            if (text?.Length > 50_000) text = null;
-            if (text is null)
+            DocumentVisionResult? result = null;
+            if (cached is not null)
             {
-                var result = await visionProvider.ExtractPageContentAsync(
+                try { result = DocumentVisionOutput.Parse(cached, allowPlainText: true); }
+                catch (Exception exception) when (exception is JsonException or LlmProviderRequestException)
+                {
+                    logger.LogWarning("Ignoring invalid document OCR cache. PageNumber={PageNumber}", page.PageNumber);
+                }
+            }
+            if (result is null)
+            {
+                result = DocumentVisionOutput.Normalize(await visionProvider.ExtractPageContentAsync(
                     new DocumentVisionInput(
                         fileName,
                         page.PageNumber,
@@ -391,19 +415,17 @@ public sealed class DocumentProcessingService
                         rendered.ImageBytes,
                         rendered.ContentHash,
                         DocumentVisionPrompt.Version),
-                    cancellationToken);
-                text = result.Text.Trim();
-                if (text.Length > 50_000)
-                    throw new LlmProviderRequestException(
-                        $"LLM이 PDF {page.PageNumber}페이지에 너무 긴 OCR 결과를 반환했습니다.");
+                    cancellationToken));
                 await pageTextCache.SetAsync(
                     rendered.ContentHash,
                     visionProvider.ProviderName,
                     visionProvider.ModelName,
                     DocumentVisionPrompt.Version,
-                    text,
+                    JsonSerializer.Serialize(new { text = result.Regions is null ? result.Text : null, regions = result.Regions },
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)),
                     cancellationToken);
             }
+            var text = result.Text;
             if (text.Length > 50_000)
             {
                 throw new LlmProviderRequestException(
@@ -422,7 +444,8 @@ public sealed class DocumentProcessingService
             pages.Add(new ExtractedDocumentPage(
                 page.PageNumber,
                 extractedText,
-                extractionMethod));
+                extractionMethod,
+                Regions: result.Regions));
             metadata.Add(new DocumentPageExtractionMetadata(
                 page.PageNumber,
                 extractionMethod,
@@ -543,14 +566,11 @@ public sealed class DocumentProcessingService
         var currentLength = 0;
         foreach (var page in pages.Where(page => !string.IsNullOrWhiteSpace(page.Text)))
         {
-            for (var offset = 0; offset < page.Text.Length; offset += targetCharacters)
+            foreach (var text in DocumentExtractionSegments.Split(page.Text, targetCharacters))
             {
-                var segmentLength = Math.Min(
-                    targetCharacters,
-                    page.Text.Length - offset);
                 var segment = new ExtractedDocumentPage(
                     page.PageNumber,
-                    page.Text.Substring(offset, segmentLength),
+                    text,
                     page.ExtractionMethod);
                 if (current.Count > 0 &&
                     (currentLength + segment.Text.Length > targetCharacters ||

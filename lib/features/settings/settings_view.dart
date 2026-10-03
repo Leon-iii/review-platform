@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:go_router/go_router.dart';
@@ -260,10 +261,7 @@ class _SyncFormState extends ConsumerState<_SyncForm> {
           ],
           if (widget.status.lastError case final error?) ...[
             const SizedBox(height: 12),
-            Text(
-              error,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
+            AppErrorNotice(error: error),
           ],
           const SizedBox(height: 20),
           Row(
@@ -352,8 +350,7 @@ class _SyncFormState extends ConsumerState<_SyncForm> {
   void _showError(Object error) {
     if (!mounted) return;
     final message = error is AppFailure ? error.message : '작업을 완료하지 못했어요.';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showAppError(context, message);
   }
 }
 
@@ -364,8 +361,6 @@ class _ErrorText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      error is AppFailure ? (error as AppFailure).message : '설정을 불러오지 못했어요.',
-    );
+    return AppErrorNotice(error: error, fallback: '설정을 불러오지 못했어요.');
   }
 }

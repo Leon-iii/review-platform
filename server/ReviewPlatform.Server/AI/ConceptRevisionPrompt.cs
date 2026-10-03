@@ -6,7 +6,7 @@ namespace ReviewPlatform.Server.AI;
 
 public static class ConceptRevisionPrompt
 {
-    public const string Version = "concept-revision-v8-confirmed-changes";
+    public const string Version = "concept-revision-v9-learning-value";
     public const int MaximumAdditions = 20;
 
     private static readonly JsonSerializerOptions JsonOptions = new(
@@ -37,16 +37,13 @@ public static class ConceptRevisionPrompt
         For splitting, merging, or dependent replacement, give ALL related changes the same nonempty
         groupId so the user can accept or reject the complete group. Independent changes use an empty
         groupId. Never both revise and delete the same existing ID. Avoid duplicate concepts.
-        Evaluate importance for every new concept using the memorization criteria below.
+        Evaluate importance for every new concept using the learning-value criteria below.
         Return only concepts that actually changed. Write newly added or rewritten text
         in natural Korean while preserving proper nouns, acronyms, code, identifiers, formulas,
         and symbols. Importance, when explicitly changed, must be veryLow, low, medium, high,
-        or veryHigh. When evaluating importance, prioritize memorization element count and required
-        recall precision; exam suitability is secondary. veryLow means minimal elements and only
-        approximate understanding is needed; veryHigh means exceptional memorization load or exact
-        recall requirements, or both high load and high precision. Output
-        only the requested JSON.
-        """;
+        or veryHigh. Apply the following criteria only to new concepts or importance fields the
+        user explicitly asked to change; keep all other existing importance values unchanged.
+        """ + "\n" + ConceptImportancePrompt.Instructions + "\nOutput only the requested JSON.";
 
     public static string BuildUserPrompt(ConceptRevisionInput input)
     {
@@ -166,7 +163,7 @@ public static class ConceptRevisionPrompt
                             {
                                 ["type"] = "string",
                                 ["enum"] = new JsonArray("veryLow", "low", "medium", "high", "veryHigh"),
-                                ["description"] = "Prioritize memorization load and required recall precision; exam suitability is secondary."
+                                ["description"] = ConceptImportancePrompt.SchemaDescription
                             }
                         },
                         ["required"] = new JsonArray(
@@ -188,7 +185,7 @@ public static class ConceptRevisionPrompt
                         {
                             ["title"] = new JsonObject { ["type"] = "string", ["maxLength"] = 200 },
                             ["content"] = new JsonObject { ["type"] = "string", ["maxLength"] = 8000 },
-                            ["importance"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("veryLow", "low", "medium", "high", "veryHigh") },
+                            ["importance"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("veryLow", "low", "medium", "high", "veryHigh"), ["description"] = ConceptImportancePrompt.SchemaDescription },
                             ["pageNumbers"] = new JsonObject
                             {
                                 ["type"] = "array", ["minItems"] = 0, ["maxItems"] = input.PageCount,

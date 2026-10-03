@@ -98,6 +98,8 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
     int minimumDifficulty = 1,
     int maximumDifficulty = 5,
     QuestionSourceDraft? sourceReference,
+    List<StudyConcept> concepts = const [],
+    bool reflectConceptImportance = false,
   }) async {
     state = const AsyncLoading();
     try {
@@ -120,8 +122,33 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
               automaticDensity: automaticDensity,
               minimumDifficulty: minimumDifficulty,
               maximumDifficulty: maximumDifficulty,
+              concepts: concepts,
+              reflectConceptImportance: reflectConceptImportance,
             ),
           );
+      final byId = {for (final concept in concepts) concept.id: concept};
+      final references = <QuestionSourceDraft?>[];
+      for (final question in result.questions) {
+        if (concepts.isEmpty) {
+          references.add(sourceReference);
+          continue;
+        }
+        final concept = byId[question.primaryConceptId];
+        if (concept == null ||
+            sourceReference == null ||
+            concept.sourceId != sourceReference.sourceId) {
+          throw const ValidationFailure(
+            '생성된 문제의 주개념 연결이 올바르지 않아요. 서버를 최신 버전으로 업데이트해 주세요.',
+          );
+        }
+        references.add(
+          QuestionSourceDraft(
+            sourceId: concept.sourceId,
+            conceptId: concept.id,
+            pageNumbers: concept.pageNumbers,
+          ),
+        );
+      }
       final drafts = [
         for (final question in result.questions)
           QuestionDraft(
@@ -143,15 +170,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
       ];
       final ids = await ref
           .read(questionRepositoryProvider)
-          .createQuestions(
-            drafts,
-            sourceReferences: sourceReference == null
-                ? null
-                : List<QuestionSourceDraft?>.filled(
-                    drafts.length,
-                    sourceReference,
-                  ),
-          );
+          .createQuestions(drafts, sourceReferences: references);
       state = AsyncData(
         AiQuestionReviewState(
           folderId: folderId,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -38,6 +39,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
   };
   int _questionCount = 10;
   bool _shuffle = true;
+  bool _prioritizeImportantConcepts = true;
   RangeValues _difficultyRange = const RangeValues(1, 5);
   AnswerFeedbackTiming _feedbackTiming = AnswerFeedbackTiming.immediate;
   late bool _onlyWrong;
@@ -226,6 +228,18 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                                 setState(() => _shuffle = value),
                           ),
                           SwitchListTile(
+                            key: const Key('important-concepts-switch'),
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('중요 개념 우선'),
+                            subtitle: const Text(
+                              '개념별 중요도로 가중 출제하고, 최근 오답·모름을 조금 더 자주 복습합니다.',
+                            ),
+                            value: _prioritizeImportantConcepts,
+                            onChanged: (value) => setState(
+                              () => _prioritizeImportantConcepts = value,
+                            ),
+                          ),
+                          SwitchListTile(
                             key: const Key('only-wrong-filter'),
                             contentPadding: EdgeInsets.zero,
                             title: const Text('최근 오답만'),
@@ -291,6 +305,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
               questionCount: _questionCount,
               onlyWrongQuestions: _onlyWrong,
               shuffle: _shuffle,
+              prioritizeImportantConcepts: _prioritizeImportantConcepts,
               enabledDifficulties: Set.unmodifiable({
                 for (
                   var level = _difficultyRange.start.round();
@@ -306,8 +321,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
     } catch (error) {
       if (!mounted) return;
       final message = error is AppFailure ? error.message : '학습을 시작하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 }
@@ -349,9 +363,7 @@ class _ErrorMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Text(
-        error is AppFailure ? (error as AppFailure).message : '폴더를 불러오지 못했어요.',
-      ),
+      child: AppErrorNotice(error: error, fallback: '폴더를 불러오지 못했어요.'),
     );
   }
 }

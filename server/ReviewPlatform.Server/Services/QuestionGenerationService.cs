@@ -11,7 +11,7 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v9-configurable-count-limit";
+    public const string PromptVersion = "question-generation-v10-concept-importance";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [
@@ -83,7 +83,7 @@ public sealed class QuestionGenerationService
             Model = provider.ModelName,
             PromptVersion = PromptVersion,
             RequestedAt = requestedAt,
-            InputHash = ComputeHash(input.SourceText),
+            InputHash = ComputeHash(JsonSerializer.Serialize(input, JsonOptions)),
             SourceLabel = input.SourceLabel,
             RequestedQuestionCount = input.QuestionCount,
             QuestionTypesJson = JsonSerializer.Serialize(
@@ -272,6 +272,14 @@ public sealed class QuestionGenerationService
                 "자료 이름은 최대 200자까지 입력할 수 있습니다.");
         }
 
+        var plans = QuestionConceptAllocator.Allocate(request.Concepts,
+            request.ReflectConceptImportance, generationMode == "automatic",
+            automaticDensity, questionCount, maximumQuestionsPerRequest);
+        if (plans.Count > 0)
+            sourceText = string.Join("\n\n", plans.Select(plan =>
+                $"Concept ID: {plan.Concept.Id}\n{plan.Concept.Title}\n{plan.Concept.Content}"));
+        if (sourceText.Length > MaximumSourceLength)
+            throw new QuestionGenerationRequestException("학습 내용은 최대 50,000자까지 입력할 수 있습니다.");
         return new QuestionGenerationInput(
             sourceText.Replace("\r\n", "\n", StringComparison.Ordinal),
             questionCount,
@@ -284,13 +292,18 @@ public sealed class QuestionGenerationService
             maximumQuestionsPerConcept,
             request.MinimumDifficulty,
             request.MaximumDifficulty,
-            maximumQuestionsPerRequest);
+            maximumQuestionsPerRequest,
+            plans,
+            request.ReflectConceptImportance);
     }
 
     private static IReadOnlyList<GeneratedQuestionDraft> ValidateProviderOutput(
         IReadOnlyList<GeneratedQuestionDraft> generated,
         QuestionGenerationInput input)
     {
+        if (input.PlannedQuestionCount is int planned && generated.Count != planned)
+            throw new LlmOutputValidationException(
+                $"LLM이 개념별 배분과 다른 수의 문제를 반환했습니다 (계획 {planned}개, 응답 {generated.Count}개).");
         if (!input.IsAutomatic && generated.Count != input.QuestionCount)
         {
             throw new LlmOutputValidationException(
@@ -353,6 +366,12 @@ public sealed class QuestionGenerationService
                     questionNumber);
             }
 
+            var primaryConceptId = question.PrimaryConceptId?.Trim();
+            if (input.ConceptPlans is { Count: > 0 } plans &&
+                !plans.Any(plan => plan.QuestionCount > 0 && plan.Concept.Id == primaryConceptId))
+                throw new LlmOutputValidationException(
+                    "생성된 문제의 주개념 ID가 입력 개념 또는 생성 배분에 없습니다.", questionNumber);
+
             if (type == "multipleChoice")
             {
                 choices = NormalizeMultipleChoiceChoices(
@@ -386,10 +405,17 @@ public sealed class QuestionGenerationService
                 Explanation = string.IsNullOrWhiteSpace(question.Explanation)
                     ? null
                     : question.Explanation.Trim(),
-                SourceIds = sourceIds
+                SourceIds = sourceIds,
+                PrimaryConceptId = input.ConceptPlans is { Count: > 0 } ? primaryConceptId : null
             });
         }
 
+        if (input.ConceptPlans is { Count: > 0 } conceptPlans)
+            foreach (var plan in conceptPlans)
+                if (validated.Count(q => q.PrimaryConceptId == plan.Concept.Id) != plan.QuestionCount)
+                    throw new LlmOutputValidationException(
+                        "LLM이 서버에서 지정한 개념별 문제 수 배분을 지키지 않았습니다.",
+                        diagnostic: $"ExpectedCount={plan.QuestionCount}; ActualCount={validated.Count(q => q.PrimaryConceptId == plan.Concept.Id)}");
         return validated;
     }
 

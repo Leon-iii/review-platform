@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/core/documents/document_picker.dart';
-import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 
 bool get supportsPdfDrop =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -70,13 +70,7 @@ class _PdfDropZoneState extends State<PdfDropZone> {
       await widget.onPdfDropped(document);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error is AppFailure ? error.message : 'PDF를 가져오지 못했어요.',
-          ),
-        ),
-      );
+      showAppError(context, error, fallback: 'PDF를 가져오지 못했어요.');
     } finally {
       if (mounted) setState(() => _reading = false);
     }

@@ -347,6 +347,65 @@ public sealed class OllamaLlmProviderTests
     }
 
     [Fact]
+    public async Task ExtractConcepts_TruncatedSingleDiagramRetainsMetadataInEveryRetry()
+    {
+        var calls = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/tags")
+                return JsonResponse(HttpStatusCode.OK, new { models = new[] { new { name = "qwen3:8b" } } });
+            calls++;
+            return JsonResponse(HttpStatusCode.OK, new
+            {
+                message = new { content = calls == 1 ? "{\"concepts\":[" :
+                    """{"concepts":[{"title":"도식 개념","content":"확인된 연결만 사용합니다.","pageNumbers":[1]}]}""" },
+                done = true,
+                done_reason = calls == 1 ? "length" : "stop"
+            });
+        });
+        await CreateProvider(handler).ExtractConceptsAsync(new ConceptExtractionInput("source", "도식.pdf",
+            [new(1, "[USER_INDEPENDENT_REGION_START]\n[CONTENT_KIND:diagram]\n" + new string('가', 6000) +
+                "\n[/CONTENT_KIND]\n[USER_INDEPENDENT_REGION_END]")], ConceptExtractionPrompt.Version),
+            TestContext.Current.CancellationToken);
+        var retries = handler.Requests.Where(request => request.Path == "/api/chat").Skip(1).ToList();
+        Assert.Equal(2, retries.Count);
+        foreach (var retry in retries)
+        {
+            using var body = JsonDocument.Parse(retry.Body!);
+            var prompt = body.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+            Assert.Contains("[CONTENT_KIND:diagram]", prompt);
+            Assert.Contains("[/CONTENT_KIND]", prompt);
+            Assert.Contains("[USER_INDEPENDENT_REGION_START]", prompt);
+            Assert.Contains("[USER_INDEPENDENT_REGION_END]", prompt);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExtractPageContent_TypedRegionsAreParsedButTruncatedOutputIsRejected(bool truncated)
+    {
+        var handler = new RecordingHandler(request => request.RequestUri!.AbsolutePath == "/api/tags"
+            ? JsonResponse(HttpStatusCode.OK, new { models = new[] { new { name = "qwen3:8b" } } })
+            : JsonResponse(HttpStatusCode.OK, new
+            {
+                message = new { content = """{"regions":[{"kind":"diagram","text":"A → B","visualRegion":true},{"kind":"uncertain","text":"도착점 판독 불가","visualRegion":false}]}""" },
+                done = true,
+                done_reason = truncated ? "length" : "stop"
+            }));
+        var provider = CreateProvider(handler);
+        var input = new DocumentVisionInput("도식.pdf", 1, "image/jpeg", [1, 2, 3], "hash", DocumentVisionPrompt.Version);
+        if (truncated)
+            await Assert.ThrowsAsync<LlmProviderRequestException>(() => provider.ExtractPageContentAsync(input, TestContext.Current.CancellationToken));
+        else
+        {
+            var result = await provider.ExtractPageContentAsync(input, TestContext.Current.CancellationToken);
+            Assert.Equal(["diagram", "uncertain"], result.Regions!.Select(region => region.Kind));
+            Assert.Contains("[VISUAL_REGION_START]\nA → B", result.Text);
+        }
+    }
+
+    [Fact]
     public async Task ExtractPageContent_SendsImageAndDisablesThinking()
     {
         var handler = new RecordingHandler(request =>
@@ -527,7 +586,7 @@ public sealed class OllamaLlmProviderTests
     }
 
     [Fact]
-    public async Task ExtractPageContent_AcceptsJsonLikePlainText()
+    public async Task ExtractPageContent_RejectsUnrecognizedJsonInsteadOfTreatingItAsOcr()
     {
         var handler = new RecordingHandler(request =>
             request.RequestUri!.AbsolutePath switch
@@ -545,7 +604,7 @@ public sealed class OllamaLlmProviderTests
             });
         var provider = CreateProvider(handler);
 
-        var result = await provider.ExtractPageContentAsync(
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => provider.ExtractPageContentAsync(
             new DocumentVisionInput(
                 "자료.pdf",
                 2,
@@ -553,9 +612,7 @@ public sealed class OllamaLlmProviderTests
                 [1, 2, 3],
                 new string('a', 64),
                 DocumentVisionPrompt.Version),
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal("{\"unexpected\":true}", result.Text);
+            TestContext.Current.CancellationToken));
         Assert.Single(handler.Requests,
             request => request.Path == "/api/chat");
     }

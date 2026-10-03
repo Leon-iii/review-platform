@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:review_platform/core/sync/sync_credentials_store.dart';
 import 'package:review_platform/domain/models/sync_status.dart';
+import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/domain/services/sync_coordinator.dart';
 
 /// Runs best-effort synchronization for application lifecycle and local changes.
@@ -15,6 +16,8 @@ class AutomaticSyncController {
     this._statusStream, {
     this.debounceDuration = const Duration(seconds: 3),
     this.periodicInterval = const Duration(minutes: 15),
+    this.canSynchronize,
+    this.readinessRetryInterval = const Duration(seconds: 3),
   });
 
   final SyncCredentialsStore _credentialsStore;
@@ -22,10 +25,13 @@ class AutomaticSyncController {
   final Stream<SyncStatus> _statusStream;
   final Duration debounceDuration;
   final Duration periodicInterval;
+  final Future<bool> Function(SyncConfiguration configuration)? canSynchronize;
+  final Duration readinessRetryInterval;
 
   StreamSubscription<SyncStatus>? _statusSubscription;
   Timer? _debounceTimer;
   Timer? _periodicTimer;
+  Timer? _readinessTimer;
   Future<void>? _activeRun;
   bool _started = false;
   bool _disposed = false;
@@ -77,7 +83,27 @@ class AutomaticSyncController {
   Future<void> _performBestEffort() async {
     try {
       final configuration = await _credentialsStore.readConfiguration();
-      if (configuration == null || _disposed) return;
+      if (_disposed) return;
+      if (configuration == null) {
+        _readinessTimer?.cancel();
+        _readinessTimer = null;
+        return;
+      }
+      if (canSynchronize != null && !await canSynchronize!(configuration)) {
+        // A deliberately stopped/starting local server is not a sync failure.
+        // Retry readiness even with an empty Outbox, so startup recovery also
+        // pulls remote changes and clears an old error after real success.
+        if (!_disposed) {
+          _readinessTimer ??= Timer(readinessRetryInterval, () {
+            _readinessTimer = null;
+            unawaited(_runBestEffort());
+          });
+        }
+        return;
+      }
+      if (_disposed) return;
+      _readinessTimer?.cancel();
+      _readinessTimer = null;
       await _syncCoordinator.synchronize();
     } catch (_) {
       // The coordinator persists a user-visible error. Automatic sync should
@@ -90,6 +116,7 @@ class AutomaticSyncController {
     _disposed = true;
     _debounceTimer?.cancel();
     _periodicTimer?.cancel();
+    _readinessTimer?.cancel();
     final cancellation = _statusSubscription?.cancel();
     _statusSubscription = null;
     if (cancellation != null) {

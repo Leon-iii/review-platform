@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
-import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
@@ -23,7 +23,7 @@ class QuizResultView extends ConsumerWidget {
       body: result.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
-          child: Text(error is AppFailure ? error.message : '결과를 불러오지 못했어요.'),
+          child: AppErrorNotice(error: error, fallback: '결과를 불러오지 못했어요.'),
         ),
         data: (summary) => Center(
           child: SingleChildScrollView(
@@ -157,19 +157,22 @@ class _AnswerResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final question = attempt.questionSnapshot;
     final isCorrect = attempt.score == attempt.maxScore;
-    final submittedAnswer = switch (question.type) {
-      QuestionType.multipleChoice || QuestionType.trueFalse =>
-        question.choices
-                .where(
-                  (choice) => choice.id == attempt.response['selectedChoiceId'],
-                )
-                .map((choice) => choice.text)
-                .firstOrNull ??
-            '선택 없음',
-      QuestionType.shortAnswer =>
-        attempt.response['textAnswer'] as String? ?? '',
-      QuestionType.essay => '서술형 답안',
-    };
+    final submittedAnswer = attempt.isUnknown
+        ? '모름'
+        : switch (question.type) {
+            QuestionType.multipleChoice || QuestionType.trueFalse =>
+              question.choices
+                      .where(
+                        (choice) =>
+                            choice.id == attempt.response['selectedChoiceId'],
+                      )
+                      .map((choice) => choice.text)
+                      .firstOrNull ??
+                  '선택 없음',
+            QuestionType.shortAnswer =>
+              attempt.response['textAnswer'] as String? ?? '',
+            QuestionType.essay => '서술형 답안',
+          };
     final correctAnswer = switch (question.type) {
       QuestionType.multipleChoice || QuestionType.trueFalse =>
         question.choices
@@ -184,13 +187,25 @@ class _AnswerResultCard extends StatelessWidget {
       child: ExpansionTile(
         key: Key('quiz-answer-result-${attempt.questionId}'),
         leading: Icon(
-          isCorrect
+          attempt.isUnknown
+              ? Icons.help_outline_rounded
+              : isCorrect
               ? Icons.check_circle_outline_rounded
               : Icons.cancel_outlined,
-          color: isCorrect ? Colors.green : Theme.of(context).colorScheme.error,
+          color: attempt.isUnknown
+              ? Theme.of(context).colorScheme.onSurfaceVariant
+              : isCorrect
+              ? Colors.green
+              : Theme.of(context).colorScheme.error,
         ),
         title: Text(question.prompt),
-        subtitle: Text(isCorrect ? '정답' : '오답'),
+        subtitle: Text(
+          attempt.isUnknown
+              ? '모름'
+              : isCorrect
+              ? '정답'
+              : '오답',
+        ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

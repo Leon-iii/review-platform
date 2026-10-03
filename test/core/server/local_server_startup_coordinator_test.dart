@@ -124,9 +124,128 @@ void main() {
     );
 
     await coordinator.initialize();
+    expect(await coordinator.canPoll('http://127.0.0.1:5080'), isTrue);
 
     expect(store.readCount, 0);
     expect(service.currentState.status, LocalServerStatus.stopped);
+  });
+
+  test('로컬 상태 조회는 자동 시작의 health 준비 완료를 기다린다', () async {
+    final ready = Completer<bool>();
+    final launched = Completer<void>();
+    var launchCount = 0;
+    final service = LocalServerService(
+      secretStore: _MemorySecretStore(),
+      isWindows: true,
+      healthCheck: (_) async => launchCount == 0 ? false : await ready.future,
+      directoryResolver: () async => r'C:\project\server',
+      processLauncher:
+          (
+            executable,
+            arguments, {
+            required workingDirectory,
+            required environment,
+          }) async {
+            launchCount++;
+            launched.complete();
+            return _FakeProcess();
+          },
+      accessTokenReader: () async => 'token',
+      portAvailabilityCheck: (_) async => true,
+    );
+    addTearDown(service.dispose);
+    final coordinator = LocalServerStartupCoordinator(
+      configStore: _MemoryConfigStore(
+        const LocalServerConfig(port: 5080, autoStart: true),
+      ),
+      service: service,
+      isWindows: true,
+    );
+    final initializing = coordinator.initialize();
+    await launched.future;
+    var finished = false;
+    final polling = coordinator.canPoll('http://127.0.0.1:5080').then((value) {
+      finished = true;
+      return value;
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(finished, isFalse);
+    expect(service.currentState.status, LocalServerStatus.starting);
+    ready.complete(true);
+    expect(await polling, isTrue);
+    await initializing;
+    expect(launchCount, 1);
+    expect(service.currentState.status, LocalServerStatus.running);
+  });
+
+  test('원격 주소·다른 로컬 포트의 조회는 관리 서버 초기화를 기다리지 않는다', () async {
+    final store = _MemoryConfigStore(
+      const LocalServerConfig(port: 5080, autoStart: true),
+    );
+    var healthCalls = 0;
+    final service = LocalServerService(
+      secretStore: _MemorySecretStore(),
+      isWindows: true,
+      healthCheck: (_) async {
+        healthCalls++;
+        return false;
+      },
+    );
+    addTearDown(service.dispose);
+    final coordinator = LocalServerStartupCoordinator(
+      configStore: store,
+      service: service,
+      isWindows: true,
+    );
+    expect(await coordinator.canPoll('http://server:5080'), isTrue);
+    expect(await coordinator.canPoll('http://127.0.0.1:6000'), isTrue);
+    expect(await coordinator.canPoll('https://localhost:5080'), isTrue);
+    expect(healthCalls, 0);
+    expect(service.currentState.status, LocalServerStatus.stopped);
+  });
+
+  test('이 PC의 사설 IP를 사용해도 관리 서버 준비 상태를 확인한다', () async {
+    final service = LocalServerService(
+      secretStore: _MemorySecretStore(),
+      isWindows: true,
+      healthCheck: (_) async => false,
+    );
+    addTearDown(service.dispose);
+    final coordinator = LocalServerStartupCoordinator(
+      configStore: _MemoryConfigStore(
+        const LocalServerConfig(port: 5080, autoStart: false),
+      ),
+      service: service,
+      isWindows: true,
+      isLocalHost: (host) async => host == '192.168.0.10',
+    );
+    expect(await coordinator.canPoll('http://192.168.0.10:5080'), isFalse);
+    expect(await coordinator.canPoll('http://192.168.0.11:5080'), isTrue);
+    expect(await coordinator.canPoll('http://192.168.0.10:6000'), isTrue);
+  });
+
+  test('꺼진 로컬 서버 조회는 보류하고 외부에서 서버가 켜지면 다시 허용한다', () async {
+    var running = false;
+    final service = LocalServerService(
+      secretStore: _MemorySecretStore(),
+      isWindows: true,
+      healthCheck: (_) async => running,
+    );
+    addTearDown(service.dispose);
+    final coordinator = LocalServerStartupCoordinator(
+      configStore: _MemoryConfigStore(
+        const LocalServerConfig(port: 5080, autoStart: false),
+      ),
+      service: service,
+      isWindows: true,
+    );
+    expect(await coordinator.canPoll('http://localhost:5080'), isFalse);
+    expect(service.currentState.status, LocalServerStatus.stopped);
+    running = true;
+    expect(await coordinator.canPoll('http://[::1]:5080'), isTrue);
+    expect(service.currentState.status, LocalServerStatus.externalRunning);
+    coordinator.cancel();
+    expect(await coordinator.canPoll('http://localhost:5080'), isFalse);
   });
 }
 

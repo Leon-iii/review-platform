@@ -24,8 +24,9 @@ class StatisticsDao extends DatabaseAccessor<AppDatabase>
   StatisticsDao(super.attachedDatabase);
 
   Stream<StatisticsDatabaseSnapshot> watchSnapshot() async* {
+    // Keep this invalidation query distinct from the sync status observer.
     final changes = customSelect(
-      'SELECT 1 AS value',
+      'SELECT 1 AS statistics_change',
       readsFrom: {attempts, questions, folders},
     ).watch();
 

@@ -178,6 +178,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.calls, 0);
     expect(find.text('폴더가 아닌 PDF 파일을 놓아 주세요.'), findsOneWidget);
+    expect(find.byKey(const Key('app-error-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('acknowledge-app-error')));
+    await tester.pumpAndSettle();
     final drop = details(tester, finder);
     tester.widget<DropTarget>(finder).onDragDone!(
       DropDoneDetails(
@@ -188,6 +191,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(api.calls, 0);
+    await tester.tap(find.byKey(const Key('acknowledge-app-error')));
+    await tester.pumpAndSettle();
     expect(tester.widget<DropTarget>(finder).enable, isTrue);
     expect(await DriftSourceRepository(database).getSources(folderId), isEmpty);
   }, variant: TargetPlatformVariant({TargetPlatform.windows}));

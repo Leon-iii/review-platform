@@ -197,6 +197,7 @@ class DriftSyncRepository implements SyncRepository {
                   'prompt': row.prompt,
                   'explanation': row.explanation,
                   'difficulty': row.difficulty,
+                  'importance': row.importance,
                   'createdAt': row.createdAt.toUtc().toIso8601String(),
                   'updatedAt': row.updatedAt.toUtc().toIso8601String(),
                   'deletedAt': null,
@@ -396,6 +397,10 @@ class DriftSyncRepository implements SyncRepository {
             prompt: payload['prompt']! as String,
             explanation: Value(payload['explanation'] as String?),
             difficulty: Value((payload['difficulty'] as num?)?.toInt()),
+            importance: Value(
+              ConceptImportance.fromStorage(payload['importance'] as String?)
+                  .name,
+            ),
             createdAt: _date(payload, 'createdAt'),
             updatedAt: change.updatedAt,
             deletedAt: const Value(null),

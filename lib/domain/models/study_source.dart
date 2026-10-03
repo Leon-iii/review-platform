@@ -170,8 +170,9 @@ class SourceGenerationSeed {
           '${concepts[index].content}',
   ].join('\n\n');
 
-  // Document-wide generation has no reliable per-question concept mapping.
-  // Keep the source and input pages without attributing an arbitrary concept.
+  // Request-level provenance only. Structured generation maps each returned
+  // question to its validated primary concept and that concept's own pages.
+  // Legacy/free-text responses must not be assigned an arbitrary concept.
   QuestionSourceDraft get sourceReference => QuestionSourceDraft(
     sourceId: source.id,
     pageNumbers: {

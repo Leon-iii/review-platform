@@ -56,11 +56,13 @@ class QuizSubmission {
     required this.grade,
     required this.completed,
     required this.showImmediateFeedback,
+    this.isUnknown = false,
   });
 
   final GradeResult grade;
   final bool completed;
   final bool showImmediateFeedback;
+  final bool isUnknown;
 }
 
 @riverpod
@@ -96,7 +98,7 @@ class QuizViewModel extends _$QuizViewModel {
     state = AsyncData(current.copyWith(textAnswer: value));
   }
 
-  Future<QuizSubmission> submit() async {
+  Future<QuizSubmission> submit({bool isUnknown = false}) async {
     final current = state.requireValue;
     if (current.isSubmitting) {
       throw const ValidationFailure('답안을 저장하고 있어요.');
@@ -109,29 +111,35 @@ class QuizViewModel extends _$QuizViewModel {
     final question = item.questionSnapshot;
     late final GradeResult grade;
     late final Map<String, Object?> response;
-    switch (question.type) {
-      case QuestionType.multipleChoice:
-        final choiceId = current.selectedChoiceId;
-        if (choiceId == null) {
-          throw const ValidationFailure('답을 선택해 주세요.');
-        }
-        grade = AnswerGrader.gradeMultipleChoice(question, choiceId);
-        response = {'selectedChoiceId': choiceId};
-      case QuestionType.trueFalse:
-        final choiceId = current.selectedChoiceId;
-        if (choiceId == null) {
-          throw const ValidationFailure('O 또는 X를 선택해 주세요.');
-        }
-        grade = AnswerGrader.gradeTrueFalse(question, choiceId);
-        response = {'selectedChoiceId': choiceId};
-      case QuestionType.shortAnswer:
-        if (current.textAnswer.trim().isEmpty) {
-          throw const ValidationFailure('답을 입력해 주세요.');
-        }
-        grade = AnswerGrader.gradeShortAnswer(question, current.textAnswer);
-        response = {'textAnswer': current.textAnswer};
-      case QuestionType.essay:
-        throw const ValidationFailure('서술형 문제는 아직 지원하지 않아요.');
+    if (isUnknown && question.type != QuestionType.essay) {
+      grade = const GradeResult(score: 0, maxScore: 1);
+      // Do not retain a previously selected/typed answer as a guessed answer.
+      response = {'isUnknown': true};
+    } else {
+      switch (question.type) {
+        case QuestionType.multipleChoice:
+          final choiceId = current.selectedChoiceId;
+          if (choiceId == null) {
+            throw const ValidationFailure('답을 선택해 주세요.');
+          }
+          grade = AnswerGrader.gradeMultipleChoice(question, choiceId);
+          response = {'selectedChoiceId': choiceId};
+        case QuestionType.trueFalse:
+          final choiceId = current.selectedChoiceId;
+          if (choiceId == null) {
+            throw const ValidationFailure('O 또는 X를 선택해 주세요.');
+          }
+          grade = AnswerGrader.gradeTrueFalse(question, choiceId);
+          response = {'selectedChoiceId': choiceId};
+        case QuestionType.shortAnswer:
+          if (current.textAnswer.trim().isEmpty) {
+            throw const ValidationFailure('답을 입력해 주세요.');
+          }
+          grade = AnswerGrader.gradeShortAnswer(question, current.textAnswer);
+          response = {'textAnswer': current.textAnswer};
+        case QuestionType.essay:
+          throw const ValidationFailure('서술형 문제는 아직 지원하지 않아요.');
+      }
     }
 
     state = AsyncData(current.copyWith(isSubmitting: true));
@@ -178,6 +186,7 @@ class QuizViewModel extends _$QuizViewModel {
       return QuizSubmission(
         grade: grade,
         completed: completed,
+        isUnknown: isUnknown,
         showImmediateFeedback:
             current.details.session.filter.feedbackTiming ==
             AnswerFeedbackTiming.immediate,

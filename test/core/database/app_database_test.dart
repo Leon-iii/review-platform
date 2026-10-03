@@ -3,9 +3,49 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
+import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/enums/concept_importance.dart';
+import 'package:review_platform/domain/models/question.dart';
+import 'package:review_platform/repositories/folder_repository.dart';
+import 'package:review_platform/repositories/question_repository.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 void main() {
+  test('v11 중요도 컬럼 추가가 기존 문제를 보존하고 보통을 기본 적용한다', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'review_importance_migration_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/migration.sqlite');
+    final current = AppDatabase(NativeDatabase(file));
+    final folder = await DriftFolderRepository(current)
+        .createFolder(name: '보존');
+    final id = await DriftQuestionRepository(current).createQuestion(
+      QuestionDraft(
+        folderId: folder,
+        type: QuestionType.shortAnswer,
+        prompt: '기존 문제',
+        acceptableAnswers: const ['정답'],
+      ),
+    );
+    await current.close();
+    final legacy = sqlite.sqlite3.open(file.path);
+    legacy.execute('ALTER TABLE questions DROP COLUMN importance');
+    legacy.execute('PRAGMA user_version = 11');
+    legacy.close();
+    final upgraded = AppDatabase(NativeDatabase(file));
+    addTearDown(upgraded.close);
+    final question = (await DriftQuestionRepository(upgraded).getQuestion(id))!;
+    expect(question.prompt, '기존 문제');
+    expect(question.acceptableAnswers.single.text, '정답');
+    expect(question.importance, ConceptImportance.medium);
+    expect(
+      (await upgraded.customSelect('PRAGMA user_version').getSingle())
+          .read<int>('user_version'),
+      12,
+    );
+  });
+
   test('Drift 데이터베이스를 메모리에서 생성할 수 있다', () async {
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -304,6 +344,7 @@ void main() {
     final databaseFile = File('${tempDirectory.path}/migration.sqlite');
 
     final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    _createV4CoreTables(legacyDatabase);
     legacyDatabase.execute('''
       CREATE TABLE sources (
         id TEXT NOT NULL PRIMARY KEY,
@@ -404,6 +445,7 @@ void main() {
     final databaseFile = File('${tempDirectory.path}/migration.sqlite');
 
     final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    _createV4CoreTables(legacyDatabase);
     legacyDatabase.execute('''
       CREATE TABLE sources (
         id TEXT NOT NULL PRIMARY KEY,
@@ -485,6 +527,7 @@ void main() {
     final databaseFile = File('${tempDirectory.path}/migration.sqlite');
 
     final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    _createV4CoreTables(legacyDatabase);
     legacyDatabase.execute('''
       CREATE TABLE sources (
         id TEXT NOT NULL PRIMARY KEY,

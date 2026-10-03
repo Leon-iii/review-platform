@@ -281,6 +281,79 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
         Assert.Equal(1, provider.VisionCallCount);
     }
 
+    [Fact]
+    public async Task CalloutBoundaries_ReachConceptExtractionAndSamePageConceptsStayIndependent()
+    {
+        const string visualText = """
+            인터넷 발전 연표
+            초기 네트워크의 역사적 연도와 인물
+            [VISUAL_REGION_START]
+            상호연결 원칙
+            각 네트워크는 독립적으로 운영할 수 있다.
+            [VISUAL_REGION_END]
+            이후 네트워크 발전 기록
+            """;
+        var provider = new FakeConceptProvider([
+            new GeneratedConceptDraft("인터넷 발전 연표", "역사적 배경에 대한 참고용 연도 목록", [1], "veryLow"),
+            new GeneratedConceptDraft("상호연결 원칙", "네트워크 사이의 연결 원리를 설명하는 내용", [1], "high")
+        ], new DocumentVisionResult(visualText));
+        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(1, [
+            new ExtractedDocumentPage(1, "인터넷 발전 연표와 박스 속 상호연결 원칙의 충분한 길이의 텍스트", RequiresVision: true)
+        ]));
+        await using var content = PdfLikeStream();
+        var response = await CreateService(extractor, provider).ImportPdfAsync(content, "연표.pdf",
+            content.Length, TestContext.Current.CancellationToken);
+        var input = Assert.IsType<ConceptExtractionInput>(provider.LastConceptInput);
+        Assert.Contains(visualText, Assert.Single(input.Pages).Text);
+        Assert.Contains("[VISUAL_REGION_START]", ConceptExtractionPrompt.BuildUserPrompt(input));
+        Assert.Contains("[VISUAL_REGION_END]", ConceptExtractionPrompt.BuildUserPrompt(input));
+        Assert.Equal("hybrid", response.Source.ExtractionMethod);
+        Assert.Equal(2, response.Concepts.Count);
+        Assert.Equal("veryLow", response.Concepts.Single(concept => concept.Title == "인터넷 발전 연표").Importance);
+        Assert.Equal("high", response.Concepts.Single(concept => concept.Title == "상호연결 원칙").Importance);
+        Assert.All(response.Concepts, concept => Assert.Equal([1], concept.PageNumbers));
+        Assert.Equal(1, provider.VisionCallCount);
+    }
+
+    [Fact]
+    public async Task RegionAwareVision_DoesNotReuseOldUnsegmentedOcrCache()
+    {
+        var cache = new MemoryPageTextCache();
+        await cache.SetAsync(new string('a', 64), "fake", "fake-model", "document-vision-v1",
+            "이전 버전의 영역 경계 없는 OCR 결과입니다.", TestContext.Current.CancellationToken);
+        var provider = new FakeConceptProvider([
+            new GeneratedConceptDraft("독립 영역", "새 영역 경계를 사용한 학습 내용입니다.", [1])
+        ], new DocumentVisionResult("[VISUAL_REGION_START]\n새 영역 경계가 있는 충분한 학습 내용입니다.\n[VISUAL_REGION_END]"));
+        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(1, [new ExtractedDocumentPage(1, "")]));
+        await using var content = PdfLikeStream();
+        await CreateService(extractor, provider, cache: cache).ImportPdfAsync(content, "박스.pdf",
+            content.Length, TestContext.Current.CancellationToken);
+        Assert.Equal(1, provider.VisionCallCount);
+        var text = Assert.Single(provider.LastConceptInput!.Pages).Text;
+        Assert.Contains("[VISUAL_REGION_START]", text);
+        Assert.DoesNotContain("이전 버전", text);
+    }
+
+    [Fact]
+    public async Task TypedVision_CacheReusePreservesKindsInAutomaticConceptExtraction()
+    {
+        var provider = new FakeConceptProvider([new("연결 관계", "도식에 보이는 연결 정보를 설명한다.", [1])],
+            new DocumentVisionResult("", [new("text", "충분한 길이의 일반 본문 설명입니다."), new("diagram", "A에서 B로 화살표가 연결된다."), new("table", "|열1|열2|"), new("uncertain", "가려진 라벨은 읽기 어려움")]));
+        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(1, [new(1, "")]));
+        var service = CreateService(extractor, provider, cache: new MemoryPageTextCache());
+        for (var index = 0; index < 2; index++)
+        {
+            await using var content = PdfLikeStream();
+            await service.ImportPdfAsync(content, "종류.pdf", content.Length, TestContext.Current.CancellationToken);
+            var text = Assert.Single(provider.LastConceptInput!.Pages).Text;
+            Assert.Contains("[CONTENT_KIND:diagram]", text);
+            Assert.Contains("[CONTENT_KIND:table]", text);
+            Assert.Contains("[CONTENT_KIND:uncertain]", text);
+        }
+        Assert.Equal(1, provider.VisionCallCount);
+        Assert.Equal(2, provider.ConceptCallCount);
+    }
+
     private DocumentProcessingService CreateService(
         IPdfTextExtractor extractor,
         ILLMProvider provider,
@@ -324,6 +397,8 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
 
         public int VisionCallCount { get; private set; }
 
+        public ConceptExtractionInput? LastConceptInput { get; private set; }
+
         public Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
             QuestionGenerationInput input,
             CancellationToken cancellationToken = default) =>
@@ -334,6 +409,7 @@ public sealed class DocumentProcessingServiceTests : IAsyncLifetime
             CancellationToken cancellationToken = default)
         {
             ConceptCallCount++;
+            LastConceptInput = input;
             return Task.FromResult(concepts);
         }
 

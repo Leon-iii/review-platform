@@ -198,7 +198,9 @@ class DriftSourceRepository implements SourceRepository {
       await _database.transaction(() async {
         // A completed background job may be fetched more than once (e.g. after
         // the app exits between importing the result and acknowledging it).
-        if (await _database.sourceDao.getSource(result.source.id) != null) return;
+        if (await _database.sourceDao.getSource(result.source.id) != null) {
+          return;
+        }
         await _database.sourceDao.insertSource(
           StudySourcesCompanion.insert(
             id: result.source.id,
@@ -371,6 +373,10 @@ class DriftSourceRepository implements SourceRepository {
           operation: SyncOperation.delete.name,
           createdAt: now.add(Duration(microseconds: concepts.length)),
         );
+        await _preserveQuestionImportance(
+          concepts.map((concept) => concept.id),
+          now,
+        );
         await _database.sourceDao.deleteSourceGraph(id);
       });
     }, '학습 자료를 삭제하지 못했어요.');
@@ -427,6 +433,7 @@ class DriftSourceRepository implements SourceRepository {
           operation: SyncOperation.delete.name,
           createdAt: now,
         );
+        await _preserveQuestionImportance([id], now);
         await _database.sourceDao.deleteConcept(id);
       });
     }, '개념을 삭제하지 못했어요.');
@@ -825,6 +832,27 @@ class DriftSourceRepository implements SourceRepository {
     }
     if (title.length > 200 || content.length > 8000) {
       throw const ValidationFailure('개념 제목은 200자, 내용은 8,000자 이하로 입력해 주세요.');
+    }
+  }
+
+  Future<void> _preserveQuestionImportance(
+    Iterable<String> conceptIds,
+    DateTime at,
+  ) async {
+    final ids = await _database.sourceDao.preserveQuestionImportance(
+      conceptIds,
+    );
+    for (final id in ids) {
+      await _database.questionDao.updateQuestion(
+        id,
+        QuestionsCompanion(updatedAt: Value(at)),
+      );
+      await _database.syncDao.enqueue(
+        entityType: SyncEntityType.question.name,
+        entityId: id,
+        operation: SyncOperation.upsert.name,
+        createdAt: at,
+      );
     }
   }
 

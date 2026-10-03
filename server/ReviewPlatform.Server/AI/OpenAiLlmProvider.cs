@@ -63,7 +63,7 @@ public sealed class OpenAiLlmProvider(
             if (!response.IsSuccessStatusCode)
             {
                 throw new LlmProviderRequestException(
-                    ToSafeApiError(response.StatusCode, responseBody));
+                    ToSafeApiError(response.StatusCode, responseBody, "문제 생성"));
             }
             return ParseResponse(responseBody);
         }
@@ -107,7 +107,7 @@ public sealed class OpenAiLlmProvider(
             if (!response.IsSuccessStatusCode)
             {
                 throw new LlmProviderRequestException(
-                    ToSafeApiError(response.StatusCode, responseBody));
+                    ToSafeApiError(response.StatusCode, responseBody, "개념 추출"));
             }
             return ParseConceptResponse(responseBody);
         }
@@ -151,11 +151,87 @@ public sealed class OpenAiLlmProvider(
             if (!response.IsSuccessStatusCode)
             {
                 throw new LlmProviderRequestException(
-                    ToSafeApiError(response.StatusCode, responseBody));
+                    ToSafeApiError(response.StatusCode, responseBody, "개념 수정"));
             }
             return ParseConceptRevisionResponse(responseBody);
         }
     }
+
+    public async Task<DocumentVisionResult> ExtractPageContentAsync(
+        DocumentVisionInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConfiguration();
+        if (input.ImageBytes.Length is < 1 or > 12 * 1024 * 1024 ||
+            input.MimeType is not ("image/png" or "image/jpeg" or "image/webp"))
+            throw new LlmProviderRequestException(
+                "문서 OCR 이미지의 크기 또는 형식이 올바르지 않습니다.");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(BuildVisionRequest(input), JsonOptions),
+            Encoding.UTF8, "application/json");
+        try
+        {
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new LlmProviderRequestException(ToSafeApiError(response.StatusCode, body, "문서 이미지 분석"));
+            var outputText = ExtractOutputText(body, "문서 이미지 분석");
+            return DocumentVisionOutput.Parse(outputText);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new LlmProviderRequestException(
+                $"OpenAI 문서 이미지 분석 요청 시간이 초과되었습니다. (p.{input.PageNumber})", exception);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new LlmProviderRequestException("OpenAI API에 연결하지 못했습니다.", exception);
+        }
+        catch (JsonException exception)
+        {
+            throw new LlmProviderRequestException(
+                "OpenAI의 문서 이미지 응답을 해석하지 못했습니다.", exception);
+        }
+    }
+
+    private object BuildVisionRequest(DocumentVisionInput input) =>
+        ApplyReasoning(new Dictionary<string, object?>
+        {
+            ["model"] = settings.Model,
+            ["store"] = false,
+            ["max_output_tokens"] = 8_000,
+            ["input"] = new object[]
+            {
+                new { role = "system", content = DocumentVisionPrompt.StructuredSystemPrompt },
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "input_text", text = DocumentVisionPrompt.BuildUserPrompt(input) },
+                        new
+                        {
+                            type = "input_image",
+                            image_url = $"data:{input.MimeType};base64,{Convert.ToBase64String(input.ImageBytes)}",
+                            detail = "high"
+                        }
+                    }
+                }
+            },
+            ["text"] = new
+            {
+                format = new
+                {
+                    type = "json_schema",
+                    name = "review_document_vision",
+                    strict = true,
+                    schema = OpenAiStructuredOutputSchema.Build(DocumentVisionPrompt.BuildSchema())
+                }
+            }
+        });
 
     private void ValidateConfiguration()
     {
@@ -228,7 +304,7 @@ public sealed class OpenAiLlmProvider(
                     ["name"] = "review_question_generation",
                     ["description"] = "Draft review questions grounded in the supplied source",
                     ["strict"] = true,
-                    ["schema"] = QuestionGenerationPrompt.BuildQuestionSchema(input)
+                    ["schema"] = OpenAiStructuredOutputSchema.Build(QuestionGenerationPrompt.BuildQuestionSchema(input))
                 }
             }
         });
@@ -262,7 +338,7 @@ public sealed class OpenAiLlmProvider(
                     ["name"] = "review_concept_extraction",
                     ["description"] = "Held study concepts grounded in PDF pages",
                     ["strict"] = true,
-                    ["schema"] = ConceptExtractionPrompt.BuildSchema(input)
+                    ["schema"] = OpenAiStructuredOutputSchema.Build(ConceptExtractionPrompt.BuildSchema(input))
                 }
             }
         });
@@ -298,7 +374,7 @@ public sealed class OpenAiLlmProvider(
                     ["name"] = "review_concept_revision",
                     ["description"] = "Requested revisions to existing PDF concepts",
                     ["strict"] = true,
-                    ["schema"] = ConceptRevisionPrompt.BuildSchema(input)
+                    ["schema"] = OpenAiStructuredOutputSchema.Build(ConceptRevisionPrompt.BuildSchema(input))
                 }
             }
         });
@@ -392,7 +468,7 @@ public sealed class OpenAiLlmProvider(
                 $"OpenAI가 {operation}을 완료하지 못했습니다.");
         }
 
-        string? outputText = null;
+        var outputText = new StringBuilder();
         string? refusal = null;
         if (root.TryGetProperty("output", out var output) &&
             output.ValueKind == JsonValueKind.Array)
@@ -412,7 +488,7 @@ public sealed class OpenAiLlmProvider(
                     if (type == "output_text" &&
                         part.TryGetProperty("text", out var text))
                     {
-                        outputText = text.GetString();
+                        outputText.Append(text.GetString());
                     }
                     else if (type == "refusal" &&
                         part.TryGetProperty("refusal", out var refusalElement))
@@ -428,17 +504,18 @@ public sealed class OpenAiLlmProvider(
             throw new LlmProviderRequestException(
                 $"OpenAI가 {operation} 요청을 거절했습니다.");
         }
-        if (string.IsNullOrWhiteSpace(outputText))
+        if (string.IsNullOrWhiteSpace(outputText.ToString()))
         {
             throw new LlmProviderRequestException(
                 $"OpenAI 응답에 구조화된 {operation} 결과가 없습니다.");
         }
-        return outputText;
+        return outputText.ToString();
     }
 
     private static string ToSafeApiError(
         System.Net.HttpStatusCode statusCode,
-        string responseBody)
+        string responseBody,
+        string operation)
     {
         string? errorCode = null;
         try
@@ -458,6 +535,8 @@ public sealed class OpenAiLlmProvider(
         var suffix = string.IsNullOrWhiteSpace(errorCode)
             ? string.Empty
             : $" ({errorCode})";
+        if (errorCode == "invalid_json_schema")
+            return $"OpenAI {operation} 요청의 응답 형식(JSON Schema)이 지원되지 않습니다: {(int)statusCode}{suffix}";
         return $"OpenAI API 요청이 실패했습니다: {(int)statusCode}{suffix}";
     }
 

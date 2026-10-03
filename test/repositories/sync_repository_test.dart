@@ -153,78 +153,95 @@ void main() {
     expect(await sync.getPending(), isEmpty);
   });
 
-  test('Folder부터 Attempt까지 직렬화한 payload를 다른 DB에 복원한다', () async {
-    final folderId = await folders.createFolder(name: '기기 공유');
-    final questionId = await questions.createQuestion(
-      QuestionDraft(
-        folderId: folderId,
-        type: QuestionType.shortAnswer,
-        prompt: '동기화 정답은?',
-        explanation: '기기 간 동일해야 한다.',
-        acceptableAnswers: const ['같음'],
-      ),
-    );
-    final question = (await questions.getQuestion(questionId))!;
-    final sessionId = await quizzes.createSession(
-      filter: QuizFilter(
-        rootFolderId: folderId,
-        enabledQuestionTypes: const {QuestionType.shortAnswer},
-        questionCount: 1,
-      ),
-      questions: [question],
-    );
-    final sourceSession = (await quizzes.getSession(sessionId))!;
-    final attemptId = await attempts.recordAttempt(
-      AttemptDraft(
-        questionId: questionId,
-        sessionId: sessionId,
-        response: const {'textAnswer': '같음'},
-        questionSnapshot: sourceSession.items.single.questionSnapshot,
-        score: 1,
-        maxScore: 1,
-        gradingType: GradingType.local,
-        durationMs: 80,
-      ),
-    );
-    await quizzes.linkAttempt(
-      sessionId: sessionId,
-      itemId: sourceSession.items.single.id,
-      attemptId: attemptId,
-    );
-    final payloads = await sync.buildPushBatch();
-    await database.close();
-    databaseClosed = true;
-
-    final targetDatabase = AppDatabase(NativeDatabase.memory());
-    addTearDown(targetDatabase.close);
-    final targetSync = DriftSyncRepository(targetDatabase);
-    await targetSync.applyPulledChanges([
-      for (var index = 0; index < payloads.length; index++)
-        PullSyncChange(
-          entityType: payloads[index].entityType,
-          entityId: payloads[index].entityId,
-          operation: payloads[index].operation,
-          payload: payloads[index].payload,
-          updatedAt: payloads[index].updatedAt,
-          deletedAt: payloads[index].deletedAt,
-          revision: index + 1,
+  for (final isUnknown in [false, true]) {
+    test('Folder부터 Attempt까지 다른 DB에 복원한다 (모름: $isUnknown)', () async {
+      final folderId = await folders.createFolder(name: '기기 공유');
+      final questionId = await questions.createQuestion(
+        QuestionDraft(
+          folderId: folderId,
+          type: QuestionType.shortAnswer,
+          prompt: '동기화 정답은?',
+          explanation: '기기 간 동일해야 한다.',
+          acceptableAnswers: const ['같음'],
         ),
-    ]);
+      );
+      final question = (await questions.getQuestion(questionId))!;
+      final sessionId = await quizzes.createSession(
+        filter: QuizFilter(
+          rootFolderId: folderId,
+          enabledQuestionTypes: const {QuestionType.shortAnswer},
+          questionCount: 1,
+        ),
+        questions: [question],
+      );
+      final sourceSession = (await quizzes.getSession(sessionId))!;
+      final attemptId = await attempts.recordAttempt(
+        AttemptDraft(
+          questionId: questionId,
+          sessionId: sessionId,
+          response: isUnknown
+              ? const {'isUnknown': true}
+              : const {'textAnswer': '같음'},
+          questionSnapshot: sourceSession.items.single.questionSnapshot,
+          score: isUnknown ? 0 : 1,
+          maxScore: 1,
+          gradingType: GradingType.local,
+          durationMs: 80,
+        ),
+      );
+      await quizzes.linkAttempt(
+        sessionId: sessionId,
+        itemId: sourceSession.items.single.id,
+        attemptId: attemptId,
+      );
+      final payloads = await sync.buildPushBatch();
+      await database.close();
+      databaseClosed = true;
 
-    final targetFolders = DriftFolderRepository(targetDatabase);
-    final targetQuestions = DriftQuestionRepository(targetDatabase);
-    final targetQuizzes = DriftQuizRepository(targetDatabase);
-    final targetAttempts = DriftAttemptRepository(targetDatabase);
-    expect(
-      (await targetFolders.watchFolderTree().first).single.folder.name,
-      '기기 공유',
-    );
-    expect((await targetQuestions.getQuestion(questionId))!.prompt, '동기화 정답은?');
-    expect(
-      (await targetQuizzes.getSession(sessionId))!.items.single.attemptId,
-      attemptId,
-    );
-    expect(await targetAttempts.getAttemptsForSession(sessionId), hasLength(1));
-    expect(await targetSync.getPending(), isEmpty);
-  });
+      final targetDatabase = AppDatabase(NativeDatabase.memory());
+      addTearDown(targetDatabase.close);
+      final targetSync = DriftSyncRepository(targetDatabase);
+      await targetSync.applyPulledChanges([
+        for (var index = 0; index < payloads.length; index++)
+          PullSyncChange(
+            entityType: payloads[index].entityType,
+            entityId: payloads[index].entityId,
+            operation: payloads[index].operation,
+            payload: payloads[index].payload,
+            updatedAt: payloads[index].updatedAt,
+            deletedAt: payloads[index].deletedAt,
+            revision: index + 1,
+          ),
+      ]);
+
+      final targetFolders = DriftFolderRepository(targetDatabase);
+      final targetQuestions = DriftQuestionRepository(targetDatabase);
+      final targetQuizzes = DriftQuizRepository(targetDatabase);
+      final targetAttempts = DriftAttemptRepository(targetDatabase);
+      expect(
+        (await targetFolders.watchFolderTree().first).single.folder.name,
+        '기기 공유',
+      );
+      expect(
+        (await targetQuestions.getQuestion(questionId))!.prompt,
+        '동기화 정답은?',
+      );
+      expect(
+        (await targetQuizzes.getSession(sessionId))!.items.single.attemptId,
+        attemptId,
+      );
+      final restoredAttempts = await targetAttempts.getAttemptsForSession(
+        sessionId,
+      );
+      expect(restoredAttempts, hasLength(1));
+      expect(restoredAttempts.single.isUnknown, isUnknown);
+      expect(
+        restoredAttempts.single.response,
+        isUnknown ? {'isUnknown': true} : {'textAnswer': '같음'},
+      );
+      expect(restoredAttempts.single.score, isUnknown ? 0 : 1);
+      expect(restoredAttempts.single.maxScore, 1);
+      expect(await targetSync.getPending(), isEmpty);
+    });
+  }
 }

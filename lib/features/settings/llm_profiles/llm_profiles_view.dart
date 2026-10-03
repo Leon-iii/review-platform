@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/ai/llm_model_filter_store.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/core/errors/app_error_reporter.dart';
 import 'package:review_platform/domain/models/llm_model_filter.dart';
 import 'package:review_platform/domain/models/llm_profile.dart';
 import 'package:review_platform/features/settings/llm_profiles/llm_profiles_view_model.dart';
@@ -47,8 +49,15 @@ class _ProfileSettingsForm extends ConsumerStatefulWidget {
 class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
     with WidgetsBindingObserver {
   static const _saveDelay = Duration(milliseconds: 700);
+  static const _purposeDisplayOrder = [
+    LlmPurpose.documentVision,
+    LlmPurpose.conceptExtraction,
+    LlmPurpose.conceptRevision,
+    LlmPurpose.questionGeneration,
+  ];
   final _formKey = GlobalKey<FormState>();
   late final LlmProfilesController _controller;
+  late final AppErrorReporter _errorReporter;
   late final List<_ProfileDraft> _profiles;
   late final Map<LlmPurpose, String> _assignments;
   late final Map<LlmApiKeyProvider, TextEditingController> _apiKeyControllers;
@@ -64,15 +73,23 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
   bool _allowExit = false;
   bool _leaving = false;
   String? _saveError;
+  final Map<LlmProviderKind, String> _reportedModelErrors = {};
   LlmModelFilterPreferences _filterPreferences =
       const LlmModelFilterPreferences();
   bool _filtersLoaded = false;
   bool _savingFilters = false;
 
+  // Presentation order must not change purpose assignments or saved profiles.
+  List<_ProfileDraft> get _displayProfiles => [
+    for (final purpose in _purposeDisplayOrder)
+      _profiles.firstWhere((draft) => draft.id == _assignments[purpose]),
+  ];
+
   @override
   void initState() {
     super.initState();
     _controller = ref.read(llmProfilesControllerProvider.notifier);
+    _errorReporter = ref.read(appErrorReporterProvider.notifier);
     _controller.attachExitHandler(_confirmLeave);
     WidgetsBinding.instance.addObserver(this);
     _profiles = [
@@ -180,28 +197,23 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
                           '이미 실행 중인 작업은 기존 설정으로 완료됩니다.',
                         ),
                         const SizedBox(height: 12),
-                        for (
-                          var index = 0;
-                          index < _profiles.length;
-                          index++
-                        ) ...[
+                        for (final draft in _displayProfiles) ...[
                           _ProfileCard(
-                            draft: _profiles[index],
+                            draft: draft,
                             enabled: !_saving,
-                            modelCatalog:
-                                _modelCatalogs[_profiles[index].provider],
+                            modelCatalog: _modelCatalogs[draft.provider],
                             modelFilter: _filterPreferences.forProvider(
-                              _profiles[index].provider.id,
+                              draft.provider.id,
                             ),
                             filterEnabled:
                                 _filtersLoaded && !_savingFilters && !_saving,
                             onFilterChanged: (filter) =>
-                                _saveFilter(_profiles[index].provider, filter),
+                                _saveFilter(draft.provider, filter),
                             onChanged: _markChanged,
                             onProviderChanged: (provider) =>
-                                _changeProvider(_profiles[index], provider),
+                                _changeProvider(draft, provider),
                             onRefreshModels: () =>
-                                _refreshModels(_profiles[index].provider),
+                                _refreshModels(draft.provider),
                           ),
                           const SizedBox(height: 12),
                         ],
@@ -391,11 +403,9 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
       final preferences = await ref.read(llmModelFilterStoreProvider).read();
       if (!mounted) return;
       setState(() => _filterPreferences = preferences);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('모델 필터 설정을 불러오지 못해 기본값을 사용합니다.')),
-      );
+      showAppError(context, error, fallback: '모델 필터 설정을 불러오지 못해 기본값을 사용합니다.');
     } finally {
       if (mounted) setState(() => _filtersLoaded = true);
     }
@@ -414,11 +424,13 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
     });
     try {
       await ref.read(llmModelFilterStoreProvider).write(updated);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() => _filterPreferences = previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('모델 필터 설정을 저장하지 못했습니다. 다시 시도해 주세요.')),
+      showAppError(
+        context,
+        error,
+        fallback: '모델 필터 설정을 저장하지 못했습니다. 다시 시도해 주세요.',
       );
     } finally {
       if (mounted) setState(() => _savingFilters = false);
@@ -462,6 +474,19 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
       }
     });
     if (filledModel && _dirty && !_saving) _markChanged();
+    if (result.hasError &&
+        _profiles.any((draft) => draft.provider == provider)) {
+      final message = appErrorMessage(
+        result.error!,
+        fallback: '모델 목록을 불러오지 못했습니다.',
+      );
+      if (_reportedModelErrors[provider] != message) {
+        _reportedModelErrors[provider] = message;
+        showAppError(context, message);
+      }
+    } else if (!result.hasError) {
+      _reportedModelErrors.remove(provider);
+    }
   }
 
   bool get _draftIsValid =>
@@ -541,6 +566,7 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
     } catch (error) {
       if (mounted) {
         _saveError = _failureMessage(error);
+        showAppError(context, _saveError!);
       } else {
         _showSaveFailure(error);
       }
@@ -556,7 +582,7 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
   void _showSaveFailure(Object error) {
     final messenger = _messenger;
     if (messenger != null && messenger.mounted) {
-      messenger.showSnackBar(SnackBar(content: Text(_failureMessage(error))));
+      _errorReporter.report(_failureMessage(error));
     }
   }
 
@@ -764,6 +790,14 @@ class _ProfileCard extends StatelessWidget {
                 );
               },
             ),
+            if (modelCatalog?.error case final error?) ...[
+              const SizedBox(height: 12),
+              AppErrorNotice(
+                error: error,
+                fallback: '모델 목록을 불러오지 못했습니다.',
+                onRetry: onRefreshModels,
+              ),
+            ],
             if (draft.provider == LlmProviderKind.ollama) ...[
               const SizedBox(height: 14),
               _ContextWindowDropdown(
@@ -1132,9 +1166,6 @@ class _ModelDropdown extends StatelessWidget {
     }
     final loading = catalog == null || catalog!.isLoading;
     final error = catalog?.error;
-    final errorMessage = error is AppFailure
-        ? error.message
-        : '모델 목록을 불러오지 못했습니다.';
     final selectedModelUnavailable =
         catalog?.hasValue == true &&
         selectedModel.isNotEmpty &&
@@ -1150,7 +1181,7 @@ class _ModelDropdown extends StatelessWidget {
     final helperText = loading
         ? '서버에서 모델 목록을 불러오는 중입니다.'
         : error != null
-        ? errorMessage
+        ? '목록을 불러오지 못했습니다. 아래 오류 안내를 확인해 주세요.'
         : selectedModelUnavailable
         ? '현재 모델을 사용할 수 없습니다. 목록에서 다시 선택해 주세요.'
         : availableModels.isEmpty
@@ -1301,20 +1332,7 @@ class _LoadError extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 42),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('다시 시도'),
-            ),
-          ],
-        ),
+        child: AppErrorNotice(error: message, onRetry: onRetry),
       ),
     );
   }

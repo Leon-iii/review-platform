@@ -83,7 +83,7 @@ public sealed partial class PdfPigTextExtractor : IPdfTextExtractor
                 image.Bounds.Width * image.Bounds.Height >= pageArea * 0.2);
             var hasStructuredGraphics = page.Paths.Count >= 20 &&
                 text.Count(character => !char.IsWhiteSpace(character)) < 5_000;
-            return hasLargeImage || hasStructuredGraphics;
+            return hasLargeImage || hasStructuredGraphics || HasTextCallout(page, pageArea);
         }
         catch
         {
@@ -91,6 +91,39 @@ public sealed partial class PdfPigTextExtractor : IPdfTextExtractor
             // cannot be decoded for a particular PDF object.
             return false;
         }
+    }
+
+    private static bool HasTextCallout(UglyToad.PdfPig.Content.Page page, double pageArea)
+    {
+        // A single rectangle/rounded callout can contain independent study content.
+        // Path count alone misses it. Ignore decorative/empty boxes and page frames;
+        // this is a layout-analysis trigger, never an instruction to split a concept.
+        var letters = page.Letters.Where(letter => !string.IsNullOrWhiteSpace(letter.Value)).ToArray();
+        foreach (var region in page.Paths
+            .Where(path => path.IsStroked || path.IsFilled)
+            .SelectMany(path => path)
+            .Where(subpath => subpath.IsClosed())
+            .Take(256))
+        {
+            if (region.GetBoundingRectangle() is not { } bounds ||
+                bounds.Width < 60 || bounds.Height < 24 ||
+                bounds.Width * bounds.Height > pageArea * 0.8)
+                continue;
+
+            var inside = 0;
+            var outside = 0;
+            foreach (var letter in letters)
+            {
+                var point = letter.GlyphRectangle.Centroid;
+                if (point.X >= bounds.Left && point.X <= bounds.Right &&
+                    point.Y >= bounds.Bottom && point.Y <= bounds.Top)
+                    inside++;
+                else
+                    outside++;
+                if (inside >= 12 && outside >= 12) return true;
+            }
+        }
+        return false;
     }
 
     [GeneratedRegex(@"[\t\f\v ]+")]

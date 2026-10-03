@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/app/theme.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
@@ -28,9 +29,6 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _automaticSyncController = ref.read(automaticSyncControllerProvider);
-    unawaited(_automaticSyncController.start());
-    ref.read(documentJobCoordinatorProvider)?.start();
     if (ref.read(isWindowsPlatformProvider)) {
       _localServerService = ref.read(localServerServiceProvider);
       _localServerStartupCoordinator = ref.read(
@@ -38,6 +36,9 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
       );
       unawaited(_localServerStartupCoordinator!.initialize());
     }
+    _automaticSyncController = ref.read(automaticSyncControllerProvider);
+    unawaited(_automaticSyncController.start());
+    ref.read(documentJobCoordinatorProvider)?.start();
   }
 
   @override
@@ -70,6 +71,10 @@ class _ReviewAppState extends ConsumerState<ReviewApp>
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
       routerConfig: router,
+      builder: (context, child) => AppErrorHost(
+        navigatorKey: router.routerDelegate.navigatorKey,
+        child: child!,
+      ),
     );
   }
 }

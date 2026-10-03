@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
@@ -32,6 +34,8 @@ void main() {
 
   AutomaticSyncController createController({
     Duration debounceDuration = const Duration(hours: 1),
+    Future<bool> Function(SyncConfiguration)? canSynchronize,
+    Duration readinessRetryInterval = const Duration(seconds: 3),
   }) {
     return controller = AutomaticSyncController(
       credentialsStore,
@@ -39,6 +43,8 @@ void main() {
       syncRepository.watchStatus(),
       debounceDuration: debounceDuration,
       periodicInterval: const Duration(hours: 1),
+      canSynchronize: canSynchronize,
+      readinessRetryInterval: readinessRetryInterval,
     );
   }
 
@@ -78,6 +84,65 @@ void main() {
 
     expect(remoteApi.pushedBatches, hasLength(1));
     expect(await syncRepository.getPending(), isEmpty);
+  });
+
+  test('서버가 준비될 때까지 자동 동기화 요청과 오류 기록을 보류한다', () async {
+    configure();
+    final ready = Completer<bool>();
+    final entered = Completer<void>();
+    final automatic = createController(
+      canSynchronize: (_) {
+        entered.complete();
+        return ready.future;
+      },
+    );
+    final starting = automatic.start();
+    await entered.future;
+    expect(remoteApi.pullCallCount, 0);
+    expect((await syncRepository.getStatus()).lastError, isNull);
+    ready.complete(true);
+    await starting;
+    expect(remoteApi.pullCallCount, 1);
+    expect((await syncRepository.getStatus()).lastSyncedAt, isNotNull);
+  });
+
+  test('대기 0건이어도 꺼진 서버를 다시 확인하고 복구 성공 후 이전 오류를 해제한다', () async {
+    configure();
+    await syncRepository.recordFailure('이전 연결 실패');
+    var ready = false;
+    final automatic = createController(
+      canSynchronize: (_) async => ready,
+      readinessRetryInterval: const Duration(milliseconds: 20),
+    );
+    await automatic.start();
+    expect(remoteApi.pullCallCount, 0);
+    expect((await syncRepository.getStatus()).lastError, '이전 연결 실패');
+    final recovered = syncRepository.watchStatus().firstWhere(
+      (value) => value.lastSyncedAt != null && value.lastError == null,
+    );
+    ready = true;
+    await recovered.timeout(const Duration(seconds: 2));
+    expect(remoteApi.pullCallCount, 1);
+    expect(await syncRepository.getPending(), isEmpty);
+  });
+
+  test('준비 대기 중 앱이 종료되면 뒤늦게 서버가 켜져도 요청하지 않는다', () async {
+    configure();
+    final ready = Completer<bool>();
+    final entered = Completer<void>();
+    final automatic = createController(
+      canSynchronize: (_) {
+        entered.complete();
+        return ready.future;
+      },
+    );
+    final starting = automatic.start();
+    await entered.future;
+    final disposing = automatic.dispose();
+    ready.complete(true);
+    await Future.wait([starting, disposing]);
+    controller = null;
+    expect(remoteApi.pullCallCount, 0);
   });
 
   testWidgets('로컬 변경은 debounce 후 자동 동기화한다', (tester) async {

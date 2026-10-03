@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -55,6 +56,10 @@ class _AiQuestionGenerationViewState
   SourceGenerationSeed? _sourceSeed;
   Object? _conceptSeedError;
   bool _loadingConceptSeed = false;
+  bool _reflectConceptImportance = true;
+  List<StudyConcept> get _generationConcepts => _conceptSeed != null
+      ? [_conceptSeed!.concept]
+      : _sourceSeed?.concepts ?? const [];
 
   @override
   void initState() {
@@ -137,7 +142,8 @@ class _AiQuestionGenerationViewState
   Widget _buildForm(AsyncValue<List<Folder>> folders, {String? errorMessage}) {
     return folders.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stackTrace) => Center(child: Text(_messageFor(error))),
+      error: (error, stackTrace) =>
+          Center(child: AppErrorNotice(error: _messageFor(error))),
       data: (items) {
         if (items.isEmpty) {
           return const Center(child: Text('문제를 저장할 폴더를 먼저 만들어 주세요.'));
@@ -158,13 +164,7 @@ class _AiQuestionGenerationViewState
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (errorMessage != null) ...[
-                        Card(
-                          color: Theme.of(context).colorScheme.errorContainer,
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(errorMessage),
-                          ),
-                        ),
+                        AppErrorNotice(error: errorMessage),
                         const SizedBox(height: 16),
                       ],
                       FolderPickerField(
@@ -325,22 +325,38 @@ class _AiQuestionGenerationViewState
                         DropdownButtonFormField<AiQuestionDensity>(
                           key: const Key('ai-automatic-density-field'),
                           initialValue: _automaticDensity,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: '자동 생성량',
                             border: OutlineInputBorder(),
                           ),
-                          items: const [
+                          items: [
                             DropdownMenuItem(
                               value: AiQuestionDensity.low,
-                              child: Text('적음 · 개념별 1~2개'),
+                              child: Text(
+                                _generationConcepts.isNotEmpty &&
+                                        _reflectConceptImportance
+                                    ? '적음 · 중요도별 배분'
+                                    : '적음 · 개념별 1~2개',
+                              ),
                             ),
                             DropdownMenuItem(
                               value: AiQuestionDensity.medium,
-                              child: Text('보통 · 개념별 3~4개'),
+                              child: Text(
+                                _generationConcepts.isNotEmpty &&
+                                        _reflectConceptImportance
+                                    ? '보통 · 중요도별 배분'
+                                    : '보통 · 개념별 3~4개',
+                              ),
                             ),
                             DropdownMenuItem(
                               value: AiQuestionDensity.high,
-                              child: Text('많음 · 개념별 5~6개'),
+                              child: Text(
+                                _generationConcepts.isNotEmpty &&
+                                        _reflectConceptImportance
+                                    ? '많음 · 중요도별 배분'
+                                    : '많음 · 개념별 5~6개',
+                              ),
                             ),
                           ],
                           onChanged: (value) {
@@ -369,6 +385,20 @@ class _AiQuestionGenerationViewState
                             return null;
                           },
                         ),
+                      if (_generationConcepts.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          key: const Key('ai-concept-importance-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('개념 중요도 반영'),
+                          subtitle: const Text(
+                            '중요한 개념에 더 많은 문제를 배정합니다. 난이도에는 영향을 주지 않으며, 총 생성량 상한은 유지합니다.',
+                          ),
+                          value: _reflectConceptImportance,
+                          onChanged: (value) =>
+                              setState(() => _reflectConceptImportance = value),
+                        ),
+                      ],
                       const SizedBox(height: 28),
                       FilledButton.icon(
                         key: const Key('generate-ai-questions-button'),
@@ -406,6 +436,9 @@ class _AiQuestionGenerationViewState
             questionTypes: _questionTypes,
             minimumDifficulty: _difficultyRange.start.round(),
             maximumDifficulty: _difficultyRange.end.round(),
+            concepts: _generationConcepts,
+            reflectConceptImportance:
+                _generationConcepts.isNotEmpty && _reflectConceptImportance,
             generationMode: _generationMode,
             automaticDensity:
                 _generationMode == AiQuestionGenerationMode.automatic
@@ -424,8 +457,7 @@ class _AiQuestionGenerationViewState
           );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_messageFor(error))));
+      showAppError(context, _messageFor(error));
     }
   }
 
@@ -565,8 +597,7 @@ class _ReviewPanel extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '검수 작업을 완료하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 }
@@ -701,8 +732,7 @@ class _ReviewCard extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '검수 작업을 완료하지 못했어요.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppError(context, message);
     }
   }
 

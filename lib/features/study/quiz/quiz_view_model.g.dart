@@ -50,7 +50,7 @@ final class QuizViewModelProvider
   }
 }
 
-String _$quizViewModelHash() => r'0f2cd17303122a387ede9e14fa68836c336973ce';
+String _$quizViewModelHash() => r'0ab4ed63b4324dc5ee883387a99a459df806cc20';
 
 final class QuizViewModelFamily extends $Family
     with

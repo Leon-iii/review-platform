@@ -21,6 +21,12 @@ public static class QuestionGenerationPrompt
         including the cognitive demand, reasoning steps, answer ambiguity, and distractor
         plausibility. Always assign an integer difficulty from 1 (very easy) to 5 (very hard).
         Do not rate difficulty from the source topic alone.
+        Concept importance is a coverage priority, not difficulty. Never make a question
+        harder merely because its concept is important. When CONCEPT ALLOCATION is supplied,
+        follow its exact counts and do not re-identify, merge, or split those input concepts.
+        Set primaryConceptId to the exact ID of the concept whose knowledge determines the
+        correct answer. Mentioning another concept in wording or explanation does not make
+        it the primary concept. Use only supplied IDs; never invent a concept ID.
         The requested difficulty range is a drafting target, not a label to copy. Aim to write
         questions at that level, then independently assess the finished question. Report its actual
         assessed difficulty even if it falls outside the target range. Never clamp, overwrite, or
@@ -48,6 +54,21 @@ public static class QuestionGenerationPrompt
                 Total question count: {input.QuestionCount}
                 Return exactly {input.QuestionCount} questions in total.
                 """;
+        if (input.ConceptPlans is { Count: > 0 } plans)
+        {
+            quantityInstructions = $"""
+                Generation mode: {input.GenerationMode}
+                Total question count: {input.PlannedQuestionCount}
+                Return exactly this total, following EVERY per-concept count below.
+                The server calculated the allocation. Do not change or re-evaluate importance.
+                Importance reflection: {input.ReflectConceptImportance}
+                CONCEPT ALLOCATION (metadata, not study content):
+                {System.Text.Json.JsonSerializer.Serialize(plans.Select(plan => new
+                    { conceptId = plan.Concept.Id, importance = plan.Concept.Importance,
+                      questionCount = plan.QuestionCount }))}
+                A zero count means omit that concept. Do not fill omissions with invented concepts.
+                """;
+        }
         return $"""
             Source label: {input.SourceLabel ?? "untitled"}
             Source reference (copy exactly into sourceIds): {input.SourceReference}
@@ -71,7 +92,7 @@ public static class QuestionGenerationPrompt
 
     public static JsonObject BuildQuestionSchema(QuestionGenerationInput input)
     {
-        return new JsonObject
+        var schema = new JsonObject
         {
             ["type"] = "object",
             ["additionalProperties"] = false,
@@ -167,5 +188,18 @@ public static class QuestionGenerationPrompt
             },
             ["required"] = new JsonArray("questions")
         };
+        if (input.ConceptPlans is { Count: > 0 } plans)
+        {
+            var item = schema["properties"]!["questions"]!["items"]!;
+            item["properties"]!["primaryConceptId"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JsonArray(plans.Where(plan => plan.QuestionCount > 0)
+                    .Select(plan => (JsonNode?)JsonValue.Create(plan.Concept.Id)).ToArray()),
+                ["description"] = "Exact ID of the supplied concept determining the correct answer, not incidental mentions."
+            };
+            item["required"]!.AsArray().Add("primaryConceptId");
+        }
+        return schema;
     }
 }

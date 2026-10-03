@@ -21,6 +21,7 @@ class Attempt {
   final String sessionId;
   final DateTime answeredAt;
   final Map<String, Object?> response;
+  bool get isUnknown => response['isUnknown'] == true;
   final QuestionSnapshot questionSnapshot;
   final double score;
   final double maxScore;

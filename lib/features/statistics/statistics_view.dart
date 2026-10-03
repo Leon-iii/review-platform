@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
-import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:review_platform/domain/models/statistics_summary.dart';
 import 'package:review_platform/features/statistics/statistics_view_model.dart';
 
@@ -21,7 +21,7 @@ class StatisticsView extends ConsumerWidget {
         error: (error, stackTrace) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(error is AppFailure ? error.message : '통계를 불러오지 못했어요.'),
+            child: AppErrorNotice(error: error, fallback: '통계를 불러오지 못했어요.'),
           ),
         ),
         data: (summary) => _StatisticsContent(summary: summary),

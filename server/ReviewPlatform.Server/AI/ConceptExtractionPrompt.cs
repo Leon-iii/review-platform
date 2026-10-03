@@ -5,7 +5,7 @@ namespace ReviewPlatform.Server.AI;
 
 public static class ConceptExtractionPrompt
 {
-    public const string Version = "concept-extraction-v7-five-level-importance";
+    public const string Version = "concept-extraction-v10-typed-regions";
     public const int MaximumConceptsPerRequest = 8;
 
     public const string SystemPrompt = """
@@ -16,23 +16,36 @@ public static class ConceptExtractionPrompt
         concepts separate. Ignore headers, footers, page numbers, and table-of-contents noise.
         Return at most 8 of the most study-worthy concepts for this page batch. Keep each
         content concise and focused on the supplied pages.
-        Evaluate importance in this strict priority order:
-        1. Memorization load: the number of independent facts, entries, mappings, rules,
-           formulas, cases, symbols, or steps that must be retained.
-        2. Required recall precision: how exactly those elements must be reproduced for a
-           correct answer, including notation, order, wording, conditions, and table mappings.
-        3. Only after those two, use suitability and likelihood for testing learner competence
-           as a secondary tie-breaker. Do not make exam likelihood the primary criterion.
-        Use exactly one of five importance levels:
-        - "veryLow": minimal memorization elements and approximate understanding alone is sufficient.
-        - "low": few memorization elements and little required recall precision.
-        - "medium": moderate memorization load or recall precision.
-        - "high": many independent memorization elements or exact recall of notation, sequence, conditions,
-          or mappings is critical.
-        - "veryHigh": exceptionally many independent elements, exceptionally demanding exact
-          recall, or a combination of both high load and high precision.
-        Do not rate content high or veryHigh merely because it is lengthy when approximate recall
-        is sufficient. Distinguish ordinary high requirements from exceptional veryHigh requirements.
+        Split by semantic independence, not by page or visual container. One page can support
+        multiple concepts, and different concepts can share the same source page number.
+        Before rating importance, separate material with a different learning purpose that can
+        have its own self-contained title, explanation, and meaningful review question.
+        A definition, principle, or mechanism inserted into a timeline, case study, or surrounding
+        narrative must be a separate concept when it has that independent learning purpose.
+        [VISUAL_REGION_START] and [VISUAL_REGION_END] mark boundaries of a visible box,
+        callout, or sidebar, not an automatic instruction to create a concept. Use these boundaries
+        as clues: keep a region's related content together, but retain supporting examples and
+        caveats with their parent concept when they do not introduce independent knowledge.
+        Apply the same semantic test to text-only pages where no region markers are available.
+        [USER_INDEPENDENT_REGION_START] and [USER_INDEPENDENT_REGION_END] identify a region
+        explicitly marked independent by the user. Keep its concept(s) separate from surrounding
+        regions; never merge it back into an adjacent timeline or narrative. This user boundary
+        does not imply high importance: evaluate its learning value independently. User-reviewed
+        page text is the authoritative source; do not reinsert excluded passages from outside
+        knowledge. Never copy user boundary markers into the final title or content.
+        [CONTENT_KIND:diagram], [CONTENT_KIND:table], and [CONTENT_KIND:uncertain] with
+        [/CONTENT_KIND] label region presentation, not concept independence or importance.
+        For diagrams preserve only observed labels, directions, grouping and relationships;
+        never infer a missing connection or new causal explanation. For tables preserve
+        row/column associations. For uncertain regions use only the legible facts, retain
+        limitations when relevant, and omit claims that require guessing unreadable content.
+        Never copy kind markers into the final title or content. User kind corrections do not
+        imply changes to independent-region boundaries or importance.
+        Do not split each timeline date, table entry, bullet, or step into its own concept.
+        Visual transcription and the text layer may repeat the same content; reconcile them
+        without duplicating facts or concepts. Never copy extraction boundary markers into the
+        final title or content. Only reference pages that directly support each concept.
+        """ + "\n" + ConceptImportancePrompt.Instructions + "\n" + """
         Write every title and content field in natural Korean regardless of the
         source language. For an important technical term, use "한국어 (original term)" on
         its first occurrence. Preserve proper nouns, standard acronyms, code, identifiers,
@@ -109,7 +122,7 @@ public static class ConceptExtractionPrompt
                             {
                                 ["type"] = "string",
                                 ["enum"] = new JsonArray("veryLow", "low", "medium", "high", "veryHigh"),
-                                ["description"] = "Importance prioritized by memorization element count and required recall precision; exam suitability is secondary."
+                                ["description"] = ConceptImportancePrompt.SchemaDescription
                             }
                         },
                         ["required"] = new JsonArray(

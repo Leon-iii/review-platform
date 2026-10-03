@@ -93,6 +93,7 @@ class HttpRemoteAiApi implements RemoteAiApi {
           answer as String,
       ],
       explanation: json['explanation'] as String?,
+      primaryConceptId: json['primaryConceptId'] as String?,
       difficulty: (json['difficulty']! as num).toInt(),
       sourceIds: [
         for (final sourceId in json['sourceIds']! as List) sourceId as String,

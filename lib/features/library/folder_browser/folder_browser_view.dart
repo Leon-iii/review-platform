@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -131,7 +132,7 @@ class FolderBrowserView extends ConsumerWidget {
         successMessage: '${folder.name} 폴더를 삭제했어요.',
       );
     } catch (error) {
-      if (context.mounted) _showMessage(context, _messageFor(error));
+      if (context.mounted) showAppError(context, _messageFor(error));
     }
   }
 
@@ -144,7 +145,7 @@ class FolderBrowserView extends ConsumerWidget {
       await action();
       if (context.mounted) _showMessage(context, successMessage);
     } catch (error) {
-      if (context.mounted) _showMessage(context, _messageFor(error));
+      if (context.mounted) showAppError(context, _messageFor(error));
     }
   }
 
@@ -256,7 +257,7 @@ class _FolderList extends StatelessWidget {
                               ),
                               PopupMenuItem(
                                 value: _FolderAction.move,
-                                child: Text('옮기기'),
+                                child: Text('이동'),
                               ),
                               PopupMenuItem(
                                 value: _FolderAction.delete,
@@ -294,16 +295,7 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.error_outline_rounded, size: 48),
-          const SizedBox(height: 12),
-          Text(message),
-          const SizedBox(height: 16),
-          OutlinedButton(onPressed: onRetry, child: const Text('다시 시도')),
-        ],
-      ),
+      child: AppErrorNotice(error: message, onRetry: onRetry),
     );
   }
 }

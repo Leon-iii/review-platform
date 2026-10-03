@@ -73,6 +73,7 @@ abstract final class QuestionValidator {
       ],
       explanation: _nullIfEmpty(explanation),
       difficulty: draft.difficulty,
+      importance: draft.importance,
     );
   }
 
@@ -107,6 +108,7 @@ abstract final class QuestionValidator {
       choices: choices,
       explanation: _nullIfEmpty(explanation),
       difficulty: draft.difficulty,
+      importance: draft.importance,
     );
   }
 
@@ -136,6 +138,7 @@ abstract final class QuestionValidator {
       acceptableAnswers: acceptableAnswers,
       explanation: _nullIfEmpty(explanation),
       difficulty: draft.difficulty,
+      importance: draft.importance,
     );
   }
 

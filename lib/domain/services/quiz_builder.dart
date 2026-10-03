@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
+import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/repositories/attempt_repository.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/question_repository.dart';
@@ -67,9 +68,11 @@ class QuizBuilder {
     eligible.removeWhere(
       (question) => !filter.enabledDifficulties.contains(question.difficulty),
     );
-    if (filter.onlyWrongQuestions || filter.maxCorrectRate != null) {
+    final attemptsByQuestion = <String, List<Attempt>>{};
+    if (filter.onlyWrongQuestions ||
+        filter.maxCorrectRate != null ||
+        filter.prioritizeImportantConcepts) {
       final attempts = await _attemptRepository.getAllAttempts();
-      final attemptsByQuestion = <String, List<Attempt>>{};
       for (final attempt in attempts) {
         attemptsByQuestion
             .putIfAbsent(attempt.questionId, () => [])
@@ -101,10 +104,21 @@ class QuizBuilder {
     if (eligible.isEmpty) {
       throw const ValidationFailure('선택한 조건에 맞는 문제가 없어요.');
     }
-    if (filter.shuffle) eligible.shuffle(_random);
-    final selected = eligible
-        .take(filter.questionCount)
-        .toList(growable: false);
+    final selected = filter.prioritizeImportantConcepts
+        ? _selectByConcept(eligible, filter.questionCount, attemptsByQuestion)
+        : (filter.shuffle ? (eligible..shuffle(_random)) : eligible)
+              .take(filter.questionCount)
+              .toList(growable: false);
+    if (filter.prioritizeImportantConcepts) {
+      if (filter.shuffle) {
+        selected.shuffle(_random);
+      } else {
+        final positions = {
+          for (var i = 0; i < eligible.length; i++) eligible[i].id: i,
+        };
+        selected.sort((a, b) => positions[a.id]!.compareTo(positions[b.id]!));
+      }
+    }
     final sessionId = await _quizRepository.createSession(
       filter: filter,
       questions: selected,
@@ -113,5 +127,61 @@ class QuizBuilder {
       sessionId: sessionId,
       questionCount: selected.length,
     );
+  }
+
+  List<Question> _selectByConcept(
+    List<Question> eligible,
+    int count,
+    Map<String, List<Attempt>> attempts,
+  ) {
+    final groups = <String, List<Question>>{};
+    for (final question in eligible) {
+      final key = question.primaryConceptId == null
+          ? 'question:${question.id}'
+          : 'concept:${question.primaryConceptId}';
+      groups.putIfAbsent(key, () => []).add(question);
+    }
+    double weakness(Question question) {
+      final latest = attempts[question.id]?.firstOrNull;
+      if (latest == null || latest.score >= latest.maxScore) return 1;
+      return latest.isUnknown ? 1.75 : 1.5;
+    }
+
+    final selected = <Question>[];
+    while (groups.isNotEmpty && selected.length < count) {
+      final entries = groups.entries.toList();
+      // Each concept has one weight, regardless of how many questions it owns.
+      final weights = entries
+          .map(
+            (entry) =>
+                entry.value.first.importance.weight *
+                entry.value.map(weakness).reduce((a, b) => a + b) /
+                entry.value.length,
+          )
+          .toList();
+      var draw = _random.nextDouble() * weights.reduce((a, b) => a + b);
+      var groupIndex = weights.length - 1;
+      for (var i = 0; i < weights.length; i++) {
+        draw -= weights[i];
+        if (draw < 0) {
+          groupIndex = i;
+          break;
+        }
+      }
+      final group = entries[groupIndex];
+      final questionWeights = group.value.map(weakness).toList();
+      draw = _random.nextDouble() * questionWeights.reduce((a, b) => a + b);
+      var questionIndex = questionWeights.length - 1;
+      for (var i = 0; i < questionWeights.length; i++) {
+        draw -= questionWeights[i];
+        if (draw < 0) {
+          questionIndex = i;
+          break;
+        }
+      }
+      selected.add(group.value.removeAt(questionIndex));
+      if (group.value.isEmpty) groups.remove(group.key);
+    }
+    return selected;
   }
 }

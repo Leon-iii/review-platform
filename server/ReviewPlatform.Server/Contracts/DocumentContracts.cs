@@ -7,11 +7,23 @@ public static class DocumentExtractionMethods
     public const string Hybrid = "hybrid";
 }
 
+public static class DocumentContentKinds
+{
+    public const string Text = "text";
+    public const string Diagram = "diagram";
+    public const string Table = "table";
+    public const string Uncertain = "uncertain";
+    public static bool IsValid(string? kind) => kind is Text or Diagram or Table or Uncertain;
+}
+
+public sealed record DocumentVisionRegion(string Kind, string Text, bool VisualRegion = false);
+
 public sealed record ExtractedDocumentPage(
     int PageNumber,
     string Text,
     string ExtractionMethod = DocumentExtractionMethods.TextLayer,
-    bool RequiresVision = false);
+    bool RequiresVision = false,
+    IReadOnlyList<DocumentVisionRegion>? Regions = null);
 
 public sealed record DocumentPageExtractionMetadata(
     int PageNumber,
@@ -54,7 +66,7 @@ public sealed record DocumentVisionInput(
     string ImageHash,
     string PromptVersion);
 
-public sealed record DocumentVisionResult(string Text);
+public sealed record DocumentVisionResult(string Text, IReadOnlyList<DocumentVisionRegion>? Regions = null);
 
 public sealed record ConceptRevisionContext(
     string Id,

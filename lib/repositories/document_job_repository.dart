@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
+import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/models/pdf_import_job.dart';
 
 class DocumentJobRepository {
@@ -82,13 +83,52 @@ class DocumentJobRepository {
     _notify();
   }
 
-  Future<void> applyResult(String id, Future<void> Function() save) async {
-    await database.transaction(() async {
-      await save();
+  Future<String?> applyResult(
+    String id,
+    Future<void> Function(String folderId) save,
+  ) async {
+    final folderId = await database.transaction(() async {
+      final row = await get(id);
+      if (row == null || row.applied) return null;
+      // Use the current destination, never a folder captured before polling.
+      await save(row.folderId);
       await (database.update(database.documentJobs)
             ..where((row) => row.id.equals(id)))
           .write(const DocumentJobsCompanion(applied: Value(true)));
+      return row.folderId;
     });
+    _notify();
+    return folderId;
+  }
+
+  Future<String> move(
+    String id,
+    String folderId, {
+    required Future<void> Function() moveAppliedSource,
+  }) async {
+    final previousFolderId = await database.transaction(() async {
+      if (await database.folderDao.getActiveFolder(folderId) == null) {
+        throw const ValidationFailure('자료를 이동할 폴더를 찾을 수 없어요.');
+      }
+      final row = await get(id);
+      if (row == null) throw const ValidationFailure('PDF 작업을 찾을 수 없어요.');
+      if (row.folderId == folderId) return row.folderId;
+      // Extraction can finish while the folder picker is open. In that case,
+      // move the material too, using its normal synchronization pipeline.
+      if (row.applied) await moveAppliedSource();
+      await (database.update(database.documentJobs)
+            ..where((row) => row.id.equals(id)))
+          .write(DocumentJobsCompanion(folderId: Value(folderId)));
+      return row.folderId;
+    });
+    _notify();
+    return previousFolderId;
+  }
+
+  Future<void> remove(String id) async {
+    await (database.delete(
+      database.documentJobs,
+    )..where((row) => row.id.equals(id) & row.applied.equals(false))).go();
     _notify();
   }
 

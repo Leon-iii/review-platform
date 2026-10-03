@@ -13,6 +13,7 @@ class QuizFilter {
     this.shuffle = true,
     this.enabledDifficulties = const {1, 2, 3, 4, 5},
     this.feedbackTiming = AnswerFeedbackTiming.immediate,
+    this.prioritizeImportantConcepts = false,
   });
 
   final String rootFolderId;
@@ -24,6 +25,7 @@ class QuizFilter {
   final bool shuffle;
   final Set<int> enabledDifficulties;
   final AnswerFeedbackTiming feedbackTiming;
+  final bool prioritizeImportantConcepts;
 
   Map<String, Object?> toJson() => {
     'rootFolderId': rootFolderId,
@@ -37,6 +39,7 @@ class QuizFilter {
     'shuffle': shuffle,
     'enabledDifficulties': enabledDifficulties.toList()..sort(),
     'feedbackTiming': feedbackTiming.name,
+    'prioritizeImportantConcepts': prioritizeImportantConcepts,
   };
 
   factory QuizFilter.fromJson(Map<String, Object?> json) {
@@ -53,6 +56,8 @@ class QuizFilter {
       onlyWrongQuestions: json['onlyWrongQuestions']! as bool,
       maxCorrectRate: (json['maxCorrectRate'] as num?)?.toDouble(),
       shuffle: json['shuffle']! as bool,
+      prioritizeImportantConcepts:
+          json['prioritizeImportantConcepts'] as bool? ?? false,
       enabledDifficulties: json['enabledDifficulties'] == null
           ? const {1, 2, 3, 4, 5}
           : {

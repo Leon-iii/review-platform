@@ -1,4 +1,5 @@
 import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/models/study_source.dart';
 
 enum AiQuestionGenerationMode { automatic, manual }
 
@@ -14,6 +15,8 @@ class AiQuestionGenerationRequest {
     this.questionCount = 10,
     this.minimumDifficulty = 1,
     this.maximumDifficulty = 5,
+    this.concepts = const [],
+    this.reflectConceptImportance = false,
   });
 
   final String sourceText;
@@ -24,6 +27,8 @@ class AiQuestionGenerationRequest {
   final AiQuestionDensity? automaticDensity;
   final int minimumDifficulty;
   final int maximumDifficulty;
+  final List<StudyConcept> concepts;
+  final bool reflectConceptImportance;
 
   Map<String, Object?> toJson() => {
     'sourceText': sourceText,
@@ -34,6 +39,16 @@ class AiQuestionGenerationRequest {
     'automaticDensity': automaticDensity?.name,
     'minimumDifficulty': minimumDifficulty,
     'maximumDifficulty': maximumDifficulty,
+    'reflectConceptImportance': reflectConceptImportance,
+    'concepts': [
+      for (final concept in concepts)
+        {
+          'id': concept.id,
+          'title': concept.title,
+          'content': concept.content,
+          'importance': concept.importance.name,
+        },
+    ],
   };
 }
 
@@ -76,6 +91,7 @@ class AiGeneratedQuestion {
     required this.sourceIds,
     required this.difficulty,
     this.explanation,
+    this.primaryConceptId,
   });
 
   final QuestionType type;
@@ -85,6 +101,7 @@ class AiGeneratedQuestion {
   final String? explanation;
   final int difficulty;
   final List<String> sourceIds;
+  final String? primaryConceptId;
 }
 
 class AiGeneratedChoice {
