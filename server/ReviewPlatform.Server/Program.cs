@@ -296,6 +296,39 @@ app.MapPost("/api/ai/questions/generate", async (
     }
 });
 
+// One authenticated client request, sequential provider calls, incremental progress.
+app.MapPost("/api/ai/questions/generate/stream", async (
+    GenerateQuestionsRequest request,
+    QuestionGenerationService generationService,
+    ILogger<QuestionGenerationService> logger,
+    HttpContext context,
+    CancellationToken cancellationToken) =>
+{
+    context.Response.ContentType = "application/x-ndjson; charset=utf-8";
+    var jsonOptions = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+    async Task Send(object value)
+    {
+        await context.Response.WriteAsync(
+            System.Text.Json.JsonSerializer.Serialize(value, jsonOptions) + "\n", cancellationToken);
+        await context.Response.Body.FlushAsync(cancellationToken);
+    }
+    try
+    {
+        var response = await generationService.GenerateAsync(request, cancellationToken,
+            progress => Send(new { type = "progress", progress }));
+        await Send(new { type = "complete", result = response });
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    catch (Exception exception)
+    {
+        logger.LogError(exception, "Streaming question generation failed.");
+        var message = exception is QuestionGenerationRequestException or LlmProviderUnavailableException or
+            LlmOutputValidationException or LlmProviderRequestException
+            ? exception.Message : "AI 문제 생성 중 서버 오류가 발생했습니다.";
+        await Send(new { type = "error", error = message });
+    }
+});
+
 app.MapPost("/api/documents/import", async (
     HttpRequest request,
     DocumentProcessingService processingService,

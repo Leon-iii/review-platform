@@ -39,11 +39,13 @@ class AiQuestionReviewState {
     required this.folderId,
     required this.metadata,
     required this.items,
+    this.failures = const [],
   });
 
   final String folderId;
   final AiGenerationMetadata metadata;
   final List<AiQuestionReviewItem> items;
+  final List<AiConceptGenerationFailure> failures;
 
   int get pendingCount =>
       items.where((item) => item.status == AiReviewStatus.pending).length;
@@ -56,6 +58,7 @@ class AiQuestionReviewState {
     return AiQuestionReviewState(
       folderId: folderId,
       metadata: metadata,
+      failures: failures,
       items: [
         for (final item in items)
           ids.contains(item.questionId) ? item.copyWith(status: status) : item,
@@ -100,6 +103,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
     QuestionSourceDraft? sourceReference,
     List<StudyConcept> concepts = const [],
     bool reflectConceptImportance = false,
+    void Function(AiGenerationProgress)? onProgress,
   }) async {
     state = const AsyncLoading();
     try {
@@ -113,6 +117,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
           .read(remoteAiApiProvider)
           .generateQuestions(
             configuration: configuration,
+            onProgress: onProgress,
             request: AiQuestionGenerationRequest(
               sourceText: sourceText,
               questionCount: questionCount,
@@ -175,6 +180,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
         AiQuestionReviewState(
           folderId: folderId,
           metadata: result.metadata,
+          failures: result.failures,
           items: [
             for (var index = 0; index < ids.length; index++)
               AiQuestionReviewItem(

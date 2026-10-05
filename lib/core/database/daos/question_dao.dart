@@ -34,6 +34,25 @@ class QuestionDao extends DatabaseAccessor<AppDatabase>
         .getSingleOrNull();
   }
 
+  Stream<List<QuestionRow>> watchQuestionsForConcept(String conceptId) {
+    return customSelect(
+      'SELECT q.* FROM questions q WHERE q.deleted_at IS NULL AND EXISTS '
+      '(SELECT 1 FROM question_sources s WHERE s.question_id = q.id '
+      'AND s.concept_id = ?) ORDER BY q.updated_at DESC',
+      variables: [Variable.withString(conceptId)],
+      readsFrom: {
+        questions,
+        attachedDatabase.questionChoices,
+        attachedDatabase.acceptableAnswers,
+        attachedDatabase.questionSources,
+        attachedDatabase.concepts,
+        attachedDatabase.studySources,
+      },
+    ).watch().map(
+      (rows) => rows.map((row) => questions.map(row.data)).toList(),
+    );
+  }
+
   Future<QuestionRow?> getQuestion(String id) {
     return (select(
       questions,

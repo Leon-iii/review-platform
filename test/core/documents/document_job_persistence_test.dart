@@ -60,7 +60,19 @@ void main() {
     await original.customStatement(
       'ALTER TABLE questions DROP COLUMN importance',
     );
+    await original.customStatement(
+      'ALTER TABLE quiz_session_items DROP COLUMN skipped_for_review',
+    );
     await original.customStatement('PRAGMA user_version = 10');
+    await original.customStatement(
+      'ALTER TABLE questions DROP COLUMN case_sensitive',
+    );
+    await original.customStatement(
+      'ALTER TABLE questions DROP COLUMN whitespace_sensitive',
+    );
+    await original.customStatement(
+      'ALTER TABLE quiz_session_items DROP COLUMN pending_essay_response_json',
+    );
     await original.close();
 
     final upgraded = AppDatabase(NativeDatabase(file));

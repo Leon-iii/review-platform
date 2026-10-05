@@ -15,6 +15,9 @@ class QuizSessionItems extends Table {
   TextColumn get questionSnapshotJson => text()();
 
   TextColumn get attemptId => text().nullable()();
+  TextColumn get pendingEssayResponseJson => text().nullable()();
+  BoolColumn get skippedForReview =>
+      boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};

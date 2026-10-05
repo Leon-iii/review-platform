@@ -1,5 +1,6 @@
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
+import 'package:review_platform/domain/models/question_answer_format.dart';
 
 class QuestionSnapshot {
   const QuestionSnapshot({
@@ -10,6 +11,8 @@ class QuestionSnapshot {
     required this.acceptableAnswers,
     this.explanation,
     this.difficulty,
+    this.caseSensitive = false,
+    this.whitespaceSensitive = false,
   });
 
   factory QuestionSnapshot.fromQuestion(Question question) {
@@ -19,6 +22,8 @@ class QuestionSnapshot {
       prompt: question.prompt,
       explanation: question.explanation,
       difficulty: question.difficulty,
+      caseSensitive: question.caseSensitive,
+      whitespaceSensitive: question.whitespaceSensitive,
       choices: [
         for (final choice in question.choices)
           SnapshotChoice(
@@ -40,6 +45,8 @@ class QuestionSnapshot {
       prompt: json['prompt']! as String,
       explanation: json['explanation'] as String?,
       difficulty: json['difficulty'] as int?,
+      caseSensitive: json['caseSensitive'] as bool? ?? false,
+      whitespaceSensitive: json['whitespaceSensitive'] as bool? ?? false,
       choices: [
         for (final choice in json['choices']! as List)
           SnapshotChoice.fromJson(Map<String, Object?>.from(choice as Map)),
@@ -56,15 +63,20 @@ class QuestionSnapshot {
   final String prompt;
   final String? explanation;
   final int? difficulty;
+  final bool caseSensitive;
+  final bool whitespaceSensitive;
   final List<SnapshotChoice> choices;
   final List<String> acceptableAnswers;
 
   Map<String, Object?> toJson() => {
     'questionId': questionId,
     'type': type.name,
+    'answerFormatVersion': QuestionAnswerFormat.version,
     'prompt': prompt,
     'explanation': explanation,
     'difficulty': difficulty,
+    'caseSensitive': caseSensitive,
+    'whitespaceSensitive': whitespaceSensitive,
     'choices': [for (final choice in choices) choice.toJson()],
     'acceptableAnswers': acceptableAnswers,
   };

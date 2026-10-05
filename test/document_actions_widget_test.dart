@@ -15,8 +15,16 @@ import 'package:review_platform/core/documents/document_providers.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/models/study_source.dart';
+import 'package:review_platform/domain/models/ai_question_generation.dart';
+import 'package:review_platform/features/ai_generation/ai_question_generation_view_model.dart';
+import 'package:review_platform/features/ai_generation/ai_source_picker.dart';
+
+import 'dart:async';
+
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
+import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/question_repository.dart';
@@ -121,6 +129,1002 @@ void main() {
       tester.renderObject<RenderParagraph>(
         find.descendant(of: text, matching: find.byType(RichText)),
       );
+
+  testWidgets(
+    '개념 접기·펼치기와 전체 접기도 본문 높이를 연속적으로 전환한다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(
+        defaultTargetPlatform == TargetPlatform.windows
+            ? const Size(1100, 1000)
+            : const Size(390, 800),
+      );
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('home-view'))),
+      );
+      container
+          .read(routerProvider)
+          .go(
+            AppRoutes.documentsForSource(
+              saved.source.folderId,
+              saved.source.id,
+            ),
+          );
+      await tester.pumpAndSettle();
+      final concept = saved.concepts.first;
+      final toggle = find.byKey(Key('concept-toggle-${concept.id}'));
+      final body = find.byKey(Key('concept-details-${concept.id}'));
+      await tester.ensureVisible(toggle);
+      await tester.pumpAndSettle();
+      final opened = tester.getSize(body).height;
+      expect(opened, greaterThan(0));
+      await tester.tap(toggle);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final closing = tester.getSize(body).height;
+      expect(closing, greaterThan(0));
+      expect(closing, lessThan(opened));
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(tester.getSize(body).height, closeTo(closing, 0.1));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(body).height, closeTo(opened, 0.1));
+      await tester.ensureVisible(
+        find.byKey(const Key('collapse-all-concepts')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('collapse-all-concepts')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(tester.getSize(body).height, greaterThan(0));
+      expect(tester.getSize(body).height, lessThan(opened));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(body).height, 0);
+      expect(find.byKey(Key('concept-content-${concept.id}')), findsNothing);
+      await tapVisible(tester, find.byKey(const Key('expand-all-concepts')));
+      expect(tester.getSize(body).height, closeTo(opened, 0.1));
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
+
+  testWidgets(
+    '일반 생성에서 실제 자료를 폴더로 검색하고 변경·해제하며 출처를 연결한다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(
+        defaultTargetPlatform == TargetPlatform.windows
+            ? const Size(1100, 1000)
+            : const Size(390, 800),
+      );
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      for (final concept in saved.concepts.take(2)) {
+        await sources.setConceptApproval(id: concept.id, approved: true);
+      }
+      final folderRepository = DriftFolderRepository(database);
+      final otherFolder = await folderRepository.createFolder(name: '다른 폴더');
+      final child = await folderRepository.createFolder(
+        name: '하위 폴더',
+        parentId: otherFolder,
+      );
+      final manual = (await sources.createSource(
+        folderId: child,
+        name: saved.source.fileName,
+      )).source;
+      final manualConcept = await sources.addConcept(
+        sourceId: manual.id,
+        title: '다른 자료의 개념',
+        content: '수동 자료에 실제로 저장된 개념의 학습 내용입니다.',
+      );
+      final empty = (await sources.createSource(
+        folderId: child,
+        name: '빈 자료',
+      )).source;
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('home-view'))),
+      );
+      container
+          .read(routerProvider)
+          .go('${AppRoutes.aiGenerate}?folderId=${saved.source.folderId}');
+      await tester.pumpAndSettle();
+      final field = find.byKey(const Key('ai-source-label-field'));
+      expect(tester.widget<AiSourcePickerField>(field).locked, false);
+      expect(find.text('자료 이름 (선택)'), findsNothing);
+      final decorator = tester.widget<InputDecorator>(
+        find.descendant(of: field, matching: find.byType(InputDecorator)),
+      );
+      expect(decorator.decoration.labelText, '자료 이름');
+      await tapVisible(
+        tester,
+        find.byKey(const Key('ai-source-picker-button')),
+      );
+      await tester.enterText(
+        find.byKey(const Key('ai-source-search-field')),
+        '없는 자료',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('검색 결과가 없어요.'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('ai-source-search-field')),
+        '하위 폴더',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(Key('ai-source-option-${saved.source.id}')),
+        findsNothing,
+      );
+      expect(find.text('다른 폴더 / 하위 폴더'), findsNWidgets(2));
+      await tapVisible(tester, find.byKey(Key('ai-source-option-${empty.id}')));
+      expect(tester.widget<AiSourcePickerField>(field).source!.id, empty.id);
+      expect(find.text('문제를 생성하려면 개념을 하나 이상 검토 완료로 표시해 주세요.'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('generate-ai-questions-button')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tapVisible(
+        tester,
+        find.byKey(const Key('ai-source-picker-button')),
+      );
+      await tapVisible(
+        tester,
+        find.byKey(Key('ai-source-option-${manual.id}')),
+      );
+      expect(tester.widget<AiSourcePickerField>(field).source!.id, manual.id);
+      expect(find.byKey(const Key('ai-source-text-field')), findsNothing);
+      expect(find.byKey(Key('ai-concept-${manualConcept.id}')), findsOneWidget);
+      expect(
+        find.byKey(Key('ai-concept-page-source-${manualConcept.id}')),
+        findsNothing,
+      );
+      await tapVisible(
+        tester,
+        find.byKey(const Key('ai-source-picker-button')),
+      );
+      await tapVisible(tester, find.byKey(const Key('close-ai-source-picker')));
+      expect(tester.widget<AiSourcePickerField>(field).source!.id, manual.id);
+      await tapVisible(
+        tester,
+        find.byKey(const Key('ai-source-picker-button')),
+      );
+      await tapVisible(
+        tester,
+        find.byKey(Key('ai-source-option-${saved.source.id}')),
+      );
+      expect(
+        find.byKey(Key('ai-concept-${saved.concepts.first.id}')),
+        findsOneWidget,
+      );
+      expect(find.byKey(Key('ai-concept-${manualConcept.id}')), findsNothing);
+      await tapVisible(tester, find.byKey(const Key('clear-ai-source-button')));
+      expect(tester.widget<AiSourcePickerField>(field).source, isNull);
+      expect(find.byKey(const Key('ai-source-text-field')), findsOneWidget);
+      expect(find.byKey(const Key('ai-source-search-field')), findsNothing);
+      await tapVisible(
+        tester,
+        find.byKey(const Key('ai-source-picker-button')),
+      );
+      await tapVisible(
+        tester,
+        find.byKey(Key('ai-source-option-${manual.id}')),
+      );
+      await tapVisible(
+        tester,
+        find.byKey(const Key('generate-ai-questions-button')),
+      );
+      expect(remote.lastRequest!.concepts.single.id, manualConcept.id);
+      expect(remote.lastRequest!.sourceLabel, manual.fileName);
+      expect(remote.lastRequest!.sourceText, isEmpty);
+      final questions = (await tester.runAsync(
+        () =>
+            DriftQuestionRepository(database)
+                .watchQuestions(saved.source.folderId)
+                .first,
+      ))!;
+      expect(questions, hasLength(4));
+      expect(
+        questions.every(
+          (question) =>
+              question.primaryConceptId == manualConcept.id &&
+              question.sourceReferences.single.sourceId == manual.id,
+        ),
+        true,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
+
+  for (final fromConcept in [false, true]) {
+    testWidgets(
+      '자료 또는 개념에서 시작하면 실제 자료 이름을 자동 입력하고 선택을 잠근다 ($fromConcept)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(
+          defaultTargetPlatform == TargetPlatform.windows
+              ? const Size(1100, 1000)
+              : const Size(390, 800),
+        );
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+        final concept = saved.concepts.first;
+        await sources.setConceptApproval(id: concept.id, approved: true);
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('home-view'))),
+        );
+        container
+            .read(routerProvider)
+            .go(
+              AppRoutes.documentsForSource(
+                saved.source.folderId,
+                saved.source.id,
+              ),
+            );
+        await tester.pumpAndSettle();
+        await tapVisible(
+          tester,
+          fromConcept
+              ? find.byKey(Key('generate-concept-questions-${concept.id}'))
+              : find.byKey(const Key('generate-source-questions-button')),
+        );
+        final field = find.byKey(const Key('ai-source-label-field'));
+        final picker = tester.widget<AiSourcePickerField>(field);
+        expect(picker.source!.id, saved.source.id);
+        expect(picker.source!.fileName, saved.source.fileName);
+        expect(picker.locked, true);
+        expect(find.text('자료 이름 (선택)'), findsNothing);
+        expect(find.byKey(const Key('ai-source-picker-lock')), findsOneWidget);
+        expect(find.byKey(const Key('clear-ai-source-button')), findsNothing);
+        final open = find.byKey(const Key('ai-source-picker-button'));
+        expect(tester.widget<InkWell>(open).onTap, isNull);
+        await tester.tap(open);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('ai-source-search-field')), findsNothing);
+        expect(find.byKey(Key('ai-concept-${concept.id}')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  for (final scale in [1.0, 1.6]) {
+    testWidgets(
+      '문제 생성 개념 박스의 독립 스크롤·왼쪽 체크박스·자료 배지를 유지한다 ($scale)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(
+          defaultTargetPlatform == TargetPlatform.windows
+              ? const Size(1100, 1000)
+              : const Size(390, 800),
+        );
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+        final first = saved.concepts.first;
+        await sources.updateConcept(
+          id: first.id,
+          title: '기본 명령어 및 지시어 집합의 구성과 기능을 통해 컴퓨터 시스템의 핵심 동작과 세부 구조를 정확하게 이해하기 위한 아주 긴 개념 제목',
+          content: first.content,
+          importance: ConceptImportance.veryHigh,
+        );
+        for (final concept in saved.concepts.take(2)) {
+          await sources.setConceptApproval(id: concept.id, approved: true);
+        }
+        for (var index = 0; index < 12; index++) {
+          await sources.addConcept(
+            sourceId: saved.source.id,
+            title: '추가 개념 $index',
+            content: '독립 스크롤을 확인하는 직접 작성한 개념 내용입니다.',
+          );
+        }
+        final seed = await sources.getSourceGenerationSeed(saved.source.id);
+        final last = seed.concepts.last;
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('home-view'))),
+        );
+        final router = container.read(routerProvider);
+        router.go(
+          AppRoutes.documentsForSource(saved.source.folderId, saved.source.id),
+        );
+        await tester.pumpAndSettle();
+        await tapVisible(
+          tester,
+          find.byKey(const Key('collapse-all-concepts')),
+        );
+        Chip chipIn(Finder finder) => tester.widget<Chip>(
+          find.descendant(of: finder, matching: find.byType(Chip)),
+        );
+        final referenceImportance = chipIn(
+          find.byKey(Key('concept-importance-${first.id}')),
+        );
+        final referencePage = chipIn(
+          find.byKey(Key('concept-page-source-${first.id}')),
+        );
+        router.go(
+          '${AppRoutes.aiGenerate}?folderId=${saved.source.folderId}&sourceId=${saved.source.id}',
+        );
+        await tester.pumpAndSettle();
+        final header = find.byKey(const Key('ai-concept-list-header'));
+        final selectionLabel = find.byKey(
+          const Key('ai-concept-selection-label'),
+        );
+        final selectAll = find.byKey(const Key('ai-select-all-concepts'));
+        final deselectAll = find.byKey(const Key('ai-deselect-all-concepts'));
+        for (final button in [selectAll, deselectAll]) {
+          expect(
+            tester.getCenter(button).dy,
+            closeTo(tester.getCenter(selectionLabel).dy, 0.1),
+          );
+          expect(
+            tester.getTopLeft(button).dx,
+            greaterThan(tester.getTopRight(selectionLabel).dx),
+          );
+        }
+        expect(
+          tester.getTopRight(deselectAll).dx,
+          closeTo(tester.getTopRight(header).dx, 0.1),
+        );
+        final box = find.byKey(const Key('ai-concept-list-box'));
+        final list = find.byKey(const Key('ai-concept-list'));
+        await tester.ensureVisible(box);
+        await tester.pumpAndSettle();
+        expect(tester.getSize(box).height, lessThanOrEqualTo(420));
+        final innerScrollable = find.descendant(
+          of: list,
+          matching: find.byType(Scrollable),
+        );
+        final inner = tester.state<ScrollableState>(innerScrollable);
+        final outer = tester.state<ScrollableState>(
+          find.ancestor(of: box, matching: find.byType(Scrollable)).first,
+        );
+        expect(inner.position, isNot(same(outer.position)));
+        expect(inner.position.maxScrollExtent, greaterThan(0));
+        final card = find.byKey(Key('ai-concept-${first.id}'));
+        final checkboxTile = find.descendant(
+          of: card,
+          matching: find.byType(CheckboxListTile),
+        );
+        expect(
+          tester.widget<CheckboxListTile>(checkboxTile).controlAffinity,
+          ListTileControlAffinity.leading,
+        );
+        final checkbox = find.descendant(
+          of: card,
+          matching: find.byType(Checkbox),
+        );
+        final title = find.byKey(Key('ai-concept-title-${first.id}'));
+        expect(
+          tester.getCenter(checkbox).dx,
+          lessThan(tester.getTopLeft(title).dx),
+        );
+        expect(tester.widget<Text>(title).maxLines, 1);
+        expect(tester.widget<Text>(title).overflow, TextOverflow.ellipsis);
+        expect(paragraphFor(tester, title).didExceedMaxLines, true);
+        expect(find.text(first.content), findsNothing);
+        final importance = chipIn(
+          find.byKey(Key('ai-concept-importance-${first.id}')),
+        );
+        final page = chipIn(
+          find.byKey(Key('ai-concept-page-source-${first.id}')),
+        );
+        expect(find.text('매우 높음'), findsOneWidget);
+        expect(find.text('중요도 매우 높음'), findsNothing);
+        final importanceBadge = find.byKey(
+          Key('ai-concept-importance-${first.id}'),
+        );
+        final pageBadge = find.byKey(Key('ai-concept-page-source-${first.id}'));
+        expect(
+          tester.getCenter(importanceBadge).dy,
+          closeTo(tester.getCenter(title).dy, 0.1),
+        );
+        expect(
+          tester.getCenter(pageBadge).dy,
+          closeTo(tester.getCenter(title).dy, 0.1),
+        );
+        expect(
+          tester.getTopLeft(importanceBadge).dx - tester.getTopRight(title).dx,
+          closeTo(8, 0.1),
+        );
+        for (final (actual, reference) in [
+          (importance, referenceImportance),
+          (page, referencePage),
+        ]) {
+          expect(actual.backgroundColor, reference.backgroundColor);
+          expect(actual.labelStyle, reference.labelStyle);
+          expect(actual.shape, reference.shape);
+          expect(actual.side, reference.side);
+          expect(actual.padding, reference.padding);
+        }
+        expect(find.text('p.1 - 2'), findsOneWidget);
+        expect(find.byKey(Key('ai-concept-${last.id}')), findsNothing);
+        final outerOffset = outer.position.pixels;
+        await tester.drag(list, const Offset(0, -260));
+        await tester.pumpAndSettle();
+        expect(inner.position.pixels, greaterThan(0));
+        expect(outer.position.pixels, closeTo(outerOffset, 0.1));
+        if (defaultTargetPlatform == TargetPlatform.windows) {
+          final beforeWheel = inner.position.pixels;
+          await tester.sendEventToBinding(
+            PointerScrollEvent(
+              position: tester.getCenter(list),
+              kind: PointerDeviceKind.mouse,
+              scrollDelta: const Offset(0, 80),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(inner.position.pixels, greaterThan(beforeWheel));
+          expect(outer.position.pixels, closeTo(outerOffset, 0.1));
+        }
+        await tester.scrollUntilVisible(
+          find.byKey(Key('ai-concept-${last.id}')),
+          350,
+          scrollable: innerScrollable,
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(Key('ai-concept-page-source-${last.id}')),
+          findsNothing,
+        );
+        final scrolledOffset = inner.position.pixels;
+        await tapVisible(tester, find.text('선택 해제'));
+        expect(
+          find.text('학습 개념 · 선택 0/${seed.concepts.length}개'),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const Key('generate-ai-questions-button')),
+              )
+              .onPressed,
+          isNull,
+        );
+        expect(inner.position.pixels, closeTo(scrolledOffset, 0.1));
+        await tapVisible(tester, find.text('전체 선택'));
+        expect(
+          find.text(
+            '학습 개념 · 선택 ${seed.concepts.length}/${seed.concepts.length}개',
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  testWidgets(
+    '구조화된 개념 선택과 진행률을 표시하고 부분 실패 뒤에도 검토를 유지한다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(
+        defaultTargetPlatform == TargetPlatform.windows
+            ? const Size(1100, 1000)
+            : const Size(390, 800),
+      );
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      for (final concept in saved.concepts.take(2)) {
+        await sources.setConceptApproval(id: concept.id, approved: true);
+      }
+      remote.gate = Completer<void>();
+      remote.progress = const AiGenerationProgress(
+        completedConcepts: 0,
+        totalConcepts: 2,
+        generatedQuestions: 0,
+        failedConcepts: 0,
+        conceptTitle: '첫째 개념',
+      );
+      remote.failures = [
+        AiConceptGenerationFailure(
+          conceptId: saved.concepts[1].id,
+          title: '둘째 개념',
+          error: '모의 요청 실패',
+        ),
+      ];
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('home-view'))),
+      );
+      container
+          .read(routerProvider)
+          .go(
+            '${AppRoutes.aiGenerate}?folderId=${saved.source.folderId}&sourceId=${saved.source.id}',
+          );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-source-text-field')), findsNothing);
+      expect(find.text('학습 개념 · 선택 2/2개'), findsOneWidget);
+      final generate = find.byKey(const Key('generate-ai-questions-button'));
+      await tapVisible(tester, find.text('선택 해제'));
+      expect(tester.widget<FilledButton>(generate).onPressed, isNull);
+      await tapVisible(tester, find.text('전체 선택'));
+      final second = find.descendant(
+        of: find.byKey(Key('ai-concept-${saved.concepts[1].id}')),
+        matching: find.byType(CheckboxListTile),
+      );
+      await tapVisible(tester, second);
+      expect(find.text('학습 개념 · 선택 1/2개'), findsOneWidget);
+      await tapVisible(tester, second);
+      await tester.ensureVisible(generate);
+      await tester.pumpAndSettle();
+      await tester.tap(generate);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        remote.lastRequest!.concepts.map((concept) => concept.id),
+        saved.concepts.take(2).map((concept) => concept.id),
+      );
+      expect(remote.lastRequest!.sourceText, isEmpty);
+      expect(find.text('개념 1/2 - "첫째 개념"'), findsOneWidget);
+      expect(find.text('성공 0건 · 실패 0건'), findsOneWidget);
+      expect(find.text('총 0문항 생성'), findsOneWidget);
+      remote.emitProgress(
+        const AiGenerationProgress(
+          completedConcepts: 1,
+          totalConcepts: 2,
+          generatedQuestions: 4,
+          failedConcepts: 0,
+          conceptTitle: '둘째 개념',
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byKey(const Key('ai-generation-progress-bar')),
+            )
+            .value,
+        0.5,
+      );
+      expect(find.text('개념 2/2 - "둘째 개념"'), findsOneWidget);
+      expect(find.text('성공 1건 · 실패 0건'), findsOneWidget);
+      expect(find.text('총 4문항 생성'), findsOneWidget);
+      remote.emitProgress(
+        const AiGenerationProgress(
+          completedConcepts: 2,
+          totalConcepts: 2,
+          generatedQuestions: 4,
+          failedConcepts: 1,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('개념 2/2 - "둘째 개념"'), findsOneWidget);
+      expect(find.text('성공 1건 · 실패 1건'), findsOneWidget);
+      expect(find.text('총 4문항 생성'), findsOneWidget);
+      final first = find.byKey(const Key('ai-generation-concept-progress'));
+      final secondLine = find.byKey(const Key('ai-generation-concept-counts'));
+      final third = find.byKey(const Key('ai-generation-question-count'));
+      expect(
+        tester.getTopLeft(first).dy,
+        lessThan(tester.getTopLeft(secondLine).dy),
+      );
+      expect(
+        tester.getTopLeft(secondLine).dy,
+        lessThan(tester.getTopLeft(third).dy),
+      );
+      remote.gate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('둘째 개념: 모의 요청 실패'), findsOneWidget);
+      expect(find.text('생성된 문제 4개'), findsOneWidget);
+      expect(
+        container
+            .read(aiQuestionGenerationControllerProvider(saved.source.folderId))
+            .requireValue!
+            .failures,
+        hasLength(1),
+      );
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
+
+  for (final compact in [false, true]) {
+    testWidgets(
+      '개념 배지로 검토 상태와 중요도를 편집한다 (${compact ? '접힘' : '펼침'})',
+      (tester) async {
+        await tester.binding.setSurfaceSize(
+          defaultTargetPlatform == TargetPlatform.windows
+              ? const Size(1100, 1000)
+              : const Size(390, 800),
+        );
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('home-view'))),
+        );
+        container
+            .read(routerProvider)
+            .go(
+              AppRoutes.documentsForSource(
+                saved.source.folderId,
+                saved.source.id,
+              ),
+            );
+        await tester.pumpAndSettle();
+        final concept = saved.concepts.first;
+        if (compact) {
+          await tapVisible(
+            tester,
+            find.byKey(Key('concept-toggle-${concept.id}')),
+          );
+        }
+        final content = find.byKey(Key('concept-content-${concept.id}'));
+        final status = find.byKey(Key('concept-status-${concept.id}'));
+        final importance = find.byKey(Key('concept-importance-${concept.id}'));
+        expect(content, compact ? findsNothing : findsOneWidget);
+        await tapVisible(tester, status);
+        expect(
+          find.descendant(of: status, matching: find.text('검토 완료')),
+          findsOneWidget,
+        );
+        expect(content, compact ? findsNothing : findsOneWidget);
+        if (!compact) {
+          expect(
+            tester
+                .widget<Switch>(
+                  find.byKey(Key('concept-approval-${concept.id}')),
+                )
+                .value,
+            true,
+          );
+          expect(
+            tester
+                .widget<FilledButton>(
+                  find.byKey(Key('generate-concept-questions-${concept.id}')),
+                )
+                .onPressed,
+            isNotNull,
+          );
+        }
+        await tapVisible(tester, status);
+        expect(
+          find.descendant(of: status, matching: find.text('검토 필요')),
+          findsOneWidget,
+        );
+        await tapVisible(tester, importance);
+        expect(
+          find.byKey(const Key('concept-importance-dialog')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('concept-title-field')), findsNothing);
+        expect(
+          tester
+              .widget<Slider>(find.byKey(const Key('concept-importance-field')))
+              .value,
+          2,
+        );
+        await setImportance(tester, ConceptImportance.veryHigh);
+        await tapVisible(
+          tester,
+          find.byKey(const Key('cancel-concept-importance-button')),
+        );
+        var stored = (await tester.runAsync(
+          () => sources.getSourceWithConcepts(saved.source.id),
+        ))!.concepts.first;
+        expect(stored.importance, ConceptImportance.medium);
+        await tapVisible(tester, importance);
+        for (final value in ConceptImportance.values) {
+          await setImportance(tester, value);
+          expect(
+            find.byKey(const Key('concept-importance-dialog')),
+            findsOneWidget,
+          );
+        }
+        await tapVisible(
+          tester,
+          find.byKey(const Key('save-concept-importance-button')),
+        );
+        expect(
+          find.byKey(const Key('concept-importance-dialog')),
+          findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: importance,
+            matching: find.text(compact ? '매우 높음' : '중요도 매우 높음'),
+          ),
+          findsOneWidget,
+        );
+        expect(content, compact ? findsNothing : findsOneWidget);
+        stored = (await tester.runAsync(
+          () => sources.getSourceWithConcepts(saved.source.id),
+        ))!.concepts.first;
+        expect(stored.importance, ConceptImportance.veryHigh);
+        expect(stored.title, concept.title);
+        expect(stored.content, concept.content);
+        expect(stored.status, ConceptStatus.held);
+        expect(stored.pageNumbers, concept.pageNumbers);
+        container
+            .read(routerProvider)
+            .go(AppRoutes.folder(saved.source.folderId));
+        await tester.pumpAndSettle();
+        container
+            .read(routerProvider)
+            .go(
+              AppRoutes.documentsForSource(
+                saved.source.folderId,
+                saved.source.id,
+              ),
+            );
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(of: importance, matching: find.text('중요도 매우 높음')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  testWidgets(
+    '개념 배지·수정 대상·문제 출처의 연속 페이지를 동일한 범위로 표시한다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(
+        defaultTargetPlatform == TargetPlatform.windows
+            ? const Size(1100, 1000)
+            : const Size(390, 1000),
+      );
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      final concept = saved.concepts.first;
+      await tester.runAsync(
+        () => DriftQuestionRepository(database).createQuestions(
+          [
+            QuestionDraft(
+              folderId: saved.source.folderId,
+              type: QuestionType.shortAnswer,
+              prompt: '출처 범위 테스트',
+              acceptableAnswers: const ['정답'],
+            ),
+          ],
+          sourceReferences: [
+            QuestionSourceDraft(
+              sourceId: saved.source.id,
+              conceptId: concept.id,
+              pageNumbers: concept.pageNumbers,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('home-view'))),
+      );
+      final router = container.read(routerProvider);
+      router.go(
+        AppRoutes.documentsForSource(saved.source.folderId, saved.source.id),
+      );
+      await tester.pumpAndSettle();
+      void expectPages() {
+        expect(
+          find.descendant(
+            of: find.byKey(Key('concept-page-source-${concept.id}')),
+            matching: find.text('p.1 - 2'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byTooltip('p.1 - 2'), findsOneWidget);
+      }
+
+      expectPages();
+      await tapVisible(tester, find.byKey(Key('concept-toggle-${concept.id}')));
+      expectPages();
+      await tapVisible(
+        tester,
+        find.byKey(const Key('request-concept-revision-button')),
+      );
+      expect(
+        find.widgetWithText(CheckboxListTile, '검토 필요 · 중요도 보통 · p.1 - 2'),
+        findsOneWidget,
+      );
+      await tapVisible(tester, find.text('취소'));
+      router.go(AppRoutes.folder(saved.source.folderId));
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.text('출처 범위 테스트'));
+      expect(find.text('출처: 동작 테스트.pdf · p.1 - 2 · 첫 개념'), findsOneWidget);
+      final stored = await tester.runAsync(
+        () => sources.getSourceWithConcepts(saved.source.id),
+      );
+      expect(stored!.concepts.first.pageNumbers, [1, 2]);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
+
+  testWidgets(
+    '개념 화면의 접근성: 툴팁 전환·접기 및 배지 조작에도 안전한 스크롤 구조를 유지한다',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.binding.setSurfaceSize(const Size(1100, 1100));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('home-view'))),
+        );
+        container
+            .read(routerProvider)
+            .go(
+              AppRoutes.documentsForSource(
+                saved.source.folderId,
+                saved.source.id,
+              ),
+            );
+        await tester.pumpAndSettle();
+        final concept = saved.concepts.first;
+        final scroll = find.byKey(const Key('concept-review-scroll-view'));
+        expect(tester.widget(scroll), isA<SingleChildScrollView>());
+        // Native Windows AXTree errors cannot be caught by takeException().
+        // Guard the actual cause: ListView's two-pane viewport + tooltip grafts.
+        expect(
+          find.descendant(of: scroll, matching: find.byType(Viewport)),
+          findsNothing,
+        );
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: const Offset(4, 4));
+        addTearDown(mouse.removePointer);
+        Future<void> hover(String key) async {
+          final finder = find.byKey(Key(key));
+          await tester.ensureVisible(finder);
+          await tester.pumpAndSettle();
+          final originalId = tester.getSemantics(finder).id;
+          await mouse.moveTo(tester.getCenter(finder));
+          await tester.pump(const Duration(milliseconds: 700));
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(
+            tester.getSemantics(finder).id,
+            originalId,
+            reason: '$key 접근성 노드',
+          );
+          expect(tester.takeException(), isNull, reason: '$key 호버');
+        }
+
+        for (final expanded in [true, false, true]) {
+          final currentlyExpanded = find
+              .byKey(Key('concept-content-${concept.id}'))
+              .evaluate()
+              .isNotEmpty;
+          if (expanded != currentlyExpanded) {
+            await tapVisible(
+              tester,
+              find.byKey(Key('concept-toggle-${concept.id}')),
+            );
+          }
+          for (final key in [
+            'concept-toggle-${concept.id}',
+            'concept-status-${concept.id}',
+            'concept-importance-${concept.id}',
+            'concept-page-source-${concept.id}',
+            'concept-menu-${concept.id}',
+            if (expanded) ...[
+              'concept-approval-${concept.id}',
+              'request-concept-revision-${concept.id}',
+              'generate-concept-questions-${concept.id}',
+            ],
+          ]) {
+            await hover(key);
+            if (key == 'concept-importance-${concept.id}') {
+              expect(find.text('중요도 변경', findRichText: true), findsOneWidget);
+            }
+            if (key == 'concept-menu-${concept.id}') {
+              expect(find.text('개념 메뉴', findRichText: true), findsOneWidget);
+            }
+          }
+        }
+        await hover('concept-toggle-${concept.id}');
+        await tapVisible(
+          tester,
+          find.byKey(Key('concept-status-${concept.id}')),
+        );
+        await hover('generate-concept-questions-${concept.id}');
+        await hover('concept-importance-${concept.id}');
+        await tapVisible(
+          tester,
+          find.byKey(Key('concept-importance-${concept.id}')),
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('cancel-concept-importance-button')),
+        );
+        await hover('concept-menu-${concept.id}');
+        await tapVisible(tester, find.byKey(Key('concept-menu-${concept.id}')));
+        expect(find.text('수정'), findsOneWidget);
+        expect(find.text('삭제'), findsOneWidget);
+        await tester.tapAt(const Offset(4, 4));
+        await tester.pumpAndSettle();
+        for (final key in ['collapse-all-concepts', 'expand-all-concepts']) {
+          await tapVisible(tester, find.byKey(Key(key)));
+          await hover('concept-toggle-${concept.id}');
+        }
+        for (final key in [
+          'concept-toggle-${concept.id}',
+          'concept-status-${concept.id}',
+          'concept-importance-${concept.id}',
+          'concept-menu-${concept.id}',
+        ]) {
+          final finder = find.byKey(Key(key));
+          final button = key == 'concept-menu-${concept.id}'
+              ? find.descendant(of: finder, matching: find.byType(IconButton))
+              : finder;
+          final data = tester.getSemantics(button).getSemanticsData();
+          expect(data.hasAction(SemanticsAction.tap), isTrue, reason: key);
+        }
+        // Exercise screen-reader activation, not just pointer gestures.
+        final status = find.byKey(Key('concept-status-${concept.id}'));
+        final statusNode = tester.getSemantics(status);
+        statusNode.owner!.performAction(statusNode.id, SemanticsAction.tap);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(of: status, matching: find.text('검토 필요')),
+          findsOneWidget,
+        );
+        final importanceNode = tester.getSemantics(
+          find.byKey(Key('concept-importance-${concept.id}')),
+        );
+        importanceNode.owner!.performAction(
+          importanceNode.id,
+          SemanticsAction.tap,
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('concept-importance-dialog')),
+          findsOneWidget,
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('cancel-concept-importance-button')),
+        );
+        await hover('concept-toggle-${saved.concepts[1].id}');
+        await hover('concept-toggle-${concept.id}');
+        container.read(routerProvider).go(AppRoutes.home);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
 
   testWidgets(
     'PC 개념 제목과 본문만 마우스로 선택·복사하고 모바일은 기존 동작을 유지한다',
@@ -544,6 +1548,17 @@ void main() {
         }
         final expandAll = find.byKey(const Key('expand-all-concepts'));
         final collapseAll = find.byKey(const Key('collapse-all-concepts'));
+        final expansionActions = find.byKey(
+          const Key('concept-expansion-actions'),
+        );
+        expect(
+          tester.widget<Align>(expansionActions).alignment,
+          Alignment.centerLeft,
+        );
+        expect(
+          tester.getTopLeft(expandAll).dx,
+          closeTo(tester.getTopLeft(expansionActions).dx, 0.1),
+        );
         expect(tester.widget<TextButton>(expandAll).onPressed, isNull);
         await tapVisible(tester, collapseAll);
         expect(tester.widget<TextButton>(collapseAll).onPressed, isNull);
@@ -914,15 +1929,10 @@ void main() {
       await tapVisible(tester, firstApproval);
       await tapVisible(tester, firstGenerate);
       expect(find.byKey(const Key('ai-generation-view')), findsOneWidget);
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const Key('ai-source-text-field')),
-            )
-            .controller!
-            .text,
-        '${first.title}\n\n${first.content}',
-      );
+      expect(find.byKey(const Key('ai-source-text-field')), findsNothing);
+      expect(find.byKey(Key('ai-concept-${first.id}')), findsOneWidget);
+      expect(find.text('1. ${first.title}'), findsOneWidget);
+      expect(find.text(first.content), findsNothing);
       await tester.pageBack();
       await tester.pumpAndSettle();
       await tapVisible(
@@ -930,27 +1940,31 @@ void main() {
         find.byKey(Key('concept-approval-${saved.concepts[1].id}')),
       );
       await tapVisible(tester, sourceGenerate);
-      final label = tester.widget<TextFormField>(
+      final label = tester.widget<AiSourcePickerField>(
         find.byKey(const Key('ai-source-label-field')),
       );
-      final contents = tester.widget<TextFormField>(
-        find.byKey(const Key('ai-source-text-field')),
-      );
-      expect(label.controller!.text, saved.source.fileName);
+      expect(label.source!.fileName, saved.source.fileName);
+      expect(label.locked, true);
       expect(
         tester
-            .widget<TextField>(
-              find.descendant(
-                of: find.byKey(const Key('ai-source-text-field')),
-                matching: find.byType(TextField),
-              ),
-            )
-            .readOnly,
-        isTrue,
+            .widget<InkWell>(find.byKey(const Key('ai-source-picker-button')))
+            .onTap,
+        isNull,
       );
-      expect(contents.controller!.text, contains('첫 개념'));
-      expect(contents.controller!.text, contains('둘째 개념'));
-      expect(contents.controller!.text, isNot(contains('보류 개념')));
+      expect(find.byKey(const Key('ai-source-picker-lock')), findsOneWidget);
+      expect(find.byKey(const Key('ai-source-text-field')), findsNothing);
+      expect(
+        find.byKey(Key('ai-concept-${saved.concepts[0].id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(Key('ai-concept-${saved.concepts[1].id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(Key('ai-concept-${saved.concepts[2].id}')),
+        findsNothing,
+      );
       final importanceToggle = find.byKey(
         const Key('ai-concept-importance-switch'),
       );
@@ -962,7 +1976,8 @@ void main() {
         find.byKey(const Key('generate-ai-questions-button')),
       );
       expect(remote.callCount, 1);
-      expect(remote.lastRequest!.sourceText, contents.controller!.text);
+      expect(remote.lastRequest!.sourceText, isEmpty);
+      expect(remote.lastRequest!.toJson().containsKey('sourceText'), false);
       expect(remote.lastRequest!.reflectConceptImportance, false);
       expect(remote.lastRequest!.concepts.map((c) => c.id).toSet(), {
         saved.concepts[0].id,
@@ -1181,17 +2196,18 @@ void main() {
       // The revision snackbar can briefly cover the bottom form action.
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
-      final contents = tester
-          .widget<TextFormField>(find.byKey(const Key('ai-source-text-field')))
-          .controller!
-          .text;
-      expect(contents, contains('직접 편집한 상세 내용입니다. 테스트 추가'));
-      expect(contents, isNot(contains('페이지:')));
+      expect(find.byKey(const Key('ai-source-text-field')), findsNothing);
+      expect(find.byKey(Key('ai-concept-title-${concept.id}')), findsOneWidget);
+      expect(find.text('직접 편집한 상세 내용입니다. 테스트 추가'), findsNothing);
       await tapVisible(
         tester,
         find.byKey(const Key('generate-ai-questions-button')),
       );
-      expect(remote.lastRequest!.sourceText, contents);
+      expect(remote.lastRequest!.sourceText, isEmpty);
+      expect(
+        remote.lastRequest!.concepts.single.content,
+        '직접 편집한 상세 내용입니다. 테스트 추가',
+      );
       final questions = (await tester.runAsync(
         () =>
             DriftQuestionRepository(database)

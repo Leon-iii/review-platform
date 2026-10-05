@@ -9,6 +9,7 @@ import 'package:review_platform/core/documents/document_job_coordinator.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/models/document_ocr_review.dart';
+import 'package:review_platform/features/documents/continuous_ocr_comparison.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 
 class DocumentOcrReviewView extends ConsumerStatefulWidget {
@@ -60,6 +61,22 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
   final Map<int, Uint8List> _previewCache = {};
   final List<_EditableBlock> _blocks = [];
   final ScrollController _comparisonScroll = ScrollController();
+  final _continuousKey = GlobalKey<ContinuousOcrComparisonState>();
+  int? _archivePageNumber;
+
+  bool get _continuousArchive =>
+      defaultTargetPlatform == TargetPlatform.windows && _readOnly;
+  int get _currentPageNumber => _continuousArchive
+      ? _archivePageNumber ?? _page!.pageNumber
+      : _page!.pageNumber;
+
+  Future<void> _navigate(int number) async {
+    if (_continuousArchive && _continuousKey.currentState != null) {
+      _continuousKey.currentState!.jumpToPage(number);
+    } else {
+      await _load(number);
+    }
+  }
 
   bool get _isDesktop => switch (defaultTargetPlatform) {
     TargetPlatform.windows ||
@@ -214,6 +231,10 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
 
   Future<void> _reload() async {
     if (_busy) return;
+    if (_continuousArchive && _continuousKey.currentState != null) {
+      _continuousKey.currentState!.reloadCurrentPage();
+      return;
+    }
     if (_dirty && !await _ask('새로고침', '저장하지 않은 이 페이지의 수정을 버리고 서버 내용을 불러올까요?')) {
       return;
     }
@@ -305,11 +326,11 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
     final value = await showDialog<int>(
       context: context,
       builder: (context) => _OcrPageJumpDialog(
-        current: _page!.pageNumber,
+        current: _currentPageNumber,
         total: _page!.totalPages,
       ),
     );
-    if (value != null && mounted) await _load(value);
+    if (value != null && mounted) await _navigate(value);
   }
 
   void _split(int index) {
@@ -426,21 +447,21 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                   IconButton(
                     key: const Key('ocr-previous-page'),
                     tooltip: '이전 페이지',
-                    onPressed: _busy || _page!.pageNumber == 1
+                    onPressed: _busy || _currentPageNumber == 1
                         ? null
-                        : () => _load(_page!.pageNumber - 1),
+                        : () => _navigate(_currentPageNumber - 1),
                     icon: const Icon(Icons.chevron_left),
                   ),
                   Text(
-                    'p.${_page!.pageNumber} / ${_page!.totalPages}',
+                    'p.$_currentPageNumber / ${_page!.totalPages}',
                     key: const Key('ocr-page-number'),
                   ),
                   IconButton(
                     key: const Key('ocr-next-page'),
                     tooltip: '다음 페이지',
-                    onPressed: _busy || _page!.pageNumber == _page!.totalPages
+                    onPressed: _busy || _currentPageNumber == _page!.totalPages
                         ? null
-                        : () => _load(_page!.pageNumber + 1),
+                        : () => _navigate(_currentPageNumber + 1),
                     icon: const Icon(Icons.chevron_right),
                   ),
                   TextButton(
@@ -486,6 +507,8 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                       child: const Text('검토 내용 다시 불러오기'),
                     ),
                   )
+                : _continuousArchive
+                ? _continuousComparison()
                 : LayoutBuilder(
                     builder: (context, constraints) =>
                         _isDesktop && constraints.maxWidth >= 900
@@ -530,6 +553,63 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
       ),
     ),
   );
+  Widget _continuousComparison() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: SegmentedButton<bool>(
+            key: const Key('ocr-archive-text-mode'),
+            segments: const [
+              ButtonSegment(value: true, label: Text('OCR 원문')),
+              ButtonSegment(value: false, label: Text('최종 추출 입력')),
+            ],
+            selected: {_showOriginal},
+            onSelectionChanged: (values) =>
+                setState(() => _showOriginal = values.single),
+          ),
+        ),
+        Expanded(
+          child: KeyedSubtree(
+            key: const Key('ocr-desktop-comparison-scroll'),
+            child: ContinuousOcrComparison(
+              key: _continuousKey,
+              initialPage: _page!,
+              initialImage: _image,
+              initialImageError: _imageError,
+              // Report a missing connection in the page, not as a build error.
+              loadPage: (number) async =>
+                  _coordinator.reviewPage(widget.jobId, number),
+              loadImage: (number) async =>
+                  _coordinator.reviewImage(widget.jobId, number),
+              onPageChanged: (number) =>
+                  setState(() => _archivePageNumber = number),
+              textBuilder: (page, current) => Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(_archiveDescription(page)),
+                  ),
+                  _archiveText(
+                    desktopScroll: true,
+                    page: page,
+                    keySuffix: current ? '' : '-${page.pageNumber}',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _archiveDescription(OcrReviewPage page) => _showOriginal
+      ? '텍스트 레이어와 OCR로 읽은 원래 내용을 그대로 표시합니다.'
+      : page.edited
+      ? '검토 후 확정한 입력입니다. 제외한 영역은 보관되지만 AI에는 전달되지 않았습니다.'
+      : '이 페이지는 사용자 수정 없이 추출 내용으로 개념을 생성했습니다.';
+
   Widget _desktopComparison() => Scrollbar(
     key: const Key('ocr-desktop-comparison-scrollbar'),
     controller: _comparisonScroll,
@@ -611,13 +691,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                   setState(() => _showOriginal = values.single),
             ),
             const SizedBox(height: 8),
-            Text(
-              _showOriginal
-                  ? '텍스트 레이어와 OCR로 읽은 원래 내용을 그대로 표시합니다.'
-                  : _page!.edited
-                  ? '검토 후 확정한 입력입니다. 제외한 영역은 보관되지만 AI에는 전달되지 않았습니다.'
-                  : '이 페이지는 사용자 수정 없이 추출 내용으로 개념을 생성했습니다.',
-            ),
+            Text(_archiveDescription(_page!)),
           ],
         ),
       ),
@@ -628,40 +702,20 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
     ],
   );
 
-  Widget _archiveText({bool desktopScroll = false}) => ListView(
-    key: const Key('ocr-archive-text-list'),
-    shrinkWrap: desktopScroll,
-    primary: desktopScroll ? false : null,
-    physics: desktopScroll ? const NeverScrollableScrollPhysics() : null,
-    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-    children: _showOriginal
-        ? [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      [
-                        for (final (index, block)
-                            in _page!.originalBlocks.indexed)
-                          '영역 ${index + 1}: ${block.kind.label}',
-                      ].join(' · '),
-                      key: const Key('ocr-archive-original-kinds'),
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(
-                      _page!.originalText,
-                      key: const Key('ocr-archive-original-text'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ]
-        : [
-            for (final (index, block) in _page!.blocks.indexed)
+  Widget _archiveText({
+    bool desktopScroll = false,
+    OcrReviewPage? page,
+    String keySuffix = '',
+  }) {
+    final displayedPage = page ?? _page!;
+    return ListView(
+      key: const Key('ocr-archive-text-list'),
+      shrinkWrap: desktopScroll,
+      primary: desktopScroll ? false : null,
+      physics: desktopScroll ? const NeverScrollableScrollPhysics() : null,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      children: _showOriginal
+          ? [
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -669,27 +723,54 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        '영역 ${index + 1} · ${block.kind.label}${block.independent ? ' · 독립 영역' : ''}${block.visualRegion ? ' · 자동 감지 박스' : ''}${block.excluded ? ' · 추출에서 제외됨' : ''}',
+                        [
+                          for (final (index, block)
+                              in displayedPage.originalBlocks.indexed)
+                            '영역 ${index + 1}: ${block.kind.label}',
+                        ].join(' · '),
+                        key: Key('ocr-archive-original-kinds$keySuffix'),
                       ),
                       const SizedBox(height: 8),
                       SelectableText(
-                        block.text,
-                        key: Key('ocr-archive-final-text-$index'),
-                        style: block.excluded
-                            ? TextStyle(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                                decoration: TextDecoration.lineThrough,
-                              )
-                            : null,
+                        displayedPage.originalText,
+                        key: Key('ocr-archive-original-text$keySuffix'),
                       ),
                     ],
                   ),
                 ),
               ),
-          ],
-  );
+            ]
+          : [
+              for (final (index, block) in displayedPage.blocks.indexed)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '영역 ${index + 1} · ${block.kind.label}${block.independent ? ' · 독립 영역' : ''}${block.visualRegion ? ' · 자동 감지 박스' : ''}${block.excluded ? ' · 추출에서 제외됨' : ''}',
+                        ),
+                        const SizedBox(height: 8),
+                        SelectableText(
+                          block.text,
+                          key: Key('ocr-archive-final-text-$index$keySuffix'),
+                          style: block.excluded
+                              ? TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  decoration: TextDecoration.lineThrough,
+                                )
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+    );
+  }
 
   Widget _editor({bool desktopScroll = false}) => ListView(
     key: const Key('ocr-block-list'),

@@ -11,6 +11,7 @@ import 'package:review_platform/core/database/database_providers.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/models/ai_question_generation.dart';
+import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/question_repository.dart';
@@ -74,6 +75,20 @@ void main() {
             .read(routerProvider)
             .go('${AppRoutes.aiGenerate}?folderId=$folderId');
         await tester.pumpAndSettle();
+        final types = tester.widget<SegmentedButton<QuestionType>>(
+          find.byType(SegmentedButton<QuestionType>),
+        );
+        expect(types.segments.map((segment) => segment.value).toList(), [
+          QuestionType.trueFalse,
+          QuestionType.multipleChoice,
+          QuestionType.shortAnswer,
+          QuestionType.essay,
+        ]);
+        expect(types.selected, {
+          QuestionType.multipleChoice,
+          QuestionType.trueFalse,
+          QuestionType.shortAnswer,
+        });
         await tester.enterText(
           find.byKey(const Key('ai-source-text-field')),
           '목표 난이도와 별개로 완성된 문항의 평가를 저장하는 학습 내용',

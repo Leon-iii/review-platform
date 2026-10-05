@@ -203,7 +203,14 @@ void main() {
     final comparison = find.byKey(const Key('ocr-desktop-comparison-scroll'));
     final image = find.byKey(const Key('ocr-page-image'));
     final text = find.byKey(const Key('ocr-archive-original-text'));
-    final scroll = tester.widget<SingleChildScrollView>(comparison).controller!;
+    final scroll = tester
+        .widget<CustomScrollView>(
+          find.descendant(
+            of: comparison,
+            matching: find.byType(CustomScrollView),
+          ),
+        )
+        .controller!;
     final imageTop = tester.getTopLeft(image).dy;
     final textTop = tester.getTopLeft(text).dy;
     final rect = tester.getRect(comparison);
@@ -253,6 +260,167 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: const TargetPlatformVariant({TargetPlatform.android}));
 
+  testWidgets('Windows OCR 대조는 휠로 페이지 경계를 연속해서 넘고 되돌아간다', (tester) async {
+    await tallPreview(tester);
+    api.jobs[id] = pdfJob(id, status: 'completed');
+    api.reviewTotalPages = 4;
+    await DriftSourceRepository(database)
+        .saveImport(folderId: folder, result: pdfResult(id));
+    await open(tester, archive: true);
+    final comparison = find.byKey(const Key('ocr-desktop-comparison-scroll'));
+    final pane = tester.getRect(comparison);
+    final toolbar = find.byKey(const Key('ocr-page-number'));
+    final toolbarTop = tester.getTopLeft(toolbar).dy;
+    final firstHeight = tester
+        .getSize(find.byKey(const Key('ocr-comparison-page-1')))
+        .height;
+    Future<void> wheel(double delta, {bool left = true}) async {
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: Offset(
+            pane.left + pane.width * (left ? 0.25 : 0.75),
+            pane.top + 100,
+          ),
+          kind: PointerDeviceKind.mouse,
+          scrollDelta: Offset(0, delta),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await wheel(firstHeight - pane.height / 2);
+    final first = tester.getRect(
+      find.byKey(const Key('ocr-comparison-page-1')),
+    );
+    final second = tester.getRect(
+      find.byKey(const Key('ocr-comparison-page-2')),
+    );
+    // Both page pairs are on screen at the boundary, without replacing a pane.
+    expect(first.bottom, greaterThan(pane.top));
+    expect(second.top, lessThan(pane.bottom));
+    expect(second.top, closeTo(first.bottom, 0.01));
+    await wheel(pane.height / 2 + 100, left: false);
+    expect(find.text('p.2 / 4'), findsOneWidget);
+    expect(tester.getTopLeft(toolbar).dy, toolbarTop);
+    await wheel(-firstHeight - 200);
+    expect(find.text('p.1 / 4'), findsOneWidget);
+    expect(api.previewReads.where((number) => number == 1), hasLength(1));
+    expect(api.reviewSaves, 0);
+    expect(api.actions, isEmpty);
+    expect(tester.takeException(), isNull);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
+
+  testWidgets('Windows OCR 긴 자료는 필요한 페이지만 로딩하고 직접 이동 후 역방향 스크롤한다', (
+    tester,
+  ) async {
+    await tallPreview(tester);
+    api.jobs[id] = pdfJob(id, status: 'completed');
+    api.reviewTotalPages = 1000;
+    await DriftSourceRepository(database)
+        .saveImport(folderId: folder, result: pdfResult(id));
+    await open(tester, archive: true);
+    expect(api.reviewPageReads.toSet().length, lessThanOrEqualTo(3));
+    await tap(tester, find.text('페이지 이동'));
+    await tester.enterText(find.byKey(const Key('ocr-jump-page-field')), '900');
+    await tap(tester, find.text('이동'));
+    expect(find.text('p.900 / 1000'), findsOneWidget);
+    expect(api.previewReads.toSet().length, lessThanOrEqualTo(6));
+    final pane = tester.getRect(
+      find.byKey(const Key('ocr-desktop-comparison-scroll')),
+    );
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: pane.topLeft + const Offset(120, 100),
+        kind: PointerDeviceKind.mouse,
+        scrollDelta: const Offset(0, -200),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('p.899 / 1000'), findsOneWidget);
+    await tap(tester, find.byKey(const Key('ocr-next-page')));
+    expect(find.text('p.900 / 1000'), findsOneWidget);
+    expect(api.reviewSaves, 0);
+    expect(tester.takeException(), isNull);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
+
+  testWidgets('Windows OCR 다음 페이지 오류는 현재 원문을 유지하고 해당 페이지에서 재시도한다', (
+    tester,
+  ) async {
+    await tallPreview(tester);
+    api.jobs[id] = pdfJob(id, status: 'completed');
+    api.reviewPageErrors[2] = const NetworkFailure('다음 페이지 로딩 실패');
+    await DriftSourceRepository(database)
+        .saveImport(folderId: folder, result: pdfResult(id));
+    await open(tester, archive: true);
+    expect(find.byKey(const Key('ocr-archive-original-text')), findsOneWidget);
+    await tap(tester, find.byKey(const Key('ocr-next-page')));
+    expect(find.text('p.2 / 2'), findsOneWidget);
+    expect(find.text('다음 페이지 로딩 실패'), findsOneWidget);
+    api.reviewPageErrors.clear();
+    await tap(
+      tester,
+      find.descendant(
+        of: find.byKey(const Key('ocr-comparison-page-2')),
+        matching: find.text('다시 시도'),
+      ),
+    );
+    expect(find.text('다음 페이지 로딩 실패'), findsNothing);
+    expect(find.byKey(const Key('ocr-archive-original-text')), findsOneWidget);
+    await tap(tester, find.byKey(const Key('ocr-previous-page')));
+    expect(find.text('p.1 / 2'), findsOneWidget);
+    expect(api.reviewSaves, 0);
+    expect(tester.takeException(), isNull);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
+
+  testWidgets('Windows OCR 대조는 현재 페이지 새로고침과 전체 텍스트 모드 전환을 유지한다', (
+    tester,
+  ) async {
+    await tallPreview(tester);
+    api.jobs[id] = pdfJob(id, status: 'completed');
+    await DriftSourceRepository(database)
+        .saveImport(folderId: folder, result: pdfResult(id));
+    await open(tester, archive: true);
+    await tap(tester, find.byKey(const Key('ocr-next-page')));
+    expect(find.text('p.2 / 2'), findsOneWidget);
+    final scroll = tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!;
+    final offset = scroll.offset;
+    api.originalReviewText = '갱신한 OCR 원문';
+    await tap(tester, find.text('새로고침'));
+    expect(find.text('p.2 / 2'), findsOneWidget);
+    expect(scroll.offset, closeTo(offset, 0.01));
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const Key('ocr-archive-original-text')),
+          )
+          .data,
+      '갱신한 OCR 원문',
+    );
+    await tap(tester, find.text('최종 추출 입력'));
+    expect(find.byKey(const Key('ocr-archive-final-text-0')), findsOneWidget);
+    expect(find.byKey(const Key('ocr-archive-original-text')), findsNothing);
+    // Offscreen pages may be disposed by the lazy viewport; verify the mode
+    // remains selected when navigating to another page instead.
+    await tap(tester, find.byKey(const Key('ocr-previous-page')));
+    expect(find.text('p.1 / 2'), findsOneWidget);
+    expect(find.byKey(const Key('ocr-archive-final-text-0')), findsOneWidget);
+    expect(find.byKey(const Key('ocr-archive-original-text')), findsNothing);
+    await tap(tester, find.byKey(const Key('ocr-next-page')));
+    await tap(tester, find.text('OCR 원문'));
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const Key('ocr-archive-original-text')),
+          )
+          .data,
+      '갱신한 OCR 원문',
+    );
+    expect(api.reviewSaves, 0);
+    expect(tester.takeException(), isNull);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
+
   testWidgets(
     '완료한 자료에서 원본 이미지·OCR 원문·최종 입력을 읽기 전용으로 대조한다',
     (tester) async {
@@ -283,8 +451,20 @@ void main() {
         find.byKey(const Key('ocr-archive-original-text')),
         findsOneWidget,
       );
-      expect(find.text('원래 추출 텍스트'), findsOneWidget);
-      expect(find.textContaining('영역 2: 도식'), findsOneWidget);
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const Key('ocr-archive-original-text')),
+            )
+            .data,
+        '원래 추출 텍스트',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ocr-archive-original-kinds')))
+            .data,
+        contains('영역 2: 도식'),
+      );
       expect(find.byType(TextField), findsNothing);
       expect(find.byKey(const Key('ocr-block-kind-0')), findsNothing);
       expect(find.byKey(const Key('ocr-save-page')), findsNothing);
@@ -320,9 +500,22 @@ void main() {
       database.documentJobs,
     )..where((row) => row.id.equals(id))).go();
     await open(tester, archive: true);
-    expect(find.text('원래 추출 텍스트'), findsOneWidget);
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const Key('ocr-archive-original-text')),
+          )
+          .data,
+      '원래 추출 텍스트',
+    );
     await tap(tester, find.text('최종 추출 입력'));
-    expect(find.text('이 페이지는 사용자 수정 없이 추출 내용으로 개념을 생성했습니다.'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ocr-comparison-page-1')),
+        matching: find.text('이 페이지는 사용자 수정 없이 추출 내용으로 개념을 생성했습니다.'),
+      ),
+      findsOneWidget,
+    );
     expect(find.byType(TextField), findsNothing);
     expect(api.reviewSaves, 0);
     expect(tester.takeException(), isNull);
@@ -336,8 +529,21 @@ void main() {
     await open(tester, archive: true);
     expect(find.byKey(const Key('app-error-dialog')), findsOneWidget);
     await tap(tester, find.byKey(const Key('acknowledge-app-error')));
-    expect(find.text('원래 추출 텍스트'), findsOneWidget);
-    expect(find.text('서버에 원본 PDF 파일이 없습니다.'), findsOneWidget);
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const Key('ocr-archive-original-text')),
+          )
+          .data,
+      '원래 추출 텍스트',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ocr-comparison-page-1')),
+        matching: find.text('서버에 원본 PDF 파일이 없습니다.'),
+      ),
+      findsOneWidget,
+    );
     await tap(tester, find.text('최종 추출 입력'));
     expect(find.byKey(const Key('ocr-archive-final-text-0')), findsOneWidget);
     expect(api.actions, isEmpty);

@@ -105,10 +105,28 @@ class DocumentImportController extends _$DocumentImportController {
     await ref
         .read(sourceRepositoryProvider)
         .setConceptApproval(id: conceptId, approved: approved);
+    if (!ref.mounted) return;
     _updateConcept(
       conceptId,
       (concept) => concept.copyWith(
         status: approved ? ConceptStatus.approved : ConceptStatus.held,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  Future<void> setImportance(
+    String conceptId,
+    ConceptImportance importance,
+  ) async {
+    await ref
+        .read(sourceRepositoryProvider)
+        .setConceptImportance(id: conceptId, importance: importance);
+    if (!ref.mounted) return;
+    _updateConcept(
+      conceptId,
+      (concept) => concept.copyWith(
+        importance: importance,
         updatedAt: DateTime.now().toUtc(),
       ),
     );

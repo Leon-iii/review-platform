@@ -6,12 +6,16 @@ import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
+import 'package:review_platform/domain/formatters/page_number_formatter.dart';
 import 'package:review_platform/domain/models/folder.dart';
 import 'package:review_platform/domain/models/ai_question_generation.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/ai_generation/ai_question_generation_view_model.dart';
+import 'package:review_platform/features/ai_generation/ai_source_picker.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
+import 'package:review_platform/shared/widgets/concept_badge.dart';
+import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 
 class AiQuestionGenerationView extends ConsumerStatefulWidget {
   const AiQuestionGenerationView({
@@ -40,9 +44,9 @@ class _AiQuestionGenerationViewState
     5: '매우 어려움',
   };
   final _formKey = GlobalKey<FormState>();
-  final _sourceLabelController = TextEditingController();
   final _sourceTextController = TextEditingController();
   final _manualQuestionCountController = TextEditingController(text: '10');
+  final _conceptScrollController = ScrollController(keepScrollOffset: false);
   String? _selectedFolderId;
   AiQuestionGenerationMode _generationMode = AiQuestionGenerationMode.automatic;
   AiQuestionDensity _automaticDensity = AiQuestionDensity.medium;
@@ -54,12 +58,24 @@ class _AiQuestionGenerationViewState
   };
   ConceptGenerationSeed? _conceptSeed;
   SourceGenerationSeed? _sourceSeed;
+  StudySource? _selectedSource;
   Object? _conceptSeedError;
   bool _loadingConceptSeed = false;
   bool _reflectConceptImportance = true;
-  List<StudyConcept> get _generationConcepts => _conceptSeed != null
+  AiGenerationProgress? _progress;
+  String? _lastProgressConceptTitle;
+  final _selectedConceptIds = <String>{};
+  bool get _sourceLocked =>
+      widget.initialConceptId != null || widget.initialSourceId != null;
+  bool get _usesConcepts => _sourceLocked || _selectedSource != null;
+  String? get _sourceLabel =>
+      _conceptSeed?.sourceLabel ?? _sourceSeed?.sourceLabel;
+  List<StudyConcept> get _availableConcepts => _conceptSeed != null
       ? [_conceptSeed!.concept]
       : _sourceSeed?.concepts ?? const [];
+  List<StudyConcept> get _generationConcepts => _availableConcepts
+      .where((concept) => _selectedConceptIds.contains(concept.id))
+      .toList();
 
   @override
   void initState() {
@@ -73,9 +89,9 @@ class _AiQuestionGenerationViewState
 
   @override
   void dispose() {
-    _sourceLabelController.dispose();
     _sourceTextController.dispose();
     _manualQuestionCountController.dispose();
+    _conceptScrollController.dispose();
     super.dispose();
   }
 
@@ -113,13 +129,45 @@ class _AiQuestionGenerationViewState
                           label: 'AI 문제 생성 진행 중',
                           child: LinearProgressIndicator(
                             key: Key('ai-generation-progress-bar'),
+                            value:
+                                _progress == null ||
+                                    _progress!.totalConcepts == 0
+                                ? null
+                                : _progress!.completedConcepts /
+                                      _progress!.totalConcepts,
                           ),
                         ),
                         SizedBox(height: 12),
-                        Text(
-                          '문제 수와 모델 성능에 따라 시간이 걸릴 수 있어요.',
-                          textAlign: TextAlign.center,
-                        ),
+                        if (_progress == null)
+                          Text(
+                            '문제 수와 모델 성능에 따라 시간이 걸릴 수 있어요.',
+                            textAlign: TextAlign.center,
+                          )
+                        else ...[
+                          Tooltip(
+                            message: _lastProgressConceptTitle ?? '',
+                            child: Text(
+                              '개념 ${_progress!.currentConceptNumber}/${_progress!.totalConcepts}'
+                              '${_lastProgressConceptTitle == null ? '' : ' - "$_lastProgressConceptTitle"'}',
+                              key: const Key('ai-generation-concept-progress'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '성공 ${_progress!.successfulConcepts}건 · 실패 ${_progress!.failedConcepts}건',
+                            key: const Key('ai-generation-concept-counts'),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '총 ${_progress!.generatedQuestions}문항 생성',
+                            key: const Key('ai-generation-question-count'),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -176,40 +224,87 @@ class _AiQuestionGenerationViewState
                             setState(() => _selectedFolderId = value),
                       ),
                       const SizedBox(height: 16),
-                      TextFormField(
+                      AiSourcePickerField(
                         key: const Key('ai-source-label-field'),
-                        controller: _sourceLabelController,
-                        readOnly: _conceptSeed != null || _sourceSeed != null,
-                        maxLength: 200,
-                        decoration: const InputDecoration(
-                          labelText: '자료 이름 (선택)',
-                          hintText: '예: 전자기학 3주차 노트',
-                          border: OutlineInputBorder(),
-                        ),
+                        source: _selectedSource,
+                        locked: _sourceLocked,
+                        onTap: () => _pickSource(items),
+                        onClear: _sourceLocked ? null : _clearSource,
                       ),
                       const SizedBox(height: 8),
-                      TextFormField(
-                        key: const Key('ai-source-text-field'),
-                        controller: _sourceTextController,
-                        readOnly: _conceptSeed != null || _sourceSeed != null,
-                        minLines: 10,
-                        maxLines: 20,
-                        maxLength: 50000,
-                        decoration: const InputDecoration(
-                          labelText: '학습 내용',
-                          hintText: '문제를 만들 학습 내용을 붙여 넣으세요.',
-                          alignLabelWithHint: true,
-                          border: OutlineInputBorder(),
+                      if (_usesConcepts) ...[
+                        Row(
+                          key: const Key('ai-concept-list-header'),
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '학습 개념 · 선택 ${_generationConcepts.length}/${_availableConcepts.length}개',
+                                key: const Key('ai-concept-selection-label'),
+                                style: Theme.of(context).textTheme.titleMedium,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              key: const Key('ai-select-all-concepts'),
+                              style: TextButton.styleFrom(
+                                minimumSize: Size.zero,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 12,
+                                ),
+                              ),
+                              onPressed: () => setState(
+                                () => _selectedConceptIds
+                                  ..clear()
+                                  ..addAll(_availableConcepts.map((c) => c.id)),
+                              ),
+                              child: const Text('전체 선택'),
+                            ),
+                            TextButton(
+                              key: const Key('ai-deselect-all-concepts'),
+                              style: TextButton.styleFrom(
+                                minimumSize: Size.zero,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 12,
+                                ),
+                              ),
+                              onPressed: () =>
+                                  setState(_selectedConceptIds.clear),
+                              child: const Text('선택 해제'),
+                            ),
+                          ],
                         ),
-                        validator: (value) {
-                          final length = value?.trim().length ?? 0;
-                          if (length < 10) return '학습 내용을 10자 이상 입력해 주세요.';
-                          if (length > 50000) {
-                            return '학습 내용은 50,000자 이하로 입력해 주세요.';
-                          }
-                          return null;
-                        },
-                      ),
+                        _buildConceptList(),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '선택한 개념을 하나씩 요청합니다. 문항 수는 서버가 배분하고 난이도는 생성 후 평가합니다.',
+                        ),
+                      ] else
+                        TextFormField(
+                          key: const Key('ai-source-text-field'),
+                          controller: _sourceTextController,
+                          readOnly: _conceptSeed != null || _sourceSeed != null,
+                          minLines: 10,
+                          maxLines: 20,
+                          maxLength: 50000,
+                          decoration: const InputDecoration(
+                            labelText: '학습 내용',
+                            hintText: '문제를 만들 학습 내용을 붙여 넣으세요.',
+                            alignLabelWithHint: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) {
+                            final length = value?.trim().length ?? 0;
+                            if (length < 10) return '학습 내용을 10자 이상 입력해 주세요.';
+                            if (length > 50000) {
+                              return '학습 내용은 50,000자 이하로 입력해 주세요.';
+                            }
+                            return null;
+                          },
+                        ),
                       const SizedBox(height: 16),
                       Text(
                         '문제 유형',
@@ -221,19 +316,24 @@ class _AiQuestionGenerationViewState
                         emptySelectionAllowed: false,
                         segments: const [
                           ButtonSegment(
-                            value: QuestionType.multipleChoice,
-                            icon: Icon(Icons.format_list_numbered_rounded),
-                            label: Text('객관식'),
-                          ),
-                          ButtonSegment(
                             value: QuestionType.trueFalse,
                             icon: Icon(Icons.rule_rounded),
                             label: Text('O/X'),
                           ),
                           ButtonSegment(
+                            value: QuestionType.multipleChoice,
+                            icon: Icon(Icons.format_list_numbered_rounded),
+                            label: Text('객관식'),
+                          ),
+                          ButtonSegment(
                             value: QuestionType.shortAnswer,
                             icon: Icon(Icons.short_text_rounded),
                             label: Text('단답형'),
+                          ),
+                          ButtonSegment(
+                            value: QuestionType.essay,
+                            icon: Icon(Icons.notes_rounded),
+                            label: Text('서술형'),
                           ),
                         ],
                         selected: _questionTypes,
@@ -392,7 +492,7 @@ class _AiQuestionGenerationViewState
                           contentPadding: EdgeInsets.zero,
                           title: const Text('개념 중요도 반영'),
                           subtitle: const Text(
-                            '중요한 개념에 더 많은 문제를 배정합니다. 난이도에는 영향을 주지 않으며, 총 생성량 상한은 유지합니다.',
+                            '중요한 개념에 더 많은 문제를 배정합니다. 난이도에는 영향을 주지 않으며, 생성 상한은 개념별 요청에 적용합니다.',
                           ),
                           value: _reflectConceptImportance,
                           onChanged: (value) =>
@@ -402,7 +502,9 @@ class _AiQuestionGenerationViewState
                       const SizedBox(height: 28),
                       FilledButton.icon(
                         key: const Key('generate-ai-questions-button'),
-                        onPressed: _conceptSeedError != null
+                        onPressed:
+                            _conceptSeedError != null ||
+                                (_usesConcepts && _generationConcepts.isEmpty)
                             ? null
                             : () => _generate(selectedId!),
                         icon: const Icon(Icons.auto_awesome_rounded),
@@ -419,8 +521,113 @@ class _AiQuestionGenerationViewState
     );
   }
 
+  Widget _buildConceptList() {
+    final concepts = _availableConcepts;
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('ai-concept-list-box'),
+      height: (MediaQuery.sizeOf(context).height * 0.45).clamp(220.0, 420.0),
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ScrollConfiguration(
+        // Use one explicit scrollbar/controller, independent of the form's
+        // primary scroll controller and automatic desktop scrollbars.
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: Scrollbar(
+          controller: _conceptScrollController,
+          thumbVisibility: true,
+          child: ListView.builder(
+            key: const Key('ai-concept-list'),
+            controller: _conceptScrollController,
+            primary: false,
+            padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+            itemCount: concepts.length,
+            itemBuilder: (context, index) {
+              final concept = concepts[index];
+              return Card(
+                key: ValueKey('ai-concept-${concept.id}'),
+                child: CheckboxListTile(
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _selectedConceptIds.contains(concept.id),
+                  title: LayoutBuilder(
+                    builder: (context, constraints) => Row(
+                      children: [
+                        Flexible(
+                          child: Tooltip(
+                            message: '${index + 1}. ${concept.title}',
+                            child: Text(
+                              '${index + 1}. ${concept.title}',
+                              key: ValueKey('ai-concept-title-${concept.id}'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth * 0.65,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: ConceptImportanceBadge(
+                                  key: ValueKey(
+                                    'ai-concept-importance-${concept.id}',
+                                  ),
+                                  importance: concept.importance,
+                                  compact: true,
+                                ),
+                              ),
+                              if (concept.hasPageSource) ...[
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Tooltip(
+                                    message:
+                                        'p.${formatPageNumbers(concept.pageNumbers)}',
+                                    child: ConceptBadge(
+                                      key: ValueKey(
+                                        'ai-concept-page-source-${concept.id}',
+                                      ),
+                                      label:
+                                          'p.${formatPageNumbers(concept.pageNumbers)}',
+                                      compact: true,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  onChanged: (selected) => setState(() {
+                    if (selected == true) {
+                      _selectedConceptIds.add(concept.id);
+                    } else {
+                      _selectedConceptIds.remove(concept.id);
+                    }
+                  }),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _generate(String folderId) async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      _progress = null;
+      _lastProgressConceptTitle = null;
+    });
     final provider = aiQuestionGenerationControllerProvider(
       widget.initialFolderId,
     );
@@ -429,10 +636,17 @@ class _AiQuestionGenerationViewState
           .read(provider.notifier)
           .generate(
             folderId: folderId,
-            sourceText: _sourceTextController.text,
-            sourceLabel: _sourceLabelController.text.trim().isEmpty
-                ? null
-                : _sourceLabelController.text.trim(),
+            sourceText: _usesConcepts ? '' : _sourceTextController.text,
+            onProgress: (progress) {
+              if (mounted) {
+                setState(() {
+                  _progress = progress;
+                  _lastProgressConceptTitle =
+                      progress.conceptTitle ?? _lastProgressConceptTitle;
+                });
+              }
+            },
+            sourceLabel: _sourceLabel,
             questionTypes: _questionTypes,
             minimumDifficulty: _difficultyRange.start.round(),
             maximumDifficulty: _difficultyRange.end.round(),
@@ -469,30 +683,107 @@ class _AiQuestionGenerationViewState
   String _messageFor(Object error) =>
       error is AppFailure ? error.message : 'AI 문제 생성을 완료하지 못했어요.';
 
+  Future<void> _pickSource(List<Folder> folders) async {
+    if (_sourceLocked) return;
+    final repository = ref.read(sourceRepositoryProvider);
+    final byId = {for (final folder in folders) folder.id: folder};
+    String pathFor(Folder folder) {
+      final parts = <String>[];
+      final visited = <String>{};
+      Folder? current = folder;
+      while (current != null && visited.add(current.id)) {
+        parts.add(current.name);
+        current = byId[current.parentId];
+      }
+      return parts.reversed.join(' / ');
+    }
+
+    final source = await showAiSourcePicker(
+      context,
+      selectedSourceId: _selectedSource?.id,
+      loadOptions: () async {
+        final groups = await Future.wait(
+          folders.map(
+            (folder) async => [
+              for (final source in await repository.getSources(folder.id))
+                AiSourceOption(source: source, folderPath: pathFor(folder)),
+            ],
+          ),
+        );
+        return groups.expand((group) => group).toList()..sort((a, b) {
+          final order = a.folderPath.compareTo(b.folderPath);
+          return order == 0
+              ? a.source.fileName.compareTo(b.source.fileName)
+              : order;
+        });
+      },
+    );
+    if (!mounted || source == null) return;
+    await _loadSource(source);
+  }
+
+  void _clearSource() {
+    if (_sourceLocked) return;
+    setState(() {
+      _selectedSource = null;
+      _sourceSeed = null;
+      _conceptSeed = null;
+      _conceptSeedError = null;
+      _selectedConceptIds.clear();
+    });
+  }
+
+  Future<void> _loadSource(
+    StudySource source, {
+    bool useSourceFolder = false,
+  }) async {
+    setState(() {
+      _loadingConceptSeed = true;
+      _selectedSource = source;
+      _sourceSeed = null;
+      _conceptSeed = null;
+      _conceptSeedError = null;
+      _selectedConceptIds.clear();
+    });
+    try {
+      final seed = await ref
+          .read(sourceRepositoryProvider)
+          .getSourceGenerationSeed(source.id);
+      if (!mounted) return;
+      setState(() {
+        _sourceSeed = seed;
+        _selectedSource = seed.source;
+        _selectedConceptIds.addAll(seed.concepts.map((concept) => concept.id));
+        if (useSourceFolder) _selectedFolderId = seed.folderId;
+        _loadingConceptSeed = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _conceptSeedError = error;
+        _loadingConceptSeed = false;
+      });
+    }
+  }
+
   Future<void> _loadConceptSeed() async {
     try {
       if (widget.initialConceptId == null) {
-        final seed = await ref
+        final review = await ref
             .read(sourceRepositoryProvider)
-            .getSourceGenerationSeed(widget.initialSourceId!);
+            .getSourceWithConcepts(widget.initialSourceId!);
         if (!mounted) return;
-        _sourceLabelController.text = seed.sourceLabel;
-        _sourceTextController.text = seed.sourceText;
-        setState(() {
-          _sourceSeed = seed;
-          _selectedFolderId = seed.folderId;
-          _loadingConceptSeed = false;
-        });
+        await _loadSource(review.source, useSourceFolder: true);
         return;
       }
       final seed = await ref
           .read(sourceRepositoryProvider)
           .getConceptGenerationSeed(widget.initialConceptId!);
       if (!mounted) return;
-      _sourceLabelController.text = seed.sourceLabel;
-      _sourceTextController.text = seed.sourceText;
       setState(() {
         _conceptSeed = seed;
+        _selectedSource = seed.source;
+        _selectedConceptIds.add(seed.concept.id);
         _selectedFolderId = seed.folderId;
         _loadingConceptSeed = false;
       });
@@ -523,6 +814,13 @@ class _ReviewPanel extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (review.failures.isNotEmpty) ...[
+                  AppErrorNotice(
+                    error:
+                        '일부 개념의 생성에 실패했어요. 성공한 문제는 아래에서 검토할 수 있어요.\n${review.failures.map((failure) => '${failure.title}: ${failure.error}').join('\n')}',
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(20),

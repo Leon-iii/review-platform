@@ -57,12 +57,14 @@ class QuizSubmission {
     required this.completed,
     required this.showImmediateFeedback,
     this.isUnknown = false,
+    this.answerSaved = false,
   });
 
   final GradeResult grade;
   final bool completed;
   final bool showImmediateFeedback;
   final bool isUnknown;
+  final bool answerSaved;
 }
 
 @riverpod
@@ -98,20 +100,66 @@ class QuizViewModel extends _$QuizViewModel {
     state = AsyncData(current.copyWith(textAnswer: value));
   }
 
-  Future<QuizSubmission> submit({bool isUnknown = false}) async {
+  Future<QuizSubmission> submit({
+    bool isUnknown = false,
+    bool? manualCorrect,
+  }) async {
     final current = state.requireValue;
+    if (current.details.session.finishedAt != null) {
+      throw const ValidationFailure('이미 종료된 학습 세션이에요.');
+    }
     if (current.isSubmitting) {
       throw const ValidationFailure('답안을 저장하고 있어요.');
     }
     final item = current.currentItem;
-    if (item.attemptId != null) {
+    if (item.attemptId != null || item.skippedForReview) {
       throw const ValidationFailure('이미 답안을 제출한 문제예요.');
     }
 
     final question = item.questionSnapshot;
+    if (question.type == QuestionType.essay &&
+        !isUnknown &&
+        item.pendingEssayResponse == null) {
+      if (current.textAnswer.trim().isEmpty) {
+        throw const ValidationFailure('답을 입력해 주세요.');
+      }
+      state = AsyncData(current.copyWith(isSubmitting: true));
+      try {
+        await ref
+            .read(quizRepositoryProvider)
+            .saveEssayResponse(
+              sessionId: sessionId,
+              itemId: item.id,
+              answer: current.textAnswer,
+              durationMs: DateTime.now()
+                  .toUtc()
+                  .difference(current.questionStartedAt)
+                  .inMilliseconds,
+            );
+        final refreshed = (await ref
+            .read(quizRepositoryProvider)
+            .getSession(sessionId))!;
+        state = AsyncData(
+          QuizRuntimeState(
+            details: refreshed,
+            currentIndex: _firstIncompleteIndex(refreshed),
+            questionStartedAt: DateTime.now().toUtc(),
+          ),
+        );
+        return const QuizSubmission(
+          grade: GradeResult(score: 0, maxScore: 1),
+          completed: false,
+          showImmediateFeedback: false,
+          answerSaved: true,
+        );
+      } catch (_) {
+        state = AsyncData(current.copyWith(isSubmitting: false));
+        rethrow;
+      }
+    }
     late final GradeResult grade;
     late final Map<String, Object?> response;
-    if (isUnknown && question.type != QuestionType.essay) {
+    if (isUnknown) {
       grade = const GradeResult(score: 0, maxScore: 1);
       // Do not retain a previously selected/typed answer as a guessed answer.
       response = {'isUnknown': true};
@@ -138,7 +186,14 @@ class QuizViewModel extends _$QuizViewModel {
           grade = AnswerGrader.gradeShortAnswer(question, current.textAnswer);
           response = {'textAnswer': current.textAnswer};
         case QuestionType.essay:
-          throw const ValidationFailure('서술형 문제는 아직 지원하지 않아요.');
+          if (manualCorrect == null || item.pendingEssayResponse == null) {
+            throw const ValidationFailure('모범답안을 확인하고 자기 채점을 해 주세요.');
+          }
+          grade = GradeResult(score: manualCorrect ? 1 : 0, maxScore: 1);
+          response = {
+            'textAnswer': item.pendingEssayResponse!['textAnswer'],
+            'selfAssessed': true,
+          };
       }
     }
 
@@ -157,8 +212,12 @@ class QuizViewModel extends _$QuizViewModel {
               questionSnapshot: question,
               score: grade.score,
               maxScore: grade.maxScore,
-              gradingType: GradingType.local,
-              durationMs: duration.inMilliseconds,
+              gradingType: question.type == QuestionType.essay && !isUnknown
+                  ? GradingType.manual
+                  : GradingType.local,
+              durationMs:
+                  item.pendingEssayResponse?['durationMs'] as int? ??
+                  duration.inMilliseconds,
             ),
           );
       await ref
@@ -197,8 +256,75 @@ class QuizViewModel extends _$QuizViewModel {
     }
   }
 
+  Future<void> stop() async {
+    final current = state.requireValue;
+    if (current.isSubmitting) {
+      throw const ValidationFailure('답안 저장이 끝난 뒤 중단해 주세요.');
+    }
+    if (current.details.session.finishedAt != null) return;
+    state = AsyncData(current.copyWith(isSubmitting: true));
+    try {
+      final repository = ref.read(quizRepositoryProvider);
+      await repository.finishSession(sessionId);
+      final details = await repository.getSession(sessionId);
+      if (details == null) {
+        throw const ValidationFailure('학습 세션을 찾을 수 없어요.');
+      }
+      state = AsyncData(
+        current.copyWith(details: details, isSubmitting: false),
+      );
+    } catch (_) {
+      state = AsyncData(current.copyWith(isSubmitting: false));
+      rethrow;
+    }
+  }
+
+  Future<bool> requestReview({required String expectedItemId}) async {
+    final current = state.requireValue;
+    if (current.isSubmitting ||
+        current.details.session.finishedAt != null ||
+        current.currentItem.id != expectedItemId ||
+        current.currentItem.attemptId != null ||
+        current.currentItem.skippedForReview) {
+      throw const ValidationFailure('현재 문제를 재검토 요청할 수 없어요.');
+    }
+    state = AsyncData(current.copyWith(isSubmitting: true));
+    try {
+      final repository = ref.read(quizRepositoryProvider);
+      await repository.skipForReview(
+        sessionId: sessionId,
+        itemId: expectedItemId,
+      );
+      final refreshed = await repository.getSession(sessionId);
+      if (refreshed == null) throw const ValidationFailure('학습 세션을 찾을 수 없어요.');
+      state = AsyncData(
+        QuizRuntimeState(
+          details: refreshed,
+          currentIndex: _firstIncompleteIndex(refreshed),
+          questionStartedAt: DateTime.now().toUtc(),
+        ),
+      );
+      return refreshed.session.finishedAt != null;
+    } catch (_) {
+      state = AsyncData(current.copyWith(isSubmitting: false));
+      rethrow;
+    }
+  }
+
   int _firstIncompleteIndex(QuizSessionDetails details) {
-    final index = details.items.indexWhere((item) => item.attemptId == null);
+    if (details.session.filter.feedbackTiming ==
+        AnswerFeedbackTiming.afterCompletion) {
+      final unanswered = details.items.indexWhere(
+        (item) =>
+            !item.skippedForReview &&
+            item.attemptId == null &&
+            item.pendingEssayResponse == null,
+      );
+      if (unanswered >= 0) return unanswered;
+    }
+    final index = details.items.indexWhere(
+      (item) => !item.skippedForReview && item.attemptId == null,
+    );
     return index < 0 ? details.items.length - 1 : index;
   }
 }

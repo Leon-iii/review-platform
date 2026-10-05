@@ -6,11 +6,16 @@ class ConceptImportanceBadge extends StatelessWidget {
   const ConceptImportanceBadge({
     required this.importance,
     this.compact = false,
+    this.showPrefix,
     super.key,
   });
 
   final ConceptImportance importance;
   final bool compact;
+
+  /// Overrides the default: compact concept badges omit the prefix, while
+  /// normal badges include it. Question cards always include it at either size.
+  final bool? showPrefix;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +49,9 @@ class ConceptImportanceBadge extends StatelessWidget {
       label: '중요도 ${importance.label}',
       child: ExcludeSemantics(
         child: ConceptBadge(
-          label: compact ? importance.label : '중요도 ${importance.label}',
+          label: (showPrefix ?? !compact)
+              ? '중요도 ${importance.label}'
+              : importance.label,
           compact: compact,
           outlined: true,
           backgroundColor:

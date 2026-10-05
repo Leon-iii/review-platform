@@ -57,7 +57,7 @@ public sealed class OllamaLlmProvider(
                         new
                         {
                             role = "system",
-                            content = QuestionGenerationPrompt.SystemPrompt
+                            content = QuestionGenerationPrompt.GetSystemPrompt(input)
                         },
                         new
                         {

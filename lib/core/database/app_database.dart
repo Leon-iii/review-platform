@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:review_platform/core/database/daos/attempt_dao.dart';
@@ -56,7 +58,7 @@ final class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'review_platform'));
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -74,10 +76,24 @@ final class AppDatabase extends _$AppDatabase {
       if (from >= 3 && from < 12) {
         await migrator.addColumn(questions, questions.importance);
       }
+      // Older sync seeding and answer migrations hydrate complete question rows.
+      if (from >= 3 && from < 14) {
+        await transaction(() async {
+          await migrator.addColumn(questions, questions.caseSensitive);
+          await migrator.addColumn(questions, questions.whitespaceSensitive);
+        });
+      }
       if (from < 4) {
         await migrator.createTable(quizSessions);
         await migrator.createTable(attempts);
         await migrator.createTable(quizSessionItems);
+      }
+      // Add before older migrations hydrate complete session-item rows.
+      if (from >= 4 && from < 15) {
+        await migrator.addColumn(
+          quizSessionItems,
+          quizSessionItems.skippedForReview,
+        );
       }
       if (from < 5) {
         await migrator.createTable(syncOutbox);
@@ -116,11 +132,86 @@ final class AppDatabase extends _$AppDatabase {
         await migrator.addColumn(concepts, concepts.importance);
       }
       if (from < 11) await migrator.createTable(documentJobs);
+      if (from < 13) {
+        await transaction(() async {
+          if (from >= 4) {
+            await migrator.addColumn(
+              quizSessionItems,
+              quizSessionItems.pendingEssayResponseJson,
+            );
+          }
+          await _migrateShortAnswersToEssays();
+        });
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
+
+  Future<void> _migrateShortAnswersToEssays() async {
+    final now = DateTime.now().toUtc();
+    final legacy = await (select(
+      questions,
+    )..where((row) => row.type.equals('shortAnswer'))).get();
+    for (final question in legacy) {
+      final nextTimestamp = question.updatedAt.add(const Duration(seconds: 1));
+      final updatedAt = nextTimestamp.isAfter(now) ? nextTimestamp : now;
+      await questionDao.updateQuestion(
+        question.id,
+        QuestionsCompanion(
+          type: const Value('essay'),
+          updatedAt: Value(updatedAt),
+        ),
+      );
+      if (question.deletedAt == null) {
+        await syncDao.enqueue(
+          entityType: 'question',
+          entityId: question.id,
+          operation: 'upsert',
+          createdAt: updatedAt,
+        );
+      }
+    }
+    // Completed answers remain historical snapshots; only unanswered questions
+    // in ongoing sessions switch to the new self-graded essay workflow.
+    final changedSessions = <String>{};
+    final items = await (select(
+      quizSessionItems,
+    )..where((row) => row.attemptId.isNull())).get();
+    for (final item in items) {
+      final session = await quizDao.getActiveSession(item.sessionId);
+      if (session == null || session.finishedAt != null) continue;
+      final snapshot = Map<String, Object?>.from(
+        jsonDecode(item.questionSnapshotJson) as Map,
+      );
+      if (snapshot['type'] != 'shortAnswer') continue;
+      snapshot['type'] = 'essay';
+      snapshot['answerFormatVersion'] = 2;
+      await (update(
+        quizSessionItems,
+      )..where((row) => row.id.equals(item.id))).write(
+        QuizSessionItemsCompanion(
+          questionSnapshotJson: Value(jsonEncode(snapshot)),
+        ),
+      );
+      changedSessions.add(item.sessionId);
+    }
+    for (final id in changedSessions) {
+      final session = (await quizDao.getActiveSession(id))!;
+      final nextTimestamp = session.updatedAt.add(const Duration(seconds: 1));
+      final updatedAt = nextTimestamp.isAfter(now) ? nextTimestamp : now;
+      await (update(quizSessions)..where((row) => row.id.equals(id))).write(
+        QuizSessionsCompanion(updatedAt: Value(updatedAt)),
+      );
+      await syncDao.enqueue(
+        entityType: 'quizSession',
+        entityId: id,
+        operation: 'upsert',
+        createdAt: updatedAt,
+      );
+    }
+  }
 
   Future<void> _seedExistingEntitiesForSync() async {
     const uuid = Uuid();

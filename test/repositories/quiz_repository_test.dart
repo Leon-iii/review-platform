@@ -14,6 +14,7 @@ import 'package:review_platform/repositories/attempt_repository.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/question_repository.dart';
 import 'package:review_platform/repositories/quiz_repository.dart';
+import 'package:review_platform/repositories/sync_repository.dart';
 
 void main() {
   late AppDatabase database;
@@ -31,6 +32,61 @@ void main() {
   });
 
   tearDown(() => database.close());
+
+  test('중단은 미풀이 문항을 채점하지 않고 종료를 동기화하며 중복 종료·추가 제출을 막는다', () async {
+    final folder = await folderRepository.createFolder(name: '중단');
+    final questionId = await _createShortQuestion(
+      questionRepository,
+      folder,
+      '종료 문항',
+    );
+    final sessionId = await quizRepository.createSession(
+      filter: QuizFilter(
+        rootFolderId: folder,
+        enabledQuestionTypes: const {QuestionType.shortAnswer},
+        questionCount: 1,
+      ),
+      questions: [(await questionRepository.getQuestion(questionId))!],
+    );
+    final sync = DriftSyncRepository(database);
+    final before = (await sync.getPending()).length;
+    await quizRepository.finishSession(sessionId);
+    final session = (await quizRepository.getSession(sessionId))!;
+    expect(session.session.finishedAt, isNotNull);
+    expect(session.session.completedQuestions, 0);
+    expect(session.items.single.attemptId, isNull);
+    expect(await attemptRepository.getAttemptsForSession(sessionId), isEmpty);
+    expect((await sync.getPending()).length, before + 1);
+    await quizRepository.finishSession(sessionId);
+    expect(
+      (await quizRepository.getSession(sessionId))!.session.finishedAt,
+      session.session.finishedAt,
+    );
+    expect((await sync.getPending()).length, before + 1);
+    final pushed = (await sync.buildPushBatch()).where(
+      (e) => e.entityType == 'quizSession',
+    );
+    expect(
+      pushed.every(
+        (e) =>
+            e.payload!['finishedAt'] != null &&
+            e.payload!['completedQuestions'] == 0,
+      ),
+      isTrue,
+    );
+    await expectLater(
+      quizRepository.linkAttempt(
+        sessionId: sessionId,
+        itemId: session.items.single.id,
+        attemptId: 'not-created',
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    await expectLater(
+      quizRepository.finishSession('missing'),
+      throwsA(isA<ValidationFailure>()),
+    );
+  });
 
   test('난이도와 문제 유형을 함께 필터링하고 세션 재개 시 설정을 보존한다', () async {
     final root = await folderRepository.createFolder(name: '난이도');

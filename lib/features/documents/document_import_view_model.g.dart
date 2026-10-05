@@ -133,7 +133,7 @@ final class DocumentImportControllerProvider
 }
 
 String _$documentImportControllerHash() =>
-    r'872ebdbf472dbf48a9b1ebcb58b705d0d294fd80';
+    r'319d98db0dcc1e0a053f6dc82fc8fb2b3eb22efa';
 
 final class DocumentImportControllerFamily extends $Family
     with

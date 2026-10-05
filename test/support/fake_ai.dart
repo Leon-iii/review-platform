@@ -10,16 +10,30 @@ class FakeRemoteAiApi implements RemoteAiApi {
   Completer<void>? gate;
   AiQuestionGenerationRequest? lastRequest;
   bool invalidConceptId = false;
+  List<AiConceptGenerationFailure> failures = const [];
+  AiGenerationProgress? progress;
+  void Function(AiGenerationProgress)? _onProgress;
+  void emitProgress(AiGenerationProgress progress) =>
+      _onProgress?.call(progress);
 
   @override
   Future<AiQuestionGenerationResult> generateQuestions({
     required SyncConfiguration configuration,
     required AiQuestionGenerationRequest request,
+    void Function(AiGenerationProgress)? onProgress,
   }) async {
     callCount++;
     lastRequest = request;
+    _onProgress = onProgress;
+    if (progress != null) onProgress?.call(progress!);
     await gate?.future;
     final types = request.questionTypes.toList(growable: false);
+    final successfulConcepts = request.concepts
+        .where(
+          (concept) =>
+              !failures.any((failure) => failure.conceptId == concept.id),
+        )
+        .toList();
     final questionCount =
         request.questionCount ??
         switch (request.automaticDensity ?? AiQuestionDensity.medium) {
@@ -28,6 +42,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
           AiQuestionDensity.high => 6,
         };
     return AiQuestionGenerationResult(
+      failures: failures,
       metadata: AiGenerationMetadata(
         generationId: 'generation-1',
         provider: 'fake',
@@ -42,11 +57,11 @@ class FakeRemoteAiApi implements RemoteAiApi {
           _question(
             types[index % types.length],
             index,
-            request.concepts.isEmpty
+            successfulConcepts.isEmpty
                 ? null
                 : invalidConceptId
                 ? 'unknown-concept'
-                : request.concepts[index % request.concepts.length].id,
+                : successfulConcepts[index % successfulConcepts.length].id,
           ),
       ],
     );

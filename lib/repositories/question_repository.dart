@@ -14,14 +14,23 @@ import 'package:review_platform/domain/services/question_validator.dart';
 import 'package:uuid/uuid.dart';
 
 abstract interface class QuestionRepository {
-  Future<String> createQuestion(QuestionDraft draft);
+  Future<String> createQuestion(
+    QuestionDraft draft, {
+    String? primaryConceptId,
+  });
 
   Future<List<String>> createQuestions(
     List<QuestionDraft> drafts, {
     List<QuestionSourceDraft?>? sourceReferences,
   });
 
-  Future<void> updateQuestion(String id, QuestionDraft draft);
+  Future<void> updateQuestion(
+    String id,
+    QuestionDraft draft, {
+    String? primaryConceptId,
+    bool replacePrimaryConcept = false,
+    ConceptImportance? detachedImportance,
+  });
 
   Future<void> moveQuestion({required String id, required String folderId});
 
@@ -30,6 +39,15 @@ abstract interface class QuestionRepository {
   Future<void> approveQuestion(String id);
 
   Future<void> approveQuestions(Iterable<String> ids);
+
+  Future<void> moveQuestions({
+    required Iterable<String> ids,
+    required String folderId,
+  });
+
+  Future<void> deleteQuestions(Iterable<String> ids);
+
+  Stream<List<Question>> watchQuestionsForConcept(String conceptId);
 
   Stream<List<Question>> watchQuestions(String folderId);
 
@@ -48,8 +66,22 @@ class DriftQuestionRepository implements QuestionRepository {
   final Uuid _uuid = const Uuid();
 
   @override
-  Future<String> createQuestion(QuestionDraft draft) {
-    return createQuestions([draft]).then((ids) => ids.single);
+  Future<String> createQuestion(
+    QuestionDraft draft, {
+    String? primaryConceptId,
+  }) {
+    return _guard(
+      () => _database.transaction(() async {
+        final reference = primaryConceptId == null
+            ? null
+            : await _referenceForConcept(primaryConceptId);
+        return (await createQuestions(
+          [draft],
+          sourceReferences: [reference],
+        )).single;
+      }),
+      '문제를 저장하지 못했어요.',
+    );
   }
 
   @override
@@ -86,6 +118,8 @@ class DriftQuestionRepository implements QuestionRepository {
               explanation: Value(draft.explanation),
               difficulty: Value(draft.difficulty),
               importance: Value(draft.importance.name),
+              caseSensitive: Value(draft.caseSensitive),
+              whitespaceSensitive: Value(draft.whitespaceSensitive),
               createdAt: now,
               updatedAt: now,
             ),
@@ -109,12 +143,24 @@ class DriftQuestionRepository implements QuestionRepository {
   }
 
   @override
-  Future<void> updateQuestion(String id, QuestionDraft draft) {
+  Future<void> updateQuestion(
+    String id,
+    QuestionDraft draft, {
+    String? primaryConceptId,
+    bool replacePrimaryConcept = false,
+    ConceptImportance? detachedImportance,
+  }) {
     return _guard(() async {
       final validated = QuestionValidator.validate(draft);
 
       await _database.transaction(() async {
-        await _requireQuestion(id);
+        final existing = await _requireQuestion(id);
+        final reference = replacePrimaryConcept && primaryConceptId != null
+            ? await _referenceForConcept(primaryConceptId)
+            : null;
+        final importance = replacePrimaryConcept && primaryConceptId == null
+            ? detachedImportance ?? (await _hydrate(existing)).importance
+            : validated.importance;
         await _requireFolder(validated.folderId);
         final now = DateTime.now().toUtc();
         await _database.questionDao.updateQuestion(
@@ -126,11 +172,24 @@ class DriftQuestionRepository implements QuestionRepository {
             prompt: Value(validated.prompt),
             explanation: Value(validated.explanation),
             difficulty: Value(validated.difficulty),
-            importance: Value(validated.importance.name),
+            importance: Value(importance.name),
+            caseSensitive: Value(validated.caseSensitive),
+            whitespaceSensitive: Value(validated.whitespaceSensitive),
             updatedAt: Value(now),
           ),
         );
         await _replaceDetails(id, validated);
+        if (replacePrimaryConcept) {
+          if (reference == null) {
+            // Detach the concept, not the original material/page provenance.
+            await (_database.update(_database.questionSources)
+                  ..where((row) => row.questionId.equals(id)))
+                .write(const QuestionSourcesCompanion(conceptId: Value(null)));
+          } else {
+            await _database.sourceDao.replaceQuestionSources(id, []);
+            await _insertSourceReference(id, reference);
+          }
+        }
         await _database.syncDao.enqueue(
           entityType: SyncEntityType.question.name,
           entityId: id,
@@ -184,6 +243,54 @@ class DriftQuestionRepository implements QuestionRepository {
 
   @override
   Future<void> approveQuestion(String id) => approveQuestions([id]);
+
+  @override
+  Future<void> moveQuestions({
+    required Iterable<String> ids,
+    required String folderId,
+  }) {
+    final values = ids.toSet().toList(growable: false);
+    return _guard(
+      () => _database.transaction(() async {
+        await _requireFolder(folderId);
+        for (final id in values) {
+          await moveQuestion(id: id, folderId: folderId);
+        }
+      }),
+      '선택한 문제를 이동하지 못했어요.',
+    );
+  }
+
+  @override
+  Future<void> deleteQuestions(Iterable<String> ids) {
+    final values = ids.toSet().toList(growable: false);
+    return _guard(
+      () => _database.transaction(() async {
+        for (final id in values) {
+          await deleteQuestion(id);
+        }
+      }),
+      '선택한 문제를 삭제하지 못했어요.',
+    );
+  }
+
+  @override
+  Stream<List<Question>> watchQuestionsForConcept(String conceptId) async* {
+    try {
+      await for (final rows in _database.questionDao.watchQuestionsForConcept(
+        conceptId,
+      )) {
+        yield await Future.wait(rows.map(_hydrate));
+      }
+    } on AppFailure {
+      rethrow;
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        DatabaseFailure('연결된 문제를 불러오지 못했어요.', cause: error),
+        stackTrace,
+      );
+    }
+  }
 
   @override
   Future<void> approveQuestions(Iterable<String> ids) {
@@ -326,6 +433,8 @@ class DriftQuestionRepository implements QuestionRepository {
       prompt: row.prompt,
       explanation: row.explanation,
       difficulty: row.difficulty ?? 3,
+      caseSensitive: row.caseSensitive,
+      whitespaceSensitive: row.whitespaceSensitive,
       choices: List.unmodifiable(
         choices.map(
           (choice) => QuestionChoice(
@@ -379,6 +488,20 @@ class DriftQuestionRepository implements QuestionRepository {
           reference.pageNumbers.toSet().toList()..sort(),
         ),
       ),
+    );
+  }
+
+  Future<QuestionSourceDraft> _referenceForConcept(String id) async {
+    final concept = await _database.sourceDao.getConcept(id);
+    if (concept == null) {
+      throw const ValidationFailure('선택한 주개념이 삭제되었거나 존재하지 않아요. 다시 선택해 주세요.');
+    }
+    return QuestionSourceDraft(
+      sourceId: concept.sourceId,
+      conceptId: concept.id,
+      pageNumbers: (jsonDecode(concept.pageNumbersJson) as List)
+          .map((page) => (page as num).toInt())
+          .toList(),
     );
   }
 

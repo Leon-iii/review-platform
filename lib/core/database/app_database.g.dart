@@ -505,6 +505,35 @@ class $QuestionsTable extends Questions
     requiredDuringInsert: false,
     defaultValue: const Constant('medium'),
   );
+  static const VerificationMeta _caseSensitiveMeta = const VerificationMeta(
+    'caseSensitive',
+  );
+  @override
+  late final GeneratedColumn<bool> caseSensitive = GeneratedColumn<bool>(
+    'case_sensitive',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("case_sensitive" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _whitespaceSensitiveMeta =
+      const VerificationMeta('whitespaceSensitive');
+  @override
+  late final GeneratedColumn<bool> whitespaceSensitive = GeneratedColumn<bool>(
+    'whitespace_sensitive',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("whitespace_sensitive" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -548,6 +577,8 @@ class $QuestionsTable extends Questions
     explanation,
     difficulty,
     importance,
+    caseSensitive,
+    whitespaceSensitive,
     createdAt,
     updatedAt,
     deletedAt,
@@ -622,6 +653,24 @@ class $QuestionsTable extends Questions
         importance.isAcceptableOrUnknown(data['importance']!, _importanceMeta),
       );
     }
+    if (data.containsKey('case_sensitive')) {
+      context.handle(
+        _caseSensitiveMeta,
+        caseSensitive.isAcceptableOrUnknown(
+          data['case_sensitive']!,
+          _caseSensitiveMeta,
+        ),
+      );
+    }
+    if (data.containsKey('whitespace_sensitive')) {
+      context.handle(
+        _whitespaceSensitiveMeta,
+        whitespaceSensitive.isAcceptableOrUnknown(
+          data['whitespace_sensitive']!,
+          _whitespaceSensitiveMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -685,6 +734,14 @@ class $QuestionsTable extends Questions
         DriftSqlType.string,
         data['${effectivePrefix}importance'],
       )!,
+      caseSensitive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}case_sensitive'],
+      )!,
+      whitespaceSensitive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}whitespace_sensitive'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -715,6 +772,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
   final String? explanation;
   final int? difficulty;
   final String importance;
+  final bool caseSensitive;
+  final bool whitespaceSensitive;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
@@ -727,6 +786,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     this.explanation,
     this.difficulty,
     required this.importance,
+    required this.caseSensitive,
+    required this.whitespaceSensitive,
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
@@ -746,6 +807,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       map['difficulty'] = Variable<int>(difficulty);
     }
     map['importance'] = Variable<String>(importance);
+    map['case_sensitive'] = Variable<bool>(caseSensitive);
+    map['whitespace_sensitive'] = Variable<bool>(whitespaceSensitive);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || deletedAt != null) {
@@ -768,6 +831,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           ? const Value.absent()
           : Value(difficulty),
       importance: Value(importance),
+      caseSensitive: Value(caseSensitive),
+      whitespaceSensitive: Value(whitespaceSensitive),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       deletedAt: deletedAt == null && nullToAbsent
@@ -790,6 +855,10 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       explanation: serializer.fromJson<String?>(json['explanation']),
       difficulty: serializer.fromJson<int?>(json['difficulty']),
       importance: serializer.fromJson<String>(json['importance']),
+      caseSensitive: serializer.fromJson<bool>(json['caseSensitive']),
+      whitespaceSensitive: serializer.fromJson<bool>(
+        json['whitespaceSensitive'],
+      ),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
@@ -807,6 +876,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       'explanation': serializer.toJson<String?>(explanation),
       'difficulty': serializer.toJson<int?>(difficulty),
       'importance': serializer.toJson<String>(importance),
+      'caseSensitive': serializer.toJson<bool>(caseSensitive),
+      'whitespaceSensitive': serializer.toJson<bool>(whitespaceSensitive),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
@@ -822,6 +893,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     Value<String?> explanation = const Value.absent(),
     Value<int?> difficulty = const Value.absent(),
     String? importance,
+    bool? caseSensitive,
+    bool? whitespaceSensitive,
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
@@ -834,6 +907,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     explanation: explanation.present ? explanation.value : this.explanation,
     difficulty: difficulty.present ? difficulty.value : this.difficulty,
     importance: importance ?? this.importance,
+    caseSensitive: caseSensitive ?? this.caseSensitive,
+    whitespaceSensitive: whitespaceSensitive ?? this.whitespaceSensitive,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
@@ -854,6 +929,12 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       importance: data.importance.present
           ? data.importance.value
           : this.importance,
+      caseSensitive: data.caseSensitive.present
+          ? data.caseSensitive.value
+          : this.caseSensitive,
+      whitespaceSensitive: data.whitespaceSensitive.present
+          ? data.whitespaceSensitive.value
+          : this.whitespaceSensitive,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
@@ -871,6 +952,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           ..write('explanation: $explanation, ')
           ..write('difficulty: $difficulty, ')
           ..write('importance: $importance, ')
+          ..write('caseSensitive: $caseSensitive, ')
+          ..write('whitespaceSensitive: $whitespaceSensitive, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt')
@@ -888,6 +971,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     explanation,
     difficulty,
     importance,
+    caseSensitive,
+    whitespaceSensitive,
     createdAt,
     updatedAt,
     deletedAt,
@@ -904,6 +989,8 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           other.explanation == this.explanation &&
           other.difficulty == this.difficulty &&
           other.importance == this.importance &&
+          other.caseSensitive == this.caseSensitive &&
+          other.whitespaceSensitive == this.whitespaceSensitive &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt);
@@ -918,6 +1005,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
   final Value<String?> explanation;
   final Value<int?> difficulty;
   final Value<String> importance;
+  final Value<bool> caseSensitive;
+  final Value<bool> whitespaceSensitive;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
@@ -931,6 +1020,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     this.explanation = const Value.absent(),
     this.difficulty = const Value.absent(),
     this.importance = const Value.absent(),
+    this.caseSensitive = const Value.absent(),
+    this.whitespaceSensitive = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -945,6 +1036,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     this.explanation = const Value.absent(),
     this.difficulty = const Value.absent(),
     this.importance = const Value.absent(),
+    this.caseSensitive = const Value.absent(),
+    this.whitespaceSensitive = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.deletedAt = const Value.absent(),
@@ -965,6 +1058,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     Expression<String>? explanation,
     Expression<int>? difficulty,
     Expression<String>? importance,
+    Expression<bool>? caseSensitive,
+    Expression<bool>? whitespaceSensitive,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
@@ -979,6 +1074,9 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
       if (explanation != null) 'explanation': explanation,
       if (difficulty != null) 'difficulty': difficulty,
       if (importance != null) 'importance': importance,
+      if (caseSensitive != null) 'case_sensitive': caseSensitive,
+      if (whitespaceSensitive != null)
+        'whitespace_sensitive': whitespaceSensitive,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
@@ -995,6 +1093,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     Value<String?>? explanation,
     Value<int?>? difficulty,
     Value<String>? importance,
+    Value<bool>? caseSensitive,
+    Value<bool>? whitespaceSensitive,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
@@ -1009,6 +1109,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
       explanation: explanation ?? this.explanation,
       difficulty: difficulty ?? this.difficulty,
       importance: importance ?? this.importance,
+      caseSensitive: caseSensitive ?? this.caseSensitive,
+      whitespaceSensitive: whitespaceSensitive ?? this.whitespaceSensitive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -1043,6 +1145,12 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     if (importance.present) {
       map['importance'] = Variable<String>(importance.value);
     }
+    if (caseSensitive.present) {
+      map['case_sensitive'] = Variable<bool>(caseSensitive.value);
+    }
+    if (whitespaceSensitive.present) {
+      map['whitespace_sensitive'] = Variable<bool>(whitespaceSensitive.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -1069,6 +1177,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
           ..write('explanation: $explanation, ')
           ..write('difficulty: $difficulty, ')
           ..write('importance: $importance, ')
+          ..write('caseSensitive: $caseSensitive, ')
+          ..write('whitespaceSensitive: $whitespaceSensitive, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -3124,6 +3234,32 @@ class $QuizSessionItemsTable extends QuizSessionItems
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _pendingEssayResponseJsonMeta =
+      const VerificationMeta('pendingEssayResponseJson');
+  @override
+  late final GeneratedColumn<String> pendingEssayResponseJson =
+      GeneratedColumn<String>(
+        'pending_essay_response_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _skippedForReviewMeta = const VerificationMeta(
+    'skippedForReview',
+  );
+  @override
+  late final GeneratedColumn<bool> skippedForReview = GeneratedColumn<bool>(
+    'skipped_for_review',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("skipped_for_review" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3132,6 +3268,8 @@ class $QuizSessionItemsTable extends QuizSessionItems
     position,
     questionSnapshotJson,
     attemptId,
+    pendingEssayResponseJson,
+    skippedForReview,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3191,6 +3329,24 @@ class $QuizSessionItemsTable extends QuizSessionItems
         attemptId.isAcceptableOrUnknown(data['attempt_id']!, _attemptIdMeta),
       );
     }
+    if (data.containsKey('pending_essay_response_json')) {
+      context.handle(
+        _pendingEssayResponseJsonMeta,
+        pendingEssayResponseJson.isAcceptableOrUnknown(
+          data['pending_essay_response_json']!,
+          _pendingEssayResponseJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('skipped_for_review')) {
+      context.handle(
+        _skippedForReviewMeta,
+        skippedForReview.isAcceptableOrUnknown(
+          data['skipped_for_review']!,
+          _skippedForReviewMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3228,6 +3384,14 @@ class $QuizSessionItemsTable extends QuizSessionItems
         DriftSqlType.string,
         data['${effectivePrefix}attempt_id'],
       ),
+      pendingEssayResponseJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pending_essay_response_json'],
+      ),
+      skippedForReview: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}skipped_for_review'],
+      )!,
     );
   }
 
@@ -3245,6 +3409,8 @@ class QuizSessionItemRow extends DataClass
   final int position;
   final String questionSnapshotJson;
   final String? attemptId;
+  final String? pendingEssayResponseJson;
+  final bool skippedForReview;
   const QuizSessionItemRow({
     required this.id,
     required this.sessionId,
@@ -3252,6 +3418,8 @@ class QuizSessionItemRow extends DataClass
     required this.position,
     required this.questionSnapshotJson,
     this.attemptId,
+    this.pendingEssayResponseJson,
+    required this.skippedForReview,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3264,6 +3432,12 @@ class QuizSessionItemRow extends DataClass
     if (!nullToAbsent || attemptId != null) {
       map['attempt_id'] = Variable<String>(attemptId);
     }
+    if (!nullToAbsent || pendingEssayResponseJson != null) {
+      map['pending_essay_response_json'] = Variable<String>(
+        pendingEssayResponseJson,
+      );
+    }
+    map['skipped_for_review'] = Variable<bool>(skippedForReview);
     return map;
   }
 
@@ -3277,6 +3451,10 @@ class QuizSessionItemRow extends DataClass
       attemptId: attemptId == null && nullToAbsent
           ? const Value.absent()
           : Value(attemptId),
+      pendingEssayResponseJson: pendingEssayResponseJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pendingEssayResponseJson),
+      skippedForReview: Value(skippedForReview),
     );
   }
 
@@ -3294,6 +3472,10 @@ class QuizSessionItemRow extends DataClass
         json['questionSnapshotJson'],
       ),
       attemptId: serializer.fromJson<String?>(json['attemptId']),
+      pendingEssayResponseJson: serializer.fromJson<String?>(
+        json['pendingEssayResponseJson'],
+      ),
+      skippedForReview: serializer.fromJson<bool>(json['skippedForReview']),
     );
   }
   @override
@@ -3306,6 +3488,10 @@ class QuizSessionItemRow extends DataClass
       'position': serializer.toJson<int>(position),
       'questionSnapshotJson': serializer.toJson<String>(questionSnapshotJson),
       'attemptId': serializer.toJson<String?>(attemptId),
+      'pendingEssayResponseJson': serializer.toJson<String?>(
+        pendingEssayResponseJson,
+      ),
+      'skippedForReview': serializer.toJson<bool>(skippedForReview),
     };
   }
 
@@ -3316,6 +3502,8 @@ class QuizSessionItemRow extends DataClass
     int? position,
     String? questionSnapshotJson,
     Value<String?> attemptId = const Value.absent(),
+    Value<String?> pendingEssayResponseJson = const Value.absent(),
+    bool? skippedForReview,
   }) => QuizSessionItemRow(
     id: id ?? this.id,
     sessionId: sessionId ?? this.sessionId,
@@ -3323,6 +3511,10 @@ class QuizSessionItemRow extends DataClass
     position: position ?? this.position,
     questionSnapshotJson: questionSnapshotJson ?? this.questionSnapshotJson,
     attemptId: attemptId.present ? attemptId.value : this.attemptId,
+    pendingEssayResponseJson: pendingEssayResponseJson.present
+        ? pendingEssayResponseJson.value
+        : this.pendingEssayResponseJson,
+    skippedForReview: skippedForReview ?? this.skippedForReview,
   );
   QuizSessionItemRow copyWithCompanion(QuizSessionItemsCompanion data) {
     return QuizSessionItemRow(
@@ -3336,6 +3528,12 @@ class QuizSessionItemRow extends DataClass
           ? data.questionSnapshotJson.value
           : this.questionSnapshotJson,
       attemptId: data.attemptId.present ? data.attemptId.value : this.attemptId,
+      pendingEssayResponseJson: data.pendingEssayResponseJson.present
+          ? data.pendingEssayResponseJson.value
+          : this.pendingEssayResponseJson,
+      skippedForReview: data.skippedForReview.present
+          ? data.skippedForReview.value
+          : this.skippedForReview,
     );
   }
 
@@ -3347,7 +3545,9 @@ class QuizSessionItemRow extends DataClass
           ..write('questionId: $questionId, ')
           ..write('position: $position, ')
           ..write('questionSnapshotJson: $questionSnapshotJson, ')
-          ..write('attemptId: $attemptId')
+          ..write('attemptId: $attemptId, ')
+          ..write('pendingEssayResponseJson: $pendingEssayResponseJson, ')
+          ..write('skippedForReview: $skippedForReview')
           ..write(')'))
         .toString();
   }
@@ -3360,6 +3560,8 @@ class QuizSessionItemRow extends DataClass
     position,
     questionSnapshotJson,
     attemptId,
+    pendingEssayResponseJson,
+    skippedForReview,
   );
   @override
   bool operator ==(Object other) =>
@@ -3370,7 +3572,9 @@ class QuizSessionItemRow extends DataClass
           other.questionId == this.questionId &&
           other.position == this.position &&
           other.questionSnapshotJson == this.questionSnapshotJson &&
-          other.attemptId == this.attemptId);
+          other.attemptId == this.attemptId &&
+          other.pendingEssayResponseJson == this.pendingEssayResponseJson &&
+          other.skippedForReview == this.skippedForReview);
 }
 
 class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
@@ -3380,6 +3584,8 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
   final Value<int> position;
   final Value<String> questionSnapshotJson;
   final Value<String?> attemptId;
+  final Value<String?> pendingEssayResponseJson;
+  final Value<bool> skippedForReview;
   final Value<int> rowid;
   const QuizSessionItemsCompanion({
     this.id = const Value.absent(),
@@ -3388,6 +3594,8 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
     this.position = const Value.absent(),
     this.questionSnapshotJson = const Value.absent(),
     this.attemptId = const Value.absent(),
+    this.pendingEssayResponseJson = const Value.absent(),
+    this.skippedForReview = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   QuizSessionItemsCompanion.insert({
@@ -3397,6 +3605,8 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
     required int position,
     required String questionSnapshotJson,
     this.attemptId = const Value.absent(),
+    this.pendingEssayResponseJson = const Value.absent(),
+    this.skippedForReview = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        sessionId = Value(sessionId),
@@ -3410,6 +3620,8 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
     Expression<int>? position,
     Expression<String>? questionSnapshotJson,
     Expression<String>? attemptId,
+    Expression<String>? pendingEssayResponseJson,
+    Expression<bool>? skippedForReview,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3420,6 +3632,9 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
       if (questionSnapshotJson != null)
         'question_snapshot_json': questionSnapshotJson,
       if (attemptId != null) 'attempt_id': attemptId,
+      if (pendingEssayResponseJson != null)
+        'pending_essay_response_json': pendingEssayResponseJson,
+      if (skippedForReview != null) 'skipped_for_review': skippedForReview,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3431,6 +3646,8 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
     Value<int>? position,
     Value<String>? questionSnapshotJson,
     Value<String?>? attemptId,
+    Value<String?>? pendingEssayResponseJson,
+    Value<bool>? skippedForReview,
     Value<int>? rowid,
   }) {
     return QuizSessionItemsCompanion(
@@ -3440,6 +3657,9 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
       position: position ?? this.position,
       questionSnapshotJson: questionSnapshotJson ?? this.questionSnapshotJson,
       attemptId: attemptId ?? this.attemptId,
+      pendingEssayResponseJson:
+          pendingEssayResponseJson ?? this.pendingEssayResponseJson,
+      skippedForReview: skippedForReview ?? this.skippedForReview,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3467,6 +3687,14 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
     if (attemptId.present) {
       map['attempt_id'] = Variable<String>(attemptId.value);
     }
+    if (pendingEssayResponseJson.present) {
+      map['pending_essay_response_json'] = Variable<String>(
+        pendingEssayResponseJson.value,
+      );
+    }
+    if (skippedForReview.present) {
+      map['skipped_for_review'] = Variable<bool>(skippedForReview.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3482,6 +3710,8 @@ class QuizSessionItemsCompanion extends UpdateCompanion<QuizSessionItemRow> {
           ..write('position: $position, ')
           ..write('questionSnapshotJson: $questionSnapshotJson, ')
           ..write('attemptId: $attemptId, ')
+          ..write('pendingEssayResponseJson: $pendingEssayResponseJson, ')
+          ..write('skippedForReview: $skippedForReview, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6750,6 +6980,8 @@ typedef $$QuestionsTableCreateCompanionBuilder = QuestionsCompanion Function({
   Value<String?> explanation,
   Value<int?> difficulty,
   Value<String> importance,
+  Value<bool> caseSensitive,
+  Value<bool> whitespaceSensitive,
   required DateTime createdAt,
   required DateTime updatedAt,
   Value<DateTime?> deletedAt,
@@ -6764,6 +6996,8 @@ typedef $$QuestionsTableUpdateCompanionBuilder = QuestionsCompanion Function({
   Value<String?> explanation,
   Value<int?> difficulty,
   Value<String> importance,
+  Value<bool> caseSensitive,
+  Value<bool> whitespaceSensitive,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
@@ -6932,6 +7166,16 @@ class $$QuestionsTableFilterComposer
 
   ColumnFilters<String> get importance => $composableBuilder(
     column: $table.importance,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get caseSensitive => $composableBuilder(
+    column: $table.caseSensitive,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get whitespaceSensitive => $composableBuilder(
+    column: $table.whitespaceSensitive,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7143,6 +7387,16 @@ class $$QuestionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get caseSensitive => $composableBuilder(
+    column: $table.caseSensitive,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get whitespaceSensitive => $composableBuilder(
+    column: $table.whitespaceSensitive,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7215,6 +7469,16 @@ class $$QuestionsTableAnnotationComposer
 
   GeneratedColumn<String> get importance => $composableBuilder(
     column: $table.importance,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get caseSensitive => $composableBuilder(
+    column: $table.caseSensitive,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get whitespaceSensitive => $composableBuilder(
+    column: $table.whitespaceSensitive,
     builder: (column) => column,
   );
 
@@ -7420,6 +7684,8 @@ class $$QuestionsTableTableManager
                 Value<String?> explanation = const Value.absent(),
                 Value<int?> difficulty = const Value.absent(),
                 Value<String> importance = const Value.absent(),
+                Value<bool> caseSensitive = const Value.absent(),
+                Value<bool> whitespaceSensitive = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -7433,6 +7699,8 @@ class $$QuestionsTableTableManager
                 explanation: explanation,
                 difficulty: difficulty,
                 importance: importance,
+                caseSensitive: caseSensitive,
+                whitespaceSensitive: whitespaceSensitive,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
@@ -7448,6 +7716,8 @@ class $$QuestionsTableTableManager
                 Value<String?> explanation = const Value.absent(),
                 Value<int?> difficulty = const Value.absent(),
                 Value<String> importance = const Value.absent(),
+                Value<bool> caseSensitive = const Value.absent(),
+                Value<bool> whitespaceSensitive = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -7461,6 +7731,8 @@ class $$QuestionsTableTableManager
                 explanation: explanation,
                 difficulty: difficulty,
                 importance: importance,
+                caseSensitive: caseSensitive,
+                whitespaceSensitive: whitespaceSensitive,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
@@ -9425,6 +9697,8 @@ typedef $$QuizSessionItemsTableCreateCompanionBuilder =
       required int position,
       required String questionSnapshotJson,
       Value<String?> attemptId,
+      Value<String?> pendingEssayResponseJson,
+      Value<bool> skippedForReview,
       Value<int> rowid,
     });
 typedef $$QuizSessionItemsTableUpdateCompanionBuilder =
@@ -9435,6 +9709,8 @@ typedef $$QuizSessionItemsTableUpdateCompanionBuilder =
       Value<int> position,
       Value<String> questionSnapshotJson,
       Value<String?> attemptId,
+      Value<String?> pendingEssayResponseJson,
+      Value<bool> skippedForReview,
       Value<int> rowid,
     });
 
@@ -9515,6 +9791,16 @@ class $$QuizSessionItemsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get pendingEssayResponseJson => $composableBuilder(
+    column: $table.pendingEssayResponseJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get skippedForReview => $composableBuilder(
+    column: $table.skippedForReview,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$QuizSessionsTableFilterComposer get sessionId {
     final $$QuizSessionsTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -9591,6 +9877,16 @@ class $$QuizSessionItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get pendingEssayResponseJson => $composableBuilder(
+    column: $table.pendingEssayResponseJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get skippedForReview => $composableBuilder(
+    column: $table.skippedForReview,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$QuizSessionsTableOrderingComposer get sessionId {
     final $$QuizSessionsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -9660,6 +9956,16 @@ class $$QuizSessionItemsTableAnnotationComposer
 
   GeneratedColumn<String> get attemptId =>
       $composableBuilder(column: $table.attemptId, builder: (column) => column);
+
+  GeneratedColumn<String> get pendingEssayResponseJson => $composableBuilder(
+    column: $table.pendingEssayResponseJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get skippedForReview => $composableBuilder(
+    column: $table.skippedForReview,
+    builder: (column) => column,
+  );
 
   $$QuizSessionsTableAnnotationComposer get sessionId {
     final $$QuizSessionsTableAnnotationComposer composer = $composerBuilder(
@@ -9744,6 +10050,8 @@ class $$QuizSessionItemsTableTableManager
                 Value<int> position = const Value.absent(),
                 Value<String> questionSnapshotJson = const Value.absent(),
                 Value<String?> attemptId = const Value.absent(),
+                Value<String?> pendingEssayResponseJson = const Value.absent(),
+                Value<bool> skippedForReview = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => QuizSessionItemsCompanion(
                 id: id,
@@ -9752,6 +10060,8 @@ class $$QuizSessionItemsTableTableManager
                 position: position,
                 questionSnapshotJson: questionSnapshotJson,
                 attemptId: attemptId,
+                pendingEssayResponseJson: pendingEssayResponseJson,
+                skippedForReview: skippedForReview,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -9762,6 +10072,8 @@ class $$QuizSessionItemsTableTableManager
                 required int position,
                 required String questionSnapshotJson,
                 Value<String?> attemptId = const Value.absent(),
+                Value<String?> pendingEssayResponseJson = const Value.absent(),
+                Value<bool> skippedForReview = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => QuizSessionItemsCompanion.insert(
                 id: id,
@@ -9770,6 +10082,8 @@ class $$QuizSessionItemsTableTableManager
                 position: position,
                 questionSnapshotJson: questionSnapshotJson,
                 attemptId: attemptId,
+                pendingEssayResponseJson: pendingEssayResponseJson,
+                skippedForReview: skippedForReview,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

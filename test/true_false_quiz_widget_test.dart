@@ -207,6 +207,12 @@ void main() {
     expect(tester.widget<FilledButton>(answer('X')).onPressed, isNull);
     expect(
       tester
+          .widget<IconButton>(find.byKey(const Key('stop-quiz-button')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
           .widget<OutlinedButton>(
             find.byKey(const Key('unknown-answer-button')),
           )

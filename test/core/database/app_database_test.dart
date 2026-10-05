@@ -31,6 +31,14 @@ void main() {
     await current.close();
     final legacy = sqlite.sqlite3.open(file.path);
     legacy.execute('ALTER TABLE questions DROP COLUMN importance');
+    legacy.execute('ALTER TABLE questions DROP COLUMN case_sensitive');
+    legacy.execute('ALTER TABLE questions DROP COLUMN whitespace_sensitive');
+    legacy.execute(
+      'ALTER TABLE quiz_session_items DROP COLUMN pending_essay_response_json',
+    );
+    legacy.execute(
+      'ALTER TABLE quiz_session_items DROP COLUMN skipped_for_review',
+    );
     legacy.execute('PRAGMA user_version = 11');
     legacy.close();
     final upgraded = AppDatabase(NativeDatabase(file));
@@ -42,7 +50,7 @@ void main() {
     expect(
       (await upgraded.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      12,
+      15,
     );
   });
 
@@ -290,6 +298,7 @@ void main() {
     final databaseFile = File('${tempDirectory.path}/migration.sqlite');
 
     final legacyDatabase = sqlite.sqlite3.open(databaseFile.path);
+    _createLegacyQuizItems(legacyDatabase);
     legacyDatabase.execute('''
       CREATE TABLE folders (
         id TEXT NOT NULL PRIMARY KEY,
@@ -575,6 +584,7 @@ void main() {
 }
 
 void _createV4CoreTables(sqlite.Database database) {
+  _createLegacyQuizItems(database);
   database.execute('''
     CREATE TABLE folders (
       id TEXT NOT NULL PRIMARY KEY,
@@ -626,6 +636,19 @@ void _createV4CoreTables(sqlite.Database database) {
       grading_type TEXT NOT NULL,
       duration_ms INTEGER NOT NULL,
       created_at INTEGER NOT NULL
+    )
+  ''');
+}
+
+void _createLegacyQuizItems(sqlite.Database database) {
+  database.execute('''
+    CREATE TABLE quiz_session_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES quiz_sessions(id),
+      question_id TEXT NOT NULL REFERENCES questions(id),
+      position INTEGER NOT NULL,
+      question_snapshot_json TEXT NOT NULL,
+      attempt_id TEXT NULL REFERENCES attempts(id)
     )
   ''');
 }

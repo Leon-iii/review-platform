@@ -63,6 +63,97 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         Assert.Null(record.Error);
     }
 
+    [Fact]
+    public async Task EssayOutputPreservesModelAnswerAndShortAnswerRulesAreExplicit()
+    {
+        var draft = ShortAnswerQuestion() with
+        {
+            Type = "essay", Prompt = "가우스 법칙의 의미를 설명하시오.",
+            AcceptableAnswers = ["폐곡면을 지나는 전기선속은 내부 전하와 비례한다."]
+        };
+        var provider = new FakeLlmProvider([draft]);
+        var result = await new QuestionGenerationService(database, provider).GenerateAsync(
+            new GenerateQuestionsRequest("가우스 법칙은 전기선속과 내부 전하를 연결하는 법칙이다.",
+                1, ["shortAnswer", "essay"], null), TestContext.Current.CancellationToken);
+        var question = Assert.Single(result.Questions);
+        Assert.Equal("essay", question.Type);
+        Assert.Equal(draft.AcceptableAnswers, question.AcceptableAnswers);
+        Assert.Empty(question.Choices);
+        var prompt = QuestionGenerationPrompt.SystemPrompt;
+        Assert.Contains("single word or term", prompt);
+        Assert.Contains("exactly one single word or term", prompt);
+        Assert.Contains("Never ask for multiple distinct words or terms", prompt);
+        Assert.Contains("they are alternatives, not multiple required answers", prompt);
+        Assert.DoesNotContain("only when necessary", prompt);
+        Assert.Contains("Never generate shortAnswer questions answered with yes/no", prompt);
+        Assert.Contains("Do not mislabel a sentence-based written response as shortAnswer", prompt);
+        var schema = QuestionGenerationPrompt.BuildQuestionSchema(provider.LastInput!);
+        var types = schema["properties"]!["questions"]!["items"]!["properties"]!["type"]!["enum"]!.AsArray();
+        Assert.Contains(types, type => type!.GetValue<string>() == "essay");
+        var description = schema["properties"]!["questions"]!["items"]!["properties"]!["acceptableAnswers"]!["description"]!.GetValue<string>();
+        Assert.Contains("exactly one word or term per entry", description);
+        Assert.Contains("Never lists, enumerations, combined answers", description);
+        Assert.DoesNotContain("or lists only", description);
+        Assert.Contains("exactly one single word or term", QuestionGenerationPrompt.ConceptSystemPrompt);
+        Assert.Contains("Never ask for multiple distinct words or terms", QuestionGenerationPrompt.ConceptSystemPrompt);
+        foreach (var instructions in new[] { prompt, QuestionGenerationPrompt.ConceptSystemPrompt })
+        {
+            Assert.Contains("as broadly as correctness allows", instructions);
+            Assert.Contains("Put the canonical answer first", instructions);
+            Assert.Contains("common abbreviations and their expanded forms", instructions);
+            Assert.Contains("Korean and English equivalents", instructions);
+            Assert.Contains("Do not stop after a single canonical form", instructions);
+            Assert.Contains("overly broad or partial answers, ambiguous abbreviations, invented synonyms", instructions);
+            Assert.Contains("default grader already ignores case and whitespace", instructions);
+        }
+        Assert.Contains("as many unambiguously valid synonyms", description);
+        Assert.Contains("Never add incorrect, partial, overly broad, or ambiguous answers", description);
+    }
+
+    [Fact]
+    public async Task ShortAnswerPreservesEquivalentTermsTranslationsAndAbbreviations()
+    {
+        string[] aliases = ["전송 제어 프로토콜", "TCP", "Transmission Control Protocol", "트랜스미션 컨트롤 프로토콜"];
+        var draft = ShortAnswerQuestion() with
+        {
+            Prompt = "연결 지향적으로 데이터를 신뢰성 있게 전달하는 전송 계층 프로토콜은?",
+            AcceptableAnswers = aliases
+        };
+        var provider = new FakeLlmProvider([draft]);
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            new GenerateQuestionsRequest("TCP는 연결 지향적으로 데이터를 신뢰성 있게 전달하는 전송 계층 프로토콜이다.",
+                1, ["shortAnswer"], null), TestContext.Current.CancellationToken);
+        Assert.Equal(aliases, Assert.Single(response.Questions).AcceptableAnswers);
+        Assert.Equal(QuestionGenerationService.PromptVersion, response.Metadata.PromptVersion);
+    }
+
+    [Theory]
+    [InlineData("예")]
+    [InlineData("아니오")]
+    [InlineData("Yes.")]
+    [InlineData(" no ")]
+    public async Task BinaryShortAnswersAreRejected(string answer)
+    {
+        var provider = new FakeLlmProvider([ShortAnswerQuestion() with { AcceptableAnswers = [answer] }]);
+        await Assert.ThrowsAsync<LlmOutputValidationException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(
+                new GenerateQuestionsRequest("이 법칙은 폐곡면의 전기선속과 전하를 연결한다.",
+                    1, ["shortAnswer"], null), TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("가우스 법칙")]
+    [InlineData("HTTP, FTP, SMTP")]
+    [InlineData("O")]
+    public async Task TermsAndCompleteTermListsAreAccepted(string answer)
+    {
+        var provider = new FakeLlmProvider([ShortAnswerQuestion() with { AcceptableAnswers = [answer] }]);
+        var result = await new QuestionGenerationService(database, provider).GenerateAsync(
+            new GenerateQuestionsRequest("단답형에서 복합 용어나 필요한 용어 목록을 허용한다.",
+                1, ["shortAnswer"], null), TestContext.Current.CancellationToken);
+        Assert.Equal(answer, Assert.Single(result.Questions).AcceptableAnswers.Single());
+    }
+
     [Theory]
     [InlineData("manual", 1, 5, 3)]
     [InlineData("manual", 4, 5, 1)]

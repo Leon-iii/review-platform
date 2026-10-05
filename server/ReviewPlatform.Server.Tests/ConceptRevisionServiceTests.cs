@@ -8,6 +8,28 @@ namespace ReviewPlatform.Server.Tests;
 
 public sealed class ConceptRevisionServiceTests
 {
+    [Fact]
+    public async Task Revise_IntegratedTerminologyReturnsRewrittenContentWithoutAppendingOriginal()
+    {
+        const string original = "객체가 캐시에 있으면 캐시가 반환하고, 없으면 원본 서버에서 받아 저장한 뒤 전달한다. 캐시는 응답 시간을 줄인다.";
+        const string revised = "캐시에 객체가 있는 캐시 히트(cache hit)에는 캐시가 객체를 반환한다. 객체가 없는 캐시 미스(cache miss)에는 원본 서버에서 받아 저장한 뒤 전달한다. 캐시는 응답 시간을 줄인다.";
+        var provider = new FakeProvider(_ =>
+            [new GeneratedConceptRevision("cache", "웹 캐시", revised, [1], "medium")]);
+        var request = new ReviseConceptsRequest(
+            "source", "자료.pdf", 1, "캐시 히트와 캐시 미스에 대한 내용도 포함시켜 줘.", ["cache"],
+            [new ConceptRevisionContext("cache", "웹 캐시", original, [1], "approved", "medium")]);
+
+        var response = await CreateService(provider).ReviseAsync(request, TestContext.Current.CancellationToken);
+
+        var revision = Assert.Single(response.Revisions);
+        Assert.Equal(revised, revision.Content);
+        Assert.Equal("웹 캐시", revision.Title);
+        Assert.Equal([1], revision.PageNumbers);
+        Assert.Equal("medium", revision.Importance);
+        Assert.Equal(original, provider.LastInput!.Concepts.Single().Content);
+        Assert.Equal(ConceptRevisionPrompt.Version, provider.LastInput.PromptVersion);
+    }
+
     [Theory]
     [InlineData("veryLow", "veryLow")]
     [InlineData("low", "low")]

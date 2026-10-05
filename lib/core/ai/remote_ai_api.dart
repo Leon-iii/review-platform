@@ -10,6 +10,7 @@ abstract interface class RemoteAiApi {
   Future<AiQuestionGenerationResult> generateQuestions({
     required SyncConfiguration configuration,
     required AiQuestionGenerationRequest request,
+    void Function(AiGenerationProgress)? onProgress,
   });
 }
 
@@ -22,7 +23,11 @@ class HttpRemoteAiApi implements RemoteAiApi {
   Future<AiQuestionGenerationResult> generateQuestions({
     required SyncConfiguration configuration,
     required AiQuestionGenerationRequest request,
+    void Function(AiGenerationProgress)? onProgress,
   }) async {
+    if (request.concepts.isNotEmpty) {
+      return _generateStream(configuration, request, onProgress);
+    }
     http.Response response;
     try {
       response = await _client
@@ -42,7 +47,72 @@ class HttpRemoteAiApi implements RemoteAiApi {
       );
     }
 
-    final decoded = _decode(response);
+    return _result(_decode(response));
+  }
+
+  Future<AiQuestionGenerationResult> _generateStream(
+    SyncConfiguration configuration,
+    AiQuestionGenerationRequest request,
+    void Function(AiGenerationProgress)? onProgress,
+  ) async {
+    try {
+      final outgoing =
+          http.Request(
+              'POST',
+              Uri.parse('${_endpoint(configuration.serverUrl)}/stream'),
+            )
+            ..headers.addAll({
+              'content-type': 'application/json; charset=utf-8',
+              'x-sync-token': configuration.accessToken,
+            })
+            ..body = jsonEncode(request.toJson());
+      final response = await _client
+          .send(outgoing)
+          .timeout(const Duration(seconds: 100));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _decode(await http.Response.fromStream(response));
+      }
+      await for (final line
+          in response.stream
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())
+              // Per-event inactivity, not the overall job duration. Ollama's
+              // server-side per-request timeout is ten minutes.
+              .timeout(const Duration(minutes: 12))) {
+        if (line.trim().isEmpty) continue;
+        final event = Map<String, Object?>.from(jsonDecode(line) as Map);
+        if (event['type'] == 'error') {
+          throw NetworkFailure(event['error'] as String? ?? 'AI 문제 생성에 실패했어요.');
+        }
+        if (event['type'] == 'complete') {
+          return _result(Map<String, Object?>.from(event['result'] as Map));
+        }
+        if (event['type'] == 'progress') {
+          final progress = event['progress'] as Map;
+          onProgress?.call(
+            AiGenerationProgress(
+              completedConcepts: (progress['completedConcepts'] as num).toInt(),
+              totalConcepts: (progress['totalConcepts'] as num).toInt(),
+              generatedQuestions: (progress['generatedQuestions'] as num)
+                  .toInt(),
+              conceptTitle: progress['conceptTitle'] as String?,
+              failedConcepts: (progress['failedConcepts'] as num).toInt(),
+            ),
+          );
+        }
+      }
+      throw const NetworkFailure('문제 생성 서버와의 연결이 완료 전에 끊어졌어요.');
+    } on AppFailure {
+      rethrow;
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        NetworkFailure('AI 문제 생성 진행 정보를 받지 못했어요.', cause: error),
+        stackTrace,
+      );
+    }
+  }
+
+  AiQuestionGenerationResult _result(Map<String, Object?> decoded) {
     try {
       final metadata = Map<String, Object?>.from(decoded['metadata']! as Map);
       final questions = decoded['questions']! as List;
@@ -61,6 +131,14 @@ class HttpRemoteAiApi implements RemoteAiApi {
           for (final raw in questions)
             _question(Map<String, Object?>.from(raw as Map)),
         ],
+        failures: [
+          for (final raw in decoded['failures'] as List? ?? const [])
+            AiConceptGenerationFailure(
+              conceptId: (raw as Map)['conceptId'] as String,
+              title: raw['title'] as String,
+              error: raw['error'] as String,
+            ),
+        ],
       );
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
@@ -75,9 +153,6 @@ class HttpRemoteAiApi implements RemoteAiApi {
       throw const FormatException('Generated question is not a draft.');
     }
     final type = QuestionType.fromStorage(json['type']! as String);
-    if (type == QuestionType.essay) {
-      throw const FormatException('Essay generation is not supported.');
-    }
     return AiGeneratedQuestion(
       type: type,
       prompt: json['prompt']! as String,

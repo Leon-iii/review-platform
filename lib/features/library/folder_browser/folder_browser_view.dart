@@ -208,78 +208,83 @@ class _FolderList extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 840),
-        child: CustomScrollView(
-          slivers: [
-            if (state.visibleFolders.isNotEmpty) ...[
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                sliver: SliverToBoxAdapter(
+        // The question list is already eager. Avoid RenderViewport's synthetic
+        // two-pane semantics ancestor around its filter/menu tooltips: opening
+        // their overlays can leave dangling Windows AXTree children (#182444).
+        // Keep tooltip labels, scrolling and screen-reader actions intact.
+        child: SingleChildScrollView(
+          key: const Key('folder-browser-scroll-view'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (state.visibleFolders.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                   child: Text(
                     '폴더',
                     style: Theme.of(context).textTheme.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final node = state.visibleFolders[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.folder_rounded),
-                          title: Text(node.folder.name),
-                          subtitle: Text(
-                            '하위 폴더 ${node.children.length}개, '
-                            '문제 ${node.questionCount}개, '
-                            '자료 ${node.sourceCount}개',
-                          ),
-                          onTap: () => onOpen(node.folder),
-                          trailing: PopupMenuButton<_FolderAction>(
-                            tooltip: '폴더 메뉴',
-                            onSelected: (action) {
-                              switch (action) {
-                                case _FolderAction.rename:
-                                  onRename(node.folder);
-                                case _FolderAction.move:
-                                  onMove(node.folder);
-                                case _FolderAction.delete:
-                                  onDelete(node.folder);
-                              }
-                            },
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(
-                                value: _FolderAction.rename,
-                                child: Text('이름 변경'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final node in state.visibleFolders)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.folder_rounded),
+                              title: Text(node.folder.name),
+                              subtitle: Text(
+                                '하위 폴더 ${node.children.length}개, '
+                                '문제 ${node.questionCount}개, '
+                                '자료 ${node.sourceCount}개',
                               ),
-                              PopupMenuItem(
-                                value: _FolderAction.move,
-                                child: Text('이동'),
+                              onTap: () => onOpen(node.folder),
+                              trailing: PopupMenuButton<_FolderAction>(
+                                tooltip: '폴더 메뉴',
+                                onSelected: (action) {
+                                  switch (action) {
+                                    case _FolderAction.rename:
+                                      onRename(node.folder);
+                                    case _FolderAction.move:
+                                      onMove(node.folder);
+                                    case _FolderAction.delete:
+                                      onDelete(node.folder);
+                                  }
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem(
+                                    value: _FolderAction.rename,
+                                    child: Text('이름 변경'),
+                                  ),
+                                  PopupMenuItem(
+                                    value: _FolderAction.move,
+                                    child: Text('이동'),
+                                  ),
+                                  PopupMenuItem(
+                                    value: _FolderAction.delete,
+                                    child: Text('삭제'),
+                                  ),
+                                ],
                               ),
-                              PopupMenuItem(
-                                value: _FolderAction.delete,
-                                child: Text('삭제'),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  }, childCount: state.visibleFolders.length),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-            if (state.currentFolder != null)
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                sliver: SliverToBoxAdapter(
+              ],
+              if (state.currentFolder != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: QuestionListView(folderId: state.currentFolder!.id),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

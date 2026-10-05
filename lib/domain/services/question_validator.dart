@@ -1,6 +1,7 @@
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
+import 'package:review_platform/domain/services/answer_grader.dart';
 
 abstract final class QuestionValidator {
   static QuestionDraft validate(QuestionDraft draft) {
@@ -25,14 +26,8 @@ abstract final class QuestionValidator {
         explanation,
       ),
       QuestionType.trueFalse => _validateTrueFalse(draft, prompt, explanation),
-      QuestionType.shortAnswer => _validateShortAnswer(
-        draft,
-        prompt,
-        explanation,
-      ),
-      QuestionType.essay => throw const ValidationFailure(
-        '서술형 문제는 현재 단계에서 지원하지 않아요.',
-      ),
+      QuestionType.shortAnswer ||
+      QuestionType.essay => _validateShortAnswer(draft, prompt, explanation),
     };
   }
 
@@ -74,6 +69,8 @@ abstract final class QuestionValidator {
       explanation: _nullIfEmpty(explanation),
       difficulty: draft.difficulty,
       importance: draft.importance,
+      caseSensitive: draft.caseSensitive,
+      whitespaceSensitive: draft.whitespaceSensitive,
     );
   }
 
@@ -109,6 +106,8 @@ abstract final class QuestionValidator {
       explanation: _nullIfEmpty(explanation),
       difficulty: draft.difficulty,
       importance: draft.importance,
+      caseSensitive: draft.caseSensitive,
+      whitespaceSensitive: draft.whitespaceSensitive,
     );
   }
 
@@ -121,13 +120,24 @@ abstract final class QuestionValidator {
     final acceptableAnswers = <String>[];
     for (final answer in draft.acceptableAnswers) {
       final trimmed = answer.trim();
-      if (trimmed.isNotEmpty && seen.add(trimmed.toLowerCase())) {
+      final normalized = draft.type == QuestionType.shortAnswer
+          ? AnswerGrader.normalize(
+              trimmed,
+              caseSensitive: draft.caseSensitive,
+              whitespaceSensitive: draft.whitespaceSensitive,
+            )
+          : trimmed.toLowerCase();
+      if (trimmed.isNotEmpty && seen.add(normalized)) {
         acceptableAnswers.add(trimmed);
       }
     }
 
     if (acceptableAnswers.isEmpty) {
-      throw const ValidationFailure('허용 정답을 하나 이상 입력해 주세요.');
+      throw ValidationFailure(
+        draft.type == QuestionType.essay
+            ? '모범 답안을 하나 이상 입력해 주세요.'
+            : '허용 정답을 하나 이상 입력해 주세요.',
+      );
     }
 
     return QuestionDraft(
@@ -139,6 +149,8 @@ abstract final class QuestionValidator {
       explanation: _nullIfEmpty(explanation),
       difficulty: draft.difficulty,
       importance: draft.importance,
+      caseSensitive: draft.caseSensitive,
+      whitespaceSensitive: draft.whitespaceSensitive,
     );
   }
 

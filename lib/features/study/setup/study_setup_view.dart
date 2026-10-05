@@ -36,6 +36,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
     QuestionType.multipleChoice,
     QuestionType.trueFalse,
     QuestionType.shortAnswer,
+    QuestionType.essay,
   };
   int _questionCount = 10;
   bool _shuffle = true;
@@ -108,6 +109,18 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                             runSpacing: 8,
                             children: [
                               FilterChip(
+                                key: const Key('true-false-filter'),
+                                label: const Text('O/X'),
+                                avatar: const Icon(Icons.rule_rounded),
+                                selected: _types.contains(
+                                  QuestionType.trueFalse,
+                                ),
+                                onSelected: (selected) => _toggleType(
+                                  QuestionType.trueFalse,
+                                  selected,
+                                ),
+                              ),
+                              FilterChip(
                                 key: const Key('multiple-choice-filter'),
                                 label: const Text('객관식'),
                                 avatar: const Icon(Icons.list_alt_rounded),
@@ -132,16 +145,12 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                                 ),
                               ),
                               FilterChip(
-                                key: const Key('true-false-filter'),
-                                label: const Text('O/X'),
-                                avatar: const Icon(Icons.rule_rounded),
-                                selected: _types.contains(
-                                  QuestionType.trueFalse,
-                                ),
-                                onSelected: (selected) => _toggleType(
-                                  QuestionType.trueFalse,
-                                  selected,
-                                ),
+                                key: const Key('essay-filter'),
+                                label: const Text('서술형'),
+                                avatar: const Icon(Icons.notes_rounded),
+                                selected: _types.contains(QuestionType.essay),
+                                onSelected: (selected) =>
+                                    _toggleType(QuestionType.essay, selected),
                               ),
                             ],
                           ),

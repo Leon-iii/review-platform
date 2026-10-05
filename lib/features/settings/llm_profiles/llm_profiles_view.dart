@@ -824,7 +824,8 @@ class _ProfileCard extends StatelessWidget {
                   labelText: '요청 1회당 문제 생성 상한',
                   suffixText: '개',
                   border: OutlineInputBorder(),
-                  helperText: '자동 생성의 최대 개수입니다. 수동 요청도 이 상한을 초과할 수 없습니다.',
+                  helperText:
+                      '개념 기반 생성은 개념 하나의 요청에 적용합니다. 자유 텍스트 생성은 전체 응답에 적용합니다.',
                   helperMaxLines: 3,
                 ),
                 validator: (value) => _validQuestionLimit(value ?? '')

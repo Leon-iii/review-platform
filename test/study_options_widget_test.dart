@@ -73,6 +73,14 @@ void main() {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
     await tapVisible(tester, find.byKey(const Key('start-study-button')));
+    final typeFilters = tester.widgetList<FilterChip>(find.byType(FilterChip));
+    expect(typeFilters.map((chip) => (chip.label as Text).data).toList(), [
+      'O/X',
+      '객관식',
+      '단답형',
+      '서술형',
+    ]);
+    expect(typeFilters.every((chip) => chip.selected), isTrue);
     final toggle = find.byKey(const Key('important-concepts-switch'));
     expect(tester.widget<SwitchListTile>(toggle).value, true);
     await tapVisible(tester, toggle);

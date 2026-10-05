@@ -15,65 +15,67 @@ void main() {
     accessToken: 'private-token',
   );
 
-  test('목표 난이도를 전송하되 범위 밖 AI 평가도 덮어쓰지 않고 파싱한다', () async {
-    late http.Request captured;
-    final api = HttpRemoteAiApi(
-      MockClient((request) async {
-        captured = request;
-        return http.Response(
-          jsonEncode({
-            'metadata': {
-              'generationId': 'generation-1',
-              'provider': 'openai',
-              'model': 'test-model',
-              'promptVersion': 'question-generation-v1',
-              'requestedAt': '2026-09-17T00:00:00Z',
-              'inputHash': List.filled(64, 'a').join(),
-              'sourceLabel': '전자기학',
-            },
-            'questions': [
-              {
-                'type': 'shortAnswer',
-                'status': 'draft',
-                'prompt': '가우스 법칙이란?',
-                'choices': [],
-                'acceptableAnswers': ['폐곡면의 선속과 내부 전하의 관계'],
-                'explanation': '정의 확인 문제',
-                'difficulty': 2,
-                'sourceIds': [],
-                'primaryConceptId': 'concept-1',
+  for (final type in [QuestionType.shortAnswer, QuestionType.essay]) {
+    test('${type.name}: 목표 난이도를 전송하되 범위 밖 AI 평가도 덮어쓰지 않고 파싱한다', () async {
+      late http.Request captured;
+      final api = HttpRemoteAiApi(
+        MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode({
+              'metadata': {
+                'generationId': 'generation-1',
+                'provider': 'openai',
+                'model': 'test-model',
+                'promptVersion': 'question-generation-v1',
+                'requestedAt': '2026-09-17T00:00:00Z',
+                'inputHash': List.filled(64, 'a').join(),
+                'sourceLabel': '전자기학',
               },
-            ],
-          }),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        );
-      }),
-    );
+              'questions': [
+                {
+                  'type': type.name,
+                  'status': 'draft',
+                  'prompt': '가우스 법칙이란?',
+                  'choices': [],
+                  'acceptableAnswers': ['폐곡면의 선속과 내부 전하의 관계'],
+                  'explanation': '정의 확인 문제',
+                  'difficulty': 2,
+                  'sourceIds': [],
+                  'primaryConceptId': 'concept-1',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
 
-    final result = await api.generateQuestions(
-      configuration: configuration,
-      request: const AiQuestionGenerationRequest(
-        sourceText: '가우스 법칙에 관한 충분히 긴 학습 내용',
-        questionCount: 1,
-        questionTypes: {QuestionType.shortAnswer},
-        sourceLabel: '전자기학',
-        minimumDifficulty: 4,
-        maximumDifficulty: 5,
-      ),
-    );
+      final result = await api.generateQuestions(
+        configuration: configuration,
+        request: AiQuestionGenerationRequest(
+          sourceText: '가우스 법칙에 관한 충분히 긴 학습 내용',
+          questionCount: 1,
+          questionTypes: {type},
+          sourceLabel: '전자기학',
+          minimumDifficulty: 4,
+          maximumDifficulty: 5,
+        ),
+      );
 
-    expect(captured.url.path, '/api/ai/questions/generate');
-    expect(captured.headers['x-sync-token'], 'private-token');
-    expect(jsonDecode(captured.body)['questionTypes'], ['shortAnswer']);
-    expect(jsonDecode(captured.body)['minimumDifficulty'], 4);
-    expect(jsonDecode(captured.body)['maximumDifficulty'], 5);
-    expect(result.metadata.provider, 'openai');
-    expect(result.questions.single.type, QuestionType.shortAnswer);
-    expect(result.questions.single.acceptableAnswers, hasLength(1));
-    expect(result.questions.single.difficulty, 2);
-    expect(result.questions.single.primaryConceptId, 'concept-1');
-  });
+      expect(captured.url.path, '/api/ai/questions/generate');
+      expect(captured.headers['x-sync-token'], 'private-token');
+      expect(jsonDecode(captured.body)['questionTypes'], [type.name]);
+      expect(jsonDecode(captured.body)['minimumDifficulty'], 4);
+      expect(jsonDecode(captured.body)['maximumDifficulty'], 5);
+      expect(result.metadata.provider, 'openai');
+      expect(result.questions.single.type, type);
+      expect(result.questions.single.acceptableAnswers, hasLength(1));
+      expect(result.questions.single.difficulty, 2);
+      expect(result.questions.single.primaryConceptId, 'concept-1');
+    });
+  }
 
   test('서버의 안전한 오류 메시지를 사용자에게 전달한다', () async {
     final api = HttpRemoteAiApi(

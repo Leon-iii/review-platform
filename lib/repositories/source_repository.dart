@@ -45,6 +45,11 @@ abstract interface class SourceRepository {
 
   Future<void> setConceptApproval({required String id, required bool approved});
 
+  Future<void> setConceptImportance({
+    required String id,
+    required ConceptImportance importance,
+  });
+
   Future<void> updateConcept({
     required String id,
     required String title,
@@ -387,6 +392,34 @@ class DriftSourceRepository implements SourceRepository {
     required String id,
     required bool approved,
   }) => _setStatus(id, approved ? ConceptStatus.approved : ConceptStatus.held);
+
+  @override
+  Future<void> setConceptImportance({
+    required String id,
+    required ConceptImportance importance,
+  }) {
+    return _guard(
+      () => _database.transaction(() async {
+        final existing = await _requireConcept(id);
+        if (existing.importance == importance.name) return;
+        final now = DateTime.now().toUtc();
+        await _database.sourceDao.updateConcept(
+          id,
+          ConceptsCompanion(
+            importance: Value(importance.name),
+            updatedAt: Value(now),
+          ),
+        );
+        await _database.syncDao.enqueue(
+          entityType: SyncEntityType.concept.name,
+          entityId: id,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      }),
+      '중요도를 저장하지 못했어요.',
+    );
+  }
 
   @override
   Future<void> updateConcept({

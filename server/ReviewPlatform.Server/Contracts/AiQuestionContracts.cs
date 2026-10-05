@@ -41,4 +41,11 @@ public sealed record QuestionGenerationMetadata(
 
 public sealed record GenerateQuestionsResponse(
     QuestionGenerationMetadata Metadata,
-    IReadOnlyList<GeneratedQuestionDraft> Questions);
+    IReadOnlyList<GeneratedQuestionDraft> Questions,
+    IReadOnlyList<QuestionGenerationFailure>? Failures = null);
+
+public sealed record QuestionGenerationFailure(string ConceptId, string Title, string Error);
+
+public sealed record QuestionGenerationProgress(
+    int CompletedConcepts, int TotalConcepts, int GeneratedQuestions,
+    string? ConceptTitle, int FailedConcepts);

@@ -1,8 +1,10 @@
 import 'dart:math';
 
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/core/database/app_database.dart';
+import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/enums/grading_type.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
@@ -86,6 +88,139 @@ void main() {
     expect(question.difficulty, 3);
   });
 
+  test('수동 문제의 주개념은 다른 폴더에서도 선택하고 실제 출처와 중요도를 저장한다', () async {
+    final otherFolder = await folders.createFolder(name: '다른 폴더');
+    final otherSource = (await sources.createSource(
+      folderId: otherFolder,
+      name: '원본 자료',
+    )).source;
+    final concept = await sources.addConcept(
+      sourceId: otherSource.id,
+      title: '아직 검토 전 개념',
+      content: '내용',
+      reviewed: false,
+      importance: ConceptImportance.high,
+    );
+    await db.sourceDao.updateConcept(
+      concept.id,
+      const ConceptsCompanion(pageNumbersJson: Value('[4,2,4]')),
+    );
+    final id = await questions.createQuestion(
+      draft('직접 작성', importance: ConceptImportance.veryLow),
+      primaryConceptId: concept.id,
+    );
+    final question = (await questions.getQuestion(id))!;
+    expect(question.folderId, folder);
+    expect(question.primaryConceptId, concept.id);
+    expect(question.importance, ConceptImportance.high);
+    expect(question.sourceReferences.single.sourceId, otherSource.id);
+    expect(question.sourceReferences.single.pageNumbers, [2, 4]);
+    expect(question.sourceReferences.single.conceptTitle, concept.title);
+    expect(question.difficulty, 3);
+  });
+
+  test('기존 문제의 주개념 지정·교체·해제와 일반 수정은 출처 및 중요도를 보존한다', () async {
+    final first = await sources.addConcept(
+      sourceId: source.id,
+      title: '첫 개념',
+      content: '내용',
+      importance: ConceptImportance.high,
+    );
+    final secondSource = (await sources.createSource(
+      folderId: folder,
+      name: '두 번째 자료',
+    )).source;
+    final second = await sources.addConcept(
+      sourceId: secondSource.id,
+      title: '둘째 개념',
+      content: '내용',
+      importance: ConceptImportance.veryLow,
+    );
+    final id = await questions.createQuestion(draft('직접 문제'));
+    await questions.updateQuestion(
+      id,
+      draft('연결'),
+      primaryConceptId: first.id,
+      replacePrimaryConcept: true,
+    );
+    await questions.updateQuestion(id, draft('문제 내용만 변경'));
+    expect((await questions.getQuestion(id))!.primaryConceptId, first.id);
+    expect(
+      (await questions.getQuestion(id))!.importance,
+      ConceptImportance.high,
+    );
+    await questions.updateQuestion(
+      id,
+      draft('교체'),
+      primaryConceptId: second.id,
+      replacePrimaryConcept: true,
+    );
+    final replaced = (await questions.getQuestion(id))!;
+    expect(replaced.sourceReferences, hasLength(1));
+    expect(replaced.primaryConceptId, second.id);
+    expect(replaced.sourceReferences.single.sourceId, secondSource.id);
+    expect(replaced.importance, ConceptImportance.veryLow);
+    await sources.updateConcept(
+      id: second.id,
+      title: second.title,
+      content: second.content,
+      importance: ConceptImportance.veryHigh,
+    );
+    await questions.updateQuestion(
+      id,
+      draft('해제'),
+      replacePrimaryConcept: true,
+    );
+    final detached = (await questions.getQuestion(id))!;
+    expect(detached.primaryConceptId, null);
+    expect(detached.sourceReferences.single.sourceId, secondSource.id);
+    expect(detached.importance, ConceptImportance.veryHigh);
+    await questions.updateQuestion(
+      id,
+      draft('해제 후 직접 편집'),
+      replacePrimaryConcept: true,
+      detachedImportance: ConceptImportance.low,
+    );
+    expect(
+      (await questions.getQuestion(id))!.importance,
+      ConceptImportance.low,
+    );
+  });
+
+  test('삭제된 주개념으로 저장하면 문제·정답·출처·동기화 변경 전체를 취소한다', () async {
+    final concept = await sources.addConcept(
+      sourceId: source.id,
+      title: '삭제될 개념',
+      content: '내용',
+    );
+    await sources.deleteConcept(concept.id);
+    final id = await questions.createQuestion(draft('기존 문제'));
+    final pending = await db.syncDao.getPendingCount();
+    final before = (await questions.getQuestion(id))!;
+    await expectLater(
+      questions.createQuestion(draft('실패할 생성'), primaryConceptId: concept.id),
+      throwsA(isA<ValidationFailure>()),
+    );
+    await expectLater(
+      questions.updateQuestion(
+        id,
+        draft('실패할 수정'),
+        primaryConceptId: concept.id,
+        replacePrimaryConcept: true,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    final after = (await questions.getQuestion(id))!;
+    expect(after.prompt, before.prompt);
+    expect(
+      after.acceptableAnswers.single.id,
+      before.acceptableAnswers.single.id,
+    );
+    expect(after.sourceReferences, isEmpty);
+    expect(await questions.watchQuestions(folder).first, hasLength(1));
+    expect(await db.syncDao.getPendingCount(), pending);
+  });
+
   for (final deleteSource in [false, true]) {
     test(
       '개념 중요도를 실시간 상속하고 ${deleteSource ? '자료' : '개념'} 삭제 후 마지막 값을 유지한다',
@@ -145,7 +280,10 @@ void main() {
       content: '내용',
       importance: ConceptImportance.high,
     );
-    final id = await fromConcept(concept, '연결 문제');
+    final id = await questions.createQuestion(
+      draft('직접 연결한 문제'),
+      primaryConceptId: concept.id,
+    );
     final payloads = await DriftSyncRepository(db).buildPushBatch();
     final target = AppDatabase(NativeDatabase.memory());
     addTearDown(target.close);

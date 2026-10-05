@@ -55,7 +55,8 @@ public sealed record QuestionGenerationInput(
     int MaximumDifficulty = 5,
     int MaximumQuestionsPerRequest = 120,
     IReadOnlyList<QuestionConceptPlan>? ConceptPlans = null,
-    bool ReflectConceptImportance = false)
+    bool ReflectConceptImportance = false,
+    bool BindConceptOnServer = false)
 {
     public int? PlannedQuestionCount => ConceptPlans is { Count: > 0 }
         ? ConceptPlans.Sum(plan => plan.QuestionCount) : null;
@@ -82,7 +83,8 @@ public sealed record QuestionGenerationInput(
         : QuestionCount);
 }
 
-public sealed record QuestionConceptPlan(QuestionGenerationConcept Concept, int QuestionCount);
+public sealed record QuestionConceptPlan(QuestionGenerationConcept Concept, int QuestionCount,
+    IReadOnlyList<int>? TargetDifficulties = null);
 
 public sealed class LlmProviderUnavailableException(
     string message,

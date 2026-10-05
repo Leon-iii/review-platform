@@ -9,6 +9,7 @@ import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/domain/models/sync_status.dart';
+import 'package:review_platform/domain/models/question_answer_format.dart';
 
 abstract interface class SyncRepository {
   Stream<SyncStatus> watchStatus();
@@ -193,11 +194,14 @@ class DriftSyncRepository implements SyncRepository {
                   'id': row!.id,
                   'folderId': row.folderId,
                   'type': row.type,
+                  'answerFormatVersion': QuestionAnswerFormat.version,
                   'status': row.status,
                   'prompt': row.prompt,
                   'explanation': row.explanation,
                   'difficulty': row.difficulty,
                   'importance': row.importance,
+                  'caseSensitive': row.caseSensitive,
+                  'whitespaceSensitive': row.whitespaceSensitive,
                   'createdAt': row.createdAt.toUtc().toIso8601String(),
                   'updatedAt': row.updatedAt.toUtc().toIso8601String(),
                   'deletedAt': null,
@@ -308,6 +312,11 @@ class DriftSyncRepository implements SyncRepository {
                           item.questionSnapshotJson,
                         ),
                         'attemptId': item.attemptId,
+                        'skippedForReview': item.skippedForReview,
+                        'pendingEssayResponse':
+                            item.pendingEssayResponseJson == null
+                            ? null
+                            : jsonDecode(item.pendingEssayResponseJson!),
                       },
                   ],
                 },
@@ -392,11 +401,15 @@ class DriftSyncRepository implements SyncRepository {
           QuestionsCompanion.insert(
             id: change.entityId,
             folderId: payload['folderId']! as String,
-            type: payload['type']! as String,
+            type: QuestionAnswerFormat.syncedType(payload),
             status: payload['status']! as String,
             prompt: payload['prompt']! as String,
             explanation: Value(payload['explanation'] as String?),
             difficulty: Value((payload['difficulty'] as num?)?.toInt()),
+            caseSensitive: Value(payload['caseSensitive'] as bool? ?? false),
+            whitespaceSensitive: Value(
+              payload['whitespaceSensitive'] as bool? ?? false,
+            ),
             importance: Value(
               ConceptImportance.fromStorage(payload['importance'] as String?)
                   .name,
@@ -536,8 +549,24 @@ class DriftSyncRepository implements SyncRepository {
               sessionId: change.entityId,
               questionId: raw['questionId']! as String,
               position: (raw['position']! as num).toInt(),
-              questionSnapshotJson: jsonEncode(raw['questionSnapshot']),
+              questionSnapshotJson: jsonEncode(
+                raw['attemptId'] == null && payload['finishedAt'] == null
+                    ? QuestionAnswerFormat.pendingSnapshot(
+                        Map<String, Object?>.from(
+                          raw['questionSnapshot'] as Map,
+                        ),
+                      )
+                    : raw['questionSnapshot'],
+              ),
               attemptId: Value(raw['attemptId'] as String?),
+              skippedForReview: Value(
+                raw['skippedForReview'] as bool? ?? false,
+              ),
+              pendingEssayResponseJson: Value(
+                raw['pendingEssayResponse'] == null
+                    ? null
+                    : jsonEncode(raw['pendingEssayResponse']),
+              ),
             ),
         ]);
       case SyncEntityType.attempt:

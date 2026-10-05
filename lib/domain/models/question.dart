@@ -19,6 +19,8 @@ class Question {
     this.deletedAt,
     this.sourceReferences = const [],
     this.importance = ConceptImportance.medium,
+    this.caseSensitive = false,
+    this.whitespaceSensitive = false,
   });
 
   final String id;
@@ -35,6 +37,8 @@ class Question {
   final DateTime? deletedAt;
   final List<QuestionSourceReference> sourceReferences;
   final ConceptImportance importance;
+  final bool caseSensitive;
+  final bool whitespaceSensitive;
   String? get primaryConceptId => sourceReferences
       .where((reference) => reference.conceptId != null)
       .firstOrNull
@@ -74,6 +78,8 @@ class QuestionDraft {
     this.difficulty = 3,
     this.status = QuestionStatus.approved,
     this.importance = ConceptImportance.medium,
+    this.caseSensitive = false,
+    this.whitespaceSensitive = false,
   });
 
   final String folderId;
@@ -85,6 +91,8 @@ class QuestionDraft {
   final List<QuestionChoiceDraft> choices;
   final List<String> acceptableAnswers;
   final ConceptImportance importance;
+  final bool caseSensitive;
+  final bool whitespaceSensitive;
 }
 
 class QuestionChoiceDraft {

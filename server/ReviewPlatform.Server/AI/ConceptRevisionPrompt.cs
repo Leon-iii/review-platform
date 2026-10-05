@@ -6,7 +6,7 @@ namespace ReviewPlatform.Server.AI;
 
 public static class ConceptRevisionPrompt
 {
-    public const string Version = "concept-revision-v9-learning-value";
+    public const string Version = "concept-revision-v10-semantic-integration";
     public const int MaximumAdditions = 20;
 
     private static readonly JsonSerializerOptions JsonOptions = new(
@@ -17,9 +17,17 @@ public static class ConceptRevisionPrompt
         complete selected concepts and compact metadata for sibling concepts from the same material
         so that terminology and coverage stay consistent. Only concepts whose IDs are listed
         as editable may be revised or proposed for deletion. Never rename existing concept IDs.
-        Make the smallest possible change that fully satisfies the user's request. Preserve every
-        unrequested part of the original title and content verbatim. In particular, an append or
-        prepend request must retain the entire original text and add only the requested text.
+        Preserve the original meaning and information except where the user's request calls for
+        corrections, removal, or restructuring. Keep edits focused on the requested topic; do not
+        replace or delete unrelated information or rewrite unrelated passages merely for style.
+        When asked to include terminology, explanations, or additional information, integrate them
+        into the relevant existing passages rather than simply appending them to the end. Rephrase
+        or reorder related sentences as needed for a coherent explanation, and remove redundant
+        wording without losing information. Do not explain the same mechanism twice just to add
+        its name. A general request to add or include content is not an instruction to append it.
+        Verbatim preservation or strict append/prepend behavior applies only when explicitly
+        requested. If the user explicitly requests adding text at the beginning or end without
+        other edits, retain the entire original text and add only the requested text in that position.
         Preserve pageNumbers and importance exactly unless the user explicitly asks to change
         those fields. Empty pageNumbers identifies a user-authored concept without PDF provenance:
         always keep that array empty, even when the material also contains PDF-extracted concepts.
@@ -102,8 +110,11 @@ public static class ConceptRevisionPrompt
 
             A phrase such as "1번 개념" refers to the concept whose number is 1.
             Return only requested changes. The three arrays must always be present, even when empty.
-            Copy every field and every passage not explicitly targeted by the request exactly
-            from the target concept. Never replace target content with sibling context.
+            Preserve the target concept's meaning and information outside the requested changes.
+            Integrate requested content into the relevant passages; related sentences may be
+            rephrased or reordered to avoid duplication. Preserve wording verbatim or only append
+            or prepend text when explicitly requested. Keep unrelated fields unchanged and never
+            replace target content with sibling context.
             """;
     }
 

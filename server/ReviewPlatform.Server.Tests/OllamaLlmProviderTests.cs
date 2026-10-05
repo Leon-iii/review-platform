@@ -87,6 +87,8 @@ public sealed class OllamaLlmProviderTests
             .GetProperty("type").GetString());
         Assert.Contains("After drafting each question", root.GetProperty("messages")[0]
             .GetProperty("content").GetString());
+        Assert.Contains("haera-che (해라체)", root.GetProperty("messages")[0]
+            .GetProperty("content").GetString());
         Assert.Contains("가우스 법칙", root.GetProperty("messages")[1]
             .GetProperty("content").GetString());
         Assert.DoesNotContain("추론", JsonSerializer.Serialize(questions));
@@ -175,7 +177,7 @@ public sealed class OllamaLlmProviderTests
     {
         Assert.DoesNotContain("MIPS", ConceptRevisionPrompt.SystemPrompt);
         Assert.DoesNotContain("differential", ConceptRevisionPrompt.SystemPrompt);
-        Assert.Contains("smallest possible change", ConceptRevisionPrompt.SystemPrompt);
+        Assert.Contains("Preserve the original meaning and information", ConceptRevisionPrompt.SystemPrompt);
         Assert.Contains("Preserve pageNumbers and importance exactly",
             ConceptRevisionPrompt.SystemPrompt);
         Assert.DoesNotContain("MIPS", ConceptExtractionPrompt.SystemPrompt);
@@ -234,8 +236,11 @@ public sealed class OllamaLlmProviderTests
             request => request.Path == "/api/chat");
         using var body = JsonDocument.Parse(chatRequest.Body!);
         var root = body.RootElement;
+        Assert.Equal(ConceptRevisionPrompt.SystemPrompt, root.GetProperty("messages")[0]
+            .GetProperty("content").GetString());
         var userPrompt = root.GetProperty("messages")[1]
             .GetProperty("content").GetString();
+        Assert.Equal(ConceptRevisionPrompt.BuildUserPrompt(input), userPrompt);
         Assert.Contains("held-1", userPrompt);
         Assert.Contains("approved-1", userPrompt);
         Assert.Contains("\"number\":1", userPrompt);

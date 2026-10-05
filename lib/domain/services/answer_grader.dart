@@ -45,14 +45,27 @@ abstract final class AnswerGrader {
     if (question.type != QuestionType.shortAnswer) {
       throw const ValidationFailure('단답형 문제가 아닙니다.');
     }
-    final normalizedAnswer = normalize(answer);
+    String normalizeAnswer(String value) => normalize(
+      value,
+      caseSensitive: question.caseSensitive,
+      whitespaceSensitive: question.whitespaceSensitive,
+    );
+    final normalizedAnswer = normalizeAnswer(answer);
     final isCorrect = question.acceptableAnswers.any(
-      (candidate) => normalize(candidate) == normalizedAnswer,
+      (candidate) => normalizeAnswer(candidate) == normalizedAnswer,
     );
     return GradeResult(score: isCorrect ? 1 : 0, maxScore: 1);
   }
 
-  static String normalize(String value) {
-    return value.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+  static String normalize(
+    String value, {
+    bool caseSensitive = false,
+    bool whitespaceSensitive = false,
+  }) {
+    var normalized = value.trim();
+    if (!whitespaceSensitive) {
+      normalized = normalized.replaceAll(RegExp(r'\s+'), '');
+    }
+    return caseSensitive ? normalized : normalized.toLowerCase();
   }
 }

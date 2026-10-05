@@ -7,7 +7,8 @@ public static class QuestionConceptAllocator
 {
     public static IReadOnlyList<QuestionConceptPlan> Allocate(
         IReadOnlyList<QuestionGenerationConcept>? supplied, bool reflectImportance,
-        bool automatic, string? density, int manualCount, int limit)
+        bool automatic, string? density, int manualCount, int limit,
+        bool perConceptRequests = false)
     {
         if (supplied is null || supplied.Count == 0)
         {
@@ -30,12 +31,15 @@ public static class QuestionConceptAllocator
                 throw new QuestionGenerationRequestException("문제 생성에 사용할 개념 ID·제목·내용·중요도가 올바르지 않습니다.");
             concepts.Add(new(id, title, content, importance));
         }
-        if (concepts.Sum(c => c.Title.Length + c.Content.Length + c.Id.Length + 30) > 50_000)
+        if (!perConceptRequests && concepts.Sum(c => c.Title.Length + c.Content.Length + c.Id.Length + 30) > 50_000)
             throw new QuestionGenerationRequestException("문제 생성에 사용할 개념 내용은 총 50,000자 이하여야 합니다.");
         var weights = concepts.Select(c => reflectImportance ? Weight(c.Importance) : 3).ToArray();
         var baseCount = density switch { "low" => 2, "high" => 6, _ => 4 };
         var desired = weights.Select(w => Math.Max(1, (int)Math.Round(
             baseCount * w / 3.0, MidpointRounding.AwayFromZero))).ToArray();
+        if (automatic && perConceptRequests)
+            return concepts.Select((concept, i) =>
+                new QuestionConceptPlan(concept, Math.Min(limit, desired[i]))).ToArray();
         var total = automatic ? Math.Min(limit, desired.Sum()) : manualCount;
         // Coverage first when it fits. With an insufficient budget, cover the
         // highest-priority concepts first, keeping source order as the tie-break.
@@ -58,6 +62,9 @@ public static class QuestionConceptAllocator
                          .OrderByDescending(i => shares[i] - Math.Floor(shares[i]))
                          .ThenByDescending(i => weights[i]).Take(leftovers)) counts[i]++;
         }
+        if (perConceptRequests && counts.Any(count => count > limit))
+            throw new QuestionGenerationRequestException(
+                $"개념별 문항 수가 요청 1회당 상한({limit}개)을 초과합니다. 총 문항 수를 줄이거나 상한을 높여 주세요.");
         return concepts.Select((concept, i) => new QuestionConceptPlan(concept, counts[i])).ToArray();
     }
 

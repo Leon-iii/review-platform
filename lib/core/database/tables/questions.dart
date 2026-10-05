@@ -19,6 +19,12 @@ class Questions extends Table {
 
   TextColumn get importance => text().withDefault(const Constant('medium'))();
 
+  BoolColumn get caseSensitive =>
+      boolean().withDefault(const Constant(false))();
+
+  BoolColumn get whitespaceSensitive =>
+      boolean().withDefault(const Constant(false))();
+
   DateTimeColumn get createdAt => dateTime()();
 
   DateTimeColumn get updatedAt => dateTime()();

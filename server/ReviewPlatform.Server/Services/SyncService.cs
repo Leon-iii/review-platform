@@ -73,7 +73,7 @@ public sealed class SyncService(SyncDbContext database)
 
                 existing.PayloadJson = change.Operation == "delete"
                     ? null
-                    : change.Payload?.GetRawText();
+                    : QuestionAnswerFormatMigration.Normalize(change.EntityType, change.Payload!.Value.GetRawText());
                 existing.UpdatedAt = change.UpdatedAt.ToUniversalTime();
                 existing.DeletedAt = change.Operation == "delete"
                     ? (change.DeletedAt ?? change.UpdatedAt).ToUniversalTime()

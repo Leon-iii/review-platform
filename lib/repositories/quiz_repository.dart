@@ -5,6 +5,7 @@ import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/sync_entity_type.dart';
 import 'package:review_platform/domain/enums/sync_operation.dart';
+import 'package:review_platform/domain/enums/question_status.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/question_snapshot.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
@@ -28,6 +29,16 @@ abstract interface class QuizRepository {
   });
 
   Future<void> finishSession(String id);
+  Future<void> skipForReview({
+    required String sessionId,
+    required String itemId,
+  });
+  Future<void> saveEssayResponse({
+    required String sessionId,
+    required String itemId,
+    required String answer,
+    required int durationMs,
+  });
 }
 
 class DriftQuizRepository implements QuizRepository {
@@ -99,6 +110,53 @@ class DriftQuizRepository implements QuizRepository {
   Future<QuizSessionDetails?> resumeSession(String id) => getSession(id);
 
   @override
+  Future<void> saveEssayResponse({
+    required String sessionId,
+    required String itemId,
+    required String answer,
+    required int durationMs,
+  }) => _guard(
+    () => _database.transaction(() async {
+      final session = await _database.quizDao.getActiveSession(sessionId);
+      final items = await _database.quizDao.getSessionItems(sessionId);
+      final item = items.where((item) => item.id == itemId).firstOrNull;
+      if (session == null ||
+          session.finishedAt != null ||
+          item == null ||
+          item.skippedForReview ||
+          item.attemptId != null ||
+          item.pendingEssayResponseJson != null) {
+        throw const ValidationFailure('이미 제출했거나 찾을 수 없는 서술형 문항이에요.');
+      }
+      if (answer.trim().isEmpty ||
+          durationMs < 0 ||
+          (jsonDecode(item.questionSnapshotJson) as Map)['type'] != 'essay') {
+        throw const ValidationFailure('서술형 답안이 올바르지 않아요.');
+      }
+      await (_database.update(
+        _database.quizSessionItems,
+      )..where((row) => row.id.equals(itemId))).write(
+        QuizSessionItemsCompanion(
+          pendingEssayResponseJson: Value(
+            jsonEncode({'textAnswer': answer, 'durationMs': durationMs}),
+          ),
+        ),
+      );
+      final now = DateTime.now().toUtc();
+      await (_database.update(_database.quizSessions)
+            ..where((row) => row.id.equals(sessionId)))
+          .write(QuizSessionsCompanion(updatedAt: Value(now)));
+      await _database.syncDao.enqueue(
+        entityType: 'quizSession',
+        entityId: sessionId,
+        operation: 'upsert',
+        createdAt: now,
+      );
+    }),
+    '서술형 답안을 저장하지 못했어요.',
+  );
+
+  @override
   Future<void> linkAttempt({
     required String sessionId,
     required String itemId,
@@ -110,6 +168,9 @@ class DriftQuizRepository implements QuizRepository {
         if (session == null) {
           throw const ValidationFailure('학습 세션을 찾을 수 없어요.');
         }
+        if (session.finishedAt != null) {
+          throw const ValidationFailure('이미 종료된 학습 세션이에요.');
+        }
         final items = await _database.quizDao.getSessionItems(sessionId);
         final item = items
             .where((candidate) => candidate.id == itemId)
@@ -117,7 +178,7 @@ class DriftQuizRepository implements QuizRepository {
         if (item == null) {
           throw const ValidationFailure('학습 문항을 찾을 수 없어요.');
         }
-        if (item.attemptId != null) {
+        if (item.attemptId != null || item.skippedForReview) {
           throw const ValidationFailure('이미 답안을 제출한 문제예요.');
         }
 
@@ -133,7 +194,9 @@ class DriftQuizRepository implements QuizRepository {
           completedQuestions: completedQuestions,
           updatedAt: now,
         );
-        if (completedQuestions >= session.totalQuestions) {
+        if (completedQuestions +
+                items.where((item) => item.skippedForReview).length >=
+            session.totalQuestions) {
           await _database.quizDao.finishSession(
             sessionId: sessionId,
             finishedAt: now,
@@ -150,10 +213,82 @@ class DriftQuizRepository implements QuizRepository {
   }
 
   @override
+  Future<void> skipForReview({
+    required String sessionId,
+    required String itemId,
+  }) => _guard(
+    () => _database.transaction(() async {
+      final session = await _database.quizDao.getActiveSession(sessionId);
+      final items = await _database.quizDao.getSessionItems(sessionId);
+      final item = items.where((item) => item.id == itemId).firstOrNull;
+      if (session == null ||
+          session.finishedAt != null ||
+          item == null ||
+          item.attemptId != null ||
+          item.skippedForReview) {
+        throw const ValidationFailure('이미 처리했거나 찾을 수 없는 학습 문항이에요.');
+      }
+      final question = await _database.questionDao.getActiveQuestion(
+        item.questionId,
+      );
+      if (question == null || question.status == QuestionStatus.archived.name) {
+        throw const ValidationFailure('삭제되거나 보관된 문제는 재검토 요청할 수 없어요.');
+      }
+      final now = DateTime.now().toUtc();
+      await (_database.update(
+        _database.quizSessionItems,
+      )..where((row) => row.id.equals(itemId))).write(
+        const QuizSessionItemsCompanion(
+          skippedForReview: Value(true),
+          pendingEssayResponseJson: Value(null),
+        ),
+      );
+      // Reuse the existing unapproved state; do not introduce another status.
+      await _database.questionDao.updateQuestion(
+        item.questionId,
+        QuestionsCompanion(
+          status: Value(QuestionStatus.draft.name),
+          updatedAt: Value(now),
+        ),
+      );
+      final graded = items.where((item) => item.attemptId != null).length;
+      await _database.quizDao.updateProgress(
+        sessionId: sessionId,
+        completedQuestions: graded,
+        updatedAt: now,
+      );
+      if (graded + items.where((item) => item.skippedForReview).length + 1 >=
+          session.totalQuestions) {
+        await _database.quizDao.finishSession(
+          sessionId: sessionId,
+          finishedAt: now,
+        );
+      }
+      for (final entry in [
+        (SyncEntityType.question, item.questionId),
+        (SyncEntityType.quizSession, sessionId),
+      ]) {
+        await _database.syncDao.enqueue(
+          entityType: entry.$1.name,
+          entityId: entry.$2,
+          operation: SyncOperation.upsert.name,
+          createdAt: now,
+        );
+      }
+    }),
+    '문제 재검토 요청을 저장하지 못했어요.',
+  );
+
+  @override
   Future<void> finishSession(String id) {
     return _guard(() async {
       final now = DateTime.now().toUtc();
       await _database.transaction(() async {
+        final session = await _database.quizDao.getActiveSession(id);
+        if (session == null) {
+          throw const ValidationFailure('학습 세션을 찾을 수 없어요.');
+        }
+        if (session.finishedAt != null) return;
         await _database.quizDao.finishSession(sessionId: id, finishedAt: now);
         await _database.syncDao.enqueue(
           entityType: SyncEntityType.quizSession.name,
@@ -197,6 +332,12 @@ class DriftQuizRepository implements QuizRepository {
               ),
             ),
             attemptId: item.attemptId,
+            skippedForReview: item.skippedForReview,
+            pendingEssayResponse: item.pendingEssayResponseJson == null
+                ? null
+                : Map<String, Object?>.from(
+                    jsonDecode(item.pendingEssayResponseJson!) as Map,
+                  ),
           ),
       ],
     );

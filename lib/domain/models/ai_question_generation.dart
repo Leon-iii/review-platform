@@ -31,7 +31,7 @@ class AiQuestionGenerationRequest {
   final bool reflectConceptImportance;
 
   Map<String, Object?> toJson() => {
-    'sourceText': sourceText,
+    if (concepts.isEmpty) 'sourceText': sourceText,
     'questionCount': questionCount,
     'questionTypes': [for (final type in questionTypes) type.name],
     'sourceLabel': sourceLabel,
@@ -56,10 +56,43 @@ class AiQuestionGenerationResult {
   const AiQuestionGenerationResult({
     required this.metadata,
     required this.questions,
+    this.failures = const [],
   });
 
   final AiGenerationMetadata metadata;
   final List<AiGeneratedQuestion> questions;
+  final List<AiConceptGenerationFailure> failures;
+}
+
+class AiConceptGenerationFailure {
+  const AiConceptGenerationFailure({
+    required this.conceptId,
+    required this.title,
+    required this.error,
+  });
+  final String conceptId;
+  final String title;
+  final String error;
+}
+
+class AiGenerationProgress {
+  const AiGenerationProgress({
+    required this.completedConcepts,
+    required this.totalConcepts,
+    required this.generatedQuestions,
+    this.conceptTitle,
+    required this.failedConcepts,
+  });
+  final int completedConcepts;
+  final int totalConcepts;
+  final int generatedQuestions;
+  final String? conceptTitle;
+  final int failedConcepts;
+  int get successfulConcepts => completedConcepts - failedConcepts;
+  int get currentConceptNumber =>
+      conceptTitle != null && completedConcepts < totalConcepts
+      ? completedConcepts + 1
+      : completedConcepts;
 }
 
 class AiGenerationMetadata {

@@ -7,10 +7,17 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 part 'quiz_result_view_model.g.dart';
 
 class QuizResultSummary {
-  const QuizResultSummary({required this.session, required this.attempts});
+  const QuizResultSummary({
+    required this.session,
+    required this.attempts,
+    this.skippedQuestions = 0,
+  });
 
   final QuizSession session;
   final List<Attempt> attempts;
+  final int skippedQuestions;
+  bool get stopped =>
+      session.completedQuestions + skippedQuestions < session.totalQuestions;
 
   int get correctCount =>
       attempts.where((attempt) => attempt.score == attempt.maxScore).length;
@@ -36,5 +43,9 @@ Future<QuizResultSummary> quizResult(Ref ref, String sessionId) async {
   final attempts = await ref
       .watch(attemptRepositoryProvider)
       .getAttemptsForSession(sessionId);
-  return QuizResultSummary(session: details.session, attempts: attempts);
+  return QuizResultSummary(
+    session: details.session,
+    attempts: attempts,
+    skippedQuestions: details.skippedQuestions,
+  );
 }

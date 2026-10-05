@@ -66,7 +66,7 @@ final class QuizResultProvider
   }
 }
 
-String _$quizResultHash() => r'8d28ff37157aac19a0169120aced268168ae3505';
+String _$quizResultHash() => r'089c3d67ab1d21f1ae26c71719d1bcbda0a00cd6';
 
 final class QuizResultFamily extends $Family
     with $FunctionalFamilyOverride<FutureOr<QuizResultSummary>, String> {

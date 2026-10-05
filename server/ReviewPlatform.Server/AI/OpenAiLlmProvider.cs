@@ -8,7 +8,8 @@ namespace ReviewPlatform.Server.AI;
 
 public sealed class OpenAiLlmProvider(
     HttpClient httpClient,
-    IOptions<LlmOptions> options) : ILLMProvider
+    IOptions<LlmOptions> options,
+    ILogger<OpenAiLlmProvider>? logger = null) : ILLMProvider
 {
     private static readonly Uri ResponsesEndpoint = new(
         "https://api.openai.com/v1/responses");
@@ -65,8 +66,28 @@ public sealed class OpenAiLlmProvider(
                 throw new LlmProviderRequestException(
                     ToSafeApiError(response.StatusCode, responseBody, "문제 생성"));
             }
+            LogQuestionUsage(responseBody);
             return ParseResponse(responseBody);
         }
+    }
+
+    private void LogQuestionUsage(string body)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(body);
+            if (!json.RootElement.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object) return;
+            static long? Number(JsonElement element, string name) =>
+                element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number &&
+                value.TryGetInt64(out var number) ? number : null;
+            var cached = usage.TryGetProperty("input_tokens_details", out var details) && details.ValueKind == JsonValueKind.Object
+                ? Number(details, "cached_tokens") : null;
+            logger?.LogInformation("OpenAI question token usage. Model={Model} InputTokens={InputTokens} " +
+                "CachedTokens={CachedTokens} CacheWriteTokens={CacheWriteTokens} OutputTokens={OutputTokens}",
+                settings.Model, Number(usage, "input_tokens"), cached,
+                Number(usage, "cache_write_tokens"), Number(usage, "output_tokens"));
+        }
+        catch (JsonException) { /* The response parser below reports malformed output. */ }
     }
 
     public async Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
@@ -276,7 +297,7 @@ public sealed class OpenAiLlmProvider(
 
     private object BuildRequest(QuestionGenerationInput input)
     {
-        return ApplyReasoning(new Dictionary<string, object?>
+        var request = ApplyReasoning(new Dictionary<string, object?>
         {
             ["model"] = settings.Model,
             ["store"] = false,
@@ -288,7 +309,7 @@ public sealed class OpenAiLlmProvider(
                 new
                 {
                     role = "system",
-                    content = QuestionGenerationPrompt.SystemPrompt
+                    content = QuestionGenerationPrompt.GetSystemPrompt(input)
                 },
                 new
                 {
@@ -308,6 +329,28 @@ public sealed class OpenAiLlmProvider(
                 }
             }
         });
+        if (input.BindConceptOnServer)
+        {
+            request["prompt_cache_key"] = "review-question-single-concept-v12";
+            // Only known 5.6+/6.x families support the documented explicit cache API.
+            // Older/unknown models retain implicit caching with the same stable prefix.
+            if (OpenAiModelCapabilitiesRegistry.Get(settings.Model).IsKnown &&
+                (settings.Model.StartsWith("gpt-5.6", StringComparison.Ordinal) ||
+                 settings.Model.StartsWith("gpt-6", StringComparison.Ordinal)))
+            {
+                request["prompt_cache_options"] = new { mode = "explicit", ttl = "30m" };
+                request["input"] = new object[]
+                {
+                    new { role = "developer", content = new object[]
+                    {
+                        new { type = "input_text", text = QuestionGenerationPrompt.ConceptSystemPrompt,
+                            prompt_cache_breakpoint = new { mode = "explicit" } }
+                    } },
+                    new { role = "user", content = QuestionGenerationPrompt.BuildUserPrompt(input) }
+                };
+            }
+        }
+        return request;
     }
 
     private object BuildConceptRequest(ConceptExtractionInput input)

@@ -32,6 +32,9 @@ class FakePdfJobsApi extends FakeConceptRevisionApi
   int reviewSaves = 0;
   bool reviewOffline = false;
   final List<int> previewReads = [];
+  final List<int> reviewPageReads = [];
+  final Map<int, Object> reviewPageErrors = {};
+  int reviewTotalPages = 2;
   Object? previewError;
   Uint8List? previewBytes;
   String originalReviewText = '원래 추출 텍스트';
@@ -70,9 +73,12 @@ class FakePdfJobsApi extends FakeConceptRevisionApi
     int page,
   ) async {
     if (reviewOffline) throw const NetworkFailure('OCR 검토 연결 실패');
+    reviewPageReads.add(page);
+    final error = reviewPageErrors[page];
+    if (error != null) throw error;
     return OcrReviewPage(
       pageNumber: page,
-      totalPages: 2,
+      totalPages: reviewTotalPages,
       originalText: originalReviewText,
       blocks: reviewBlocks[page] ?? originalReviewBlocks,
       originalBlocks: originalReviewBlocks,

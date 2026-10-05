@@ -30,6 +30,7 @@ void main() {
     QuestionType.multipleChoice,
     QuestionType.trueFalse,
     QuestionType.shortAnswer,
+    QuestionType.essay,
   ]) {
     for (final timing in AnswerFeedbackTiming.values) {
       testWidgets(
@@ -50,7 +51,9 @@ void main() {
                 type: type,
                 prompt: '모름 테스트 ${index + 1}',
                 explanation: '모름 문제의 해설',
-                choices: type == QuestionType.shortAnswer
+                choices:
+                    type == QuestionType.shortAnswer ||
+                        type == QuestionType.essay
                     ? const []
                     : [
                         QuestionChoiceDraft(
@@ -62,7 +65,9 @@ void main() {
                           isCorrect: false,
                         ),
                       ],
-                acceptableAnswers: type == QuestionType.shortAnswer
+                acceptableAnswers:
+                    type == QuestionType.shortAnswer ||
+                        type == QuestionType.essay
                     ? const ['정답']
                     : const [],
               ),
@@ -153,7 +158,8 @@ void main() {
               find.byKey(Key('choice-${items[1].choices.first.id}')),
             );
             await tester.pumpAndSettle();
-          } else if (type == QuestionType.shortAnswer) {
+          } else if (type == QuestionType.shortAnswer ||
+              type == QuestionType.essay) {
             final details = (await quizzes.getSession(sessionId))!;
             await tester.enterText(
               find.byKey(Key('answer-${details.items[1].id}')),

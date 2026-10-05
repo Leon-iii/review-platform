@@ -31,6 +31,88 @@ void main() {
     if (!databaseClosed) await database.close();
   });
 
+  test('중요도 단독 변경은 다른 필드와 검토 상태를 보존하고 연결 문제와 동기화에 반영된다', () async {
+    final source = await sourceRepository.createSource(
+      folderId: folderId,
+      name: '노트',
+    );
+    final concept = await sourceRepository.addConcept(
+      sourceId: source.source.id,
+      title: '원래 제목',
+      content: '원래 내용',
+    );
+    final questions = DriftQuestionRepository(database);
+    final questionId = await questions.createQuestion(
+      QuestionDraft(
+        folderId: folderId,
+        type: QuestionType.shortAnswer,
+        prompt: '질문',
+        acceptableAnswers: const ['정답'],
+      ),
+      primaryConceptId: concept.id,
+    );
+    await sourceRepository.updateConcept(
+      id: concept.id,
+      title: '동시에 수정된 제목',
+      content: '동시에 수정된 내용',
+      importance: ConceptImportance.medium,
+    );
+    for (final reviewed in [true, false]) {
+      await sourceRepository.setConceptApproval(
+        id: concept.id,
+        approved: reviewed,
+      );
+      final before = (await sourceRepository.getSourceWithConcepts(
+        source.source.id,
+      )).concepts.single;
+      for (final importance in ConceptImportance.values) {
+        await sourceRepository.setConceptImportance(
+          id: concept.id,
+          importance: importance,
+        );
+        final after = (await sourceRepository.getSourceWithConcepts(
+          source.source.id,
+        )).concepts.single;
+        expect(after.title, before.title);
+        expect(after.content, before.content);
+        expect(after.status, before.status);
+        expect(after.pageNumbers, before.pageNumbers);
+        expect(after.createdAt, before.createdAt);
+        expect(after.importance, importance);
+        expect(
+          (await questions.getQuestion(questionId))!.importance,
+          importance,
+        );
+      }
+    }
+    final outgoing = await DriftSyncRepository(database).buildPushBatch();
+    expect(
+      outgoing
+          .where((change) => change.entityId == concept.id)
+          .last
+          .payload!['importance'],
+      'veryHigh',
+    );
+    final count = await database.syncDao.getPendingCount();
+    await sourceRepository.setConceptImportance(
+      id: concept.id,
+      importance: ConceptImportance.veryHigh,
+    );
+    expect(await database.syncDao.getPendingCount(), count);
+  });
+
+  test('삭제된 개념의 중요도 변경 실패는 동기화 기록을 만들지 않는다', () async {
+    final pending = await database.syncDao.getPendingCount();
+    await expectLater(
+      sourceRepository.setConceptImportance(
+        id: 'missing',
+        importance: ConceptImportance.high,
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+    expect(await database.syncDao.getPendingCount(), pending);
+  });
+
   test('중요도 5단계는 추가·편집·AI 수정·저장·동기화에서 보존된다', () async {
     expect(ConceptImportance.values.map((value) => value.label), [
       '매우 낮음',
@@ -144,7 +226,7 @@ void main() {
     final seed = await sourceRepository.getConceptGenerationSeed(added.id);
     expect(seed.sourceLabel, '나의 노트 · 직접 쓴 개념');
     final all = await sourceRepository.getSourceGenerationSeed(empty.source.id);
-    expect(all.sourceText, isNot(contains('페이지:')));
+    expect(all.concepts.single.hasPageSource, false);
     expect(all.sourceReference.pageNumbers, isEmpty);
     await sourceRepository.renameSource(id: empty.source.id, fileName: '새 이름');
     expect(
@@ -445,7 +527,7 @@ void main() {
       concept.id,
     );
     expect(
-      (await repository.getConceptGenerationSeed(concept.id)).sourceText,
+      (await repository.getConceptGenerationSeed(concept.id)).concept.content,
       contains('동기화할 내용'),
     );
   });
@@ -466,8 +548,9 @@ void main() {
     final seed = await sourceRepository.getConceptGenerationSeed(concept.id);
 
     expect(seed.folderId, folderId);
-    expect(seed.sourceLabel, contains('p.3, 4'));
-    expect(seed.sourceText, contains('가우스 법칙'));
+    expect(seed.sourceLabel, contains('p.3 - 4'));
+    expect(seed.concept.pageNumbers, [3, 4]);
+    expect(seed.concept.title, contains('가우스 법칙'));
   });
 
   test('자료 전체 문제 생성은 승인 개념만 페이지 순으로 묶고 출처를 보존한다', () async {
@@ -513,10 +596,14 @@ void main() {
     expect(seed.folderId, folderId);
     expect(seed.sourceLabel, saved.source.fileName);
     expect(seed.concepts.map((concept) => concept.title), ['처음 개념', '나중 개념']);
-    expect(seed.sourceText, contains('1. 처음 개념'));
-    expect(seed.sourceText, contains('2. 나중 개념'));
-    expect(seed.sourceText, isNot(contains('보류 개념')));
-    expect(seed.sourceText, isNot(contains('삭제 개념')));
+    expect(
+      seed.concepts.map((concept) => concept.title),
+      isNot(contains('보류 개념')),
+    );
+    expect(
+      seed.concepts.map((concept) => concept.title),
+      isNot(contains('삭제 개념')),
+    );
     expect(seed.sourceReference.sourceId, saved.source.id);
     expect(seed.sourceReference.pageNumbers, [1, 2, 9]);
     expect(seed.sourceReference.conceptId, isNull);

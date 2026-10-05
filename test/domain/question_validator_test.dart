@@ -89,6 +89,20 @@ void main() {
       expect(result.acceptableAnswers, ['가우스 법칙', 'Gauss law']);
     });
 
+    test('서술형 문장 모범 답안을 정리하고 선택지를 제거한다', () {
+      final result = QuestionValidator.validate(
+        const QuestionDraft(
+          folderId: 'folder',
+          type: QuestionType.essay,
+          prompt: '법칙을 설명하시오.',
+          acceptableAnswers: [' 선속은 내부 전하와 비례한다. ', '선속은 내부 전하와 비례한다.'],
+        ),
+      );
+      expect(result.type, QuestionType.essay);
+      expect(result.acceptableAnswers, ['선속은 내부 전하와 비례한다.']);
+      expect(result.choices, isEmpty);
+    });
+
     test('허용 정답이 없는 단답형을 거부한다', () {
       expect(
         () => QuestionValidator.validate(

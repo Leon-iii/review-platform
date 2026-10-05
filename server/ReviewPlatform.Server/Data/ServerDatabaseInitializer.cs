@@ -105,5 +105,6 @@ public static class ServerDatabaseInitializer
         {
             await database.Database.CloseConnectionAsync();
         }
+        await QuestionAnswerFormatMigration.MigrateAsync(database, cancellationToken);
     }
 }

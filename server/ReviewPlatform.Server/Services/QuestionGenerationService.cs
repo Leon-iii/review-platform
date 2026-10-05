@@ -11,13 +11,14 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v10-concept-importance";
+    public const string PromptVersion = "question-generation-v15-haera-che";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [
         "multipleChoice",
         "trueFalse",
-        "shortAnswer"
+        "shortAnswer",
+        "essay"
     ];
     private static readonly JsonSerializerOptions JsonOptions = new(
         JsonSerializerDefaults.Web);
@@ -46,7 +47,8 @@ public sealed class QuestionGenerationService
 
     public async Task<GenerateQuestionsResponse> GenerateAsync(
         GenerateQuestionsRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<QuestionGenerationProgress, Task>? onProgress = null)
     {
         var provider = await providerResolver.ResolveAsync(
             LlmPurposes.QuestionGeneration,
@@ -98,13 +100,68 @@ public sealed class QuestionGenerationService
 
         try
         {
-            var generated = await provider.GenerateQuestionsAsync(
-                input,
-                cancellationToken);
-            providerOutputCount = generated.Count;
-            stage = "output-validation";
-            var questions = ValidateProviderOutput(generated, input);
-            record.Status = "succeeded";
+            var questions = new List<GeneratedQuestionDraft>();
+            var failures = new List<QuestionGenerationFailure>();
+            var plans = input.ConceptPlans?.Where(plan => plan.QuestionCount > 0).ToArray() ?? [];
+            var completed = 0;
+            if (plans.Length == 0)
+            {
+                var generated = await provider.GenerateQuestionsAsync(input, cancellationToken);
+                providerOutputCount = generated.Count;
+                stage = "output-validation";
+                questions.AddRange(ValidateProviderOutput(generated, input));
+            }
+            else
+            {
+                // Resolve the profile once; each request contains exactly one concept snapshot.
+                foreach (var plan in plans)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (onProgress is not null)
+                        await onProgress(new(completed, plans.Length, questions.Count,
+                            plan.Concept.Title, failures.Count));
+                    var conceptInput = input with
+                    {
+                        SourceText = "", QuestionCount = plan.QuestionCount,
+                        ConceptPlans = [plan], BindConceptOnServer = true
+                    };
+                    stage = "provider-request";
+                    try
+                    {
+                        var generated = await provider.GenerateQuestionsAsync(conceptInput, cancellationToken);
+                        providerOutputCount = generated.Count;
+                        stage = "output-validation";
+                        if (generated.Any(question => question is null))
+                            throw new LlmOutputValidationException("생성된 문제 항목이 비어 있습니다.");
+                        // IDs are application metadata, not something the model must infer or echo.
+                        var bound = generated.Select(question => question with
+                        {
+                            PrimaryConceptId = plan.Concept.Id,
+                            SourceIds = [input.SourceReference]
+                        }).ToArray();
+                        questions.AddRange(ValidateProviderOutput(bound, conceptInput));
+                    }
+                    catch (Exception exception) when (exception is LlmProviderRequestException or
+                        LlmProviderUnavailableException or LlmOutputValidationException)
+                    {
+                        failures.Add(new(plan.Concept.Id, plan.Concept.Title, SafeError(exception)));
+                        log.LogError(exception,
+                            "Concept generation failed. GenerationId={GenerationId} ConceptId={ConceptId} " +
+                            "Stage={Stage} Provider={Provider} Model={Model}",
+                            generationId, plan.Concept.Id, stage, provider.ProviderName, provider.ModelName);
+                    }
+                    completed++;
+                    record.OutputJson = JsonSerializer.Serialize(questions, JsonOptions);
+                    record.Error = failures.Count == 0 ? null : JsonSerializer.Serialize(failures, JsonOptions);
+                    await database.SaveChangesAsync(cancellationToken);
+                    if (onProgress is not null)
+                        await onProgress(new(completed, plans.Length, questions.Count, null, failures.Count));
+                }
+                if (questions.Count == 0)
+                    throw new LlmOutputValidationException(
+                        $"모든 개념의 문제 생성에 실패했습니다. {failures[0].Error}");
+            }
+            record.Status = failures.Count == 0 ? "succeeded" : "partial";
             record.OutputJson = JsonSerializer.Serialize(questions, JsonOptions);
             stage = "success-persistence";
             await database.SaveChangesAsync(cancellationToken);
@@ -118,10 +175,13 @@ public sealed class QuestionGenerationService
                     requestedAt,
                     record.InputHash,
                     input.SourceLabel),
-                questions);
+                questions,
+                failures);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            record.Status = "canceled";
+            await database.SaveChangesAsync(CancellationToken.None);
             log.LogInformation(
                 "LLM generation canceled. GenerationId={GenerationId} Stage={Stage} " +
                 "Provider={Provider} Model={Model} DurationMs={DurationMs}",
@@ -195,12 +255,13 @@ public sealed class QuestionGenerationService
         int maximumQuestionsPerRequest)
     {
         var sourceText = request.SourceText?.Trim() ?? string.Empty;
-        if (sourceText.Length < 10)
+        var hasConcepts = request.Concepts is { Count: > 0 };
+        if (!hasConcepts && sourceText.Length < 10)
         {
             throw new QuestionGenerationRequestException(
                 "문제를 생성할 학습 내용을 10자 이상 입력해 주세요.");
         }
-        if (sourceText.Length > MaximumSourceLength)
+        if (!hasConcepts && sourceText.Length > MaximumSourceLength)
         {
             throw new QuestionGenerationRequestException(
                 $"학습 내용은 최대 {MaximumSourceLength:N0}자까지 입력할 수 있습니다.");
@@ -233,7 +294,7 @@ public sealed class QuestionGenerationService
                     "수동 문제 수는 1개에서 20개 사이여야 합니다.");
             }
             questionCount = request.QuestionCount.Value;
-            if (questionCount > maximumQuestionsPerRequest)
+            if (!hasConcepts && questionCount > maximumQuestionsPerRequest)
                 throw new QuestionGenerationRequestException(
                     $"수동 문제 수가 LLM 설정의 요청 1회당 상한({maximumQuestionsPerRequest}개)을 초과합니다.");
         }
@@ -260,7 +321,7 @@ public sealed class QuestionGenerationService
             questionTypes.Any(type => !SupportedQuestionTypes.Contains(type)))
         {
             throw new QuestionGenerationRequestException(
-                "문제 유형은 multipleChoice, trueFalse 또는 shortAnswer만 사용할 수 있습니다.");
+                "문제 유형은 multipleChoice, trueFalse, shortAnswer 또는 essay만 사용할 수 있습니다.");
         }
 
         var sourceLabel = string.IsNullOrWhiteSpace(request.SourceLabel)
@@ -274,10 +335,20 @@ public sealed class QuestionGenerationService
 
         var plans = QuestionConceptAllocator.Allocate(request.Concepts,
             request.ReflectConceptImportance, generationMode == "automatic",
-            automaticDensity, questionCount, maximumQuestionsPerRequest);
+            automaticDensity, questionCount, maximumQuestionsPerRequest, perConceptRequests: true)
+            .Select(plan => plan with
+            {
+                // Targets cover the requested range independently of importance.
+                // Actual output ratings are never clamped to these drafting targets.
+                TargetDifficulties = Enumerable.Range(0, plan.QuestionCount).Select(index =>
+                    (int)Math.Round(plan.QuestionCount == 1
+                        ? (request.MinimumDifficulty + request.MaximumDifficulty) / 2.0
+                        : request.MinimumDifficulty + index *
+                          (request.MaximumDifficulty - request.MinimumDifficulty) / (double)(plan.QuestionCount - 1),
+                        MidpointRounding.AwayFromZero)).ToArray()
+            }).ToList();
         if (plans.Count > 0)
-            sourceText = string.Join("\n\n", plans.Select(plan =>
-                $"Concept ID: {plan.Concept.Id}\n{plan.Concept.Title}\n{plan.Concept.Content}"));
+            sourceText = "";
         if (sourceText.Length > MaximumSourceLength)
             throw new QuestionGenerationRequestException("학습 내용은 최대 50,000자까지 입력할 수 있습니다.");
         return new QuestionGenerationInput(
@@ -321,6 +392,11 @@ public sealed class QuestionGenerationService
         {
             var questionNumber = questionIndex + 1;
             var question = generated[questionIndex];
+            if (question is null || question.Type is null || question.Prompt is null ||
+                question.Choices is null || question.AcceptableAnswers is null || question.SourceIds is null ||
+                question.Choices.Any(choice => choice is null || choice.Text is null) ||
+                question.AcceptableAnswers.Any(answer => answer is null))
+                throw new LlmOutputValidationException("생성된 문제의 필수 필드가 누락되었습니다.", questionNumber);
             var type = question.Type.Trim();
             var prompt = question.Prompt.Trim();
             var choices = question.Choices
@@ -391,10 +467,13 @@ public sealed class QuestionGenerationService
             else if (choices.Count != 0 || answers.Count is < 1 or > 10)
             {
                 throw new LlmOutputValidationException(
-                    "단답형 문제의 허용 답안이 올바르지 않습니다.",
+                    type == "essay" ? "서술형 문제의 모범 답안이 올바르지 않습니다." : "단답형 문제의 허용 답안이 올바르지 않습니다.",
                     questionNumber,
                     $"ChoiceCount={choices.Count}; AcceptableAnswerCount={answers.Count}");
             }
+            if (type == "shortAnswer" && answers.Any(IsBinaryAnswer))
+                throw new LlmOutputValidationException(
+                    "단답형 문제에는 예/아니오 형태의 답안을 사용할 수 없습니다.", questionNumber);
 
             validated.Add(question with
             {
@@ -418,6 +497,9 @@ public sealed class QuestionGenerationService
                         diagnostic: $"ExpectedCount={plan.QuestionCount}; ActualCount={validated.Count(q => q.PrimaryConceptId == plan.Concept.Id)}");
         return validated;
     }
+
+    private static bool IsBinaryAnswer(string answer) => answer.Trim().ToLowerInvariant()
+        .TrimEnd('.', '!', '?', '。') is "예" or "네" or "아니오" or "아니요" or "yes" or "no" or "true" or "false";
 
     private static List<GeneratedQuestionChoice> NormalizeMultipleChoiceChoices(
         IReadOnlyList<GeneratedQuestionChoice> choices,

@@ -52,7 +52,7 @@ final class QuestionEditorViewModelProvider
 }
 
 String _$questionEditorViewModelHash() =>
-    r'1ad6910c74945f9436c8a07020da165fbf04009d';
+    r'ced7403eef0f2a991d52ad650c6401f09c9d7a22';
 
 final class QuestionEditorViewModelFamily extends $Family
     with

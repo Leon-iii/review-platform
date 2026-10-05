@@ -74,6 +74,8 @@ public sealed class OpenAiLlmProviderTests
             .GetProperty("additionalProperties").GetBoolean());
         Assert.Contains("가우스 법칙", root.GetProperty("input")[1]
             .GetProperty("content").GetString());
+        Assert.Contains("haera-che (해라체)", root.GetProperty("input")[0]
+            .GetProperty("content").GetString());
         Assert.DoesNotContain("test-api-key", handler.RequestBody);
     }
 
@@ -464,12 +466,89 @@ public sealed class OpenAiLlmProviderTests
         Assert.True(schema.GetProperty("properties").TryGetProperty("deletions", out _));
     }
 
+    [Fact]
+    public async Task ReviseConcepts_SendsSemanticIntegrationPolicyAndAcceptsRewrittenPassages()
+    {
+        const string revised = "객체가 캐시에 있으면 캐시 히트(cache hit)로 캐시가 반환하고, 없으면 캐시 미스(cache miss)로 원본 서버에서 받아 저장한 뒤 전달한다.";
+        var output = JsonSerializer.Serialize(new
+        {
+            revisions = new[] { new { id = "cache", title = "웹 캐시", content = revised,
+                pageNumbers = new[] { 1 }, importance = "medium", groupId = "" } },
+            additions = Array.Empty<object>(), deletions = Array.Empty<object>()
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, new
+        {
+            status = "completed", output = new[] { new { type = "message",
+                content = new[] { new { type = "output_text", text = output } } } }
+        }));
+        var input = new ConceptRevisionInput("source", "자료.pdf", 1,
+            "캐시 히트와 캐시 미스에 대한 내용도 포함시켜 줘.",
+            [new ConceptRevisionContext("cache", "웹 캐시", "객체가 캐시에 있으면 캐시가 반환한다.", [1], "approved")],
+            ["cache"], ConceptRevisionPrompt.Version);
+
+        var revisions = await CreateProvider(handler).ReviseConceptsAsync(input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(revised, Assert.Single(revisions).Content);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        var messages = request.RootElement.GetProperty("input");
+        Assert.Equal(ConceptRevisionPrompt.SystemPrompt, messages[0].GetProperty("content").GetString());
+        Assert.Equal(ConceptRevisionPrompt.BuildUserPrompt(input), messages[1].GetProperty("content").GetString());
+    }
+
     private static QuestionGenerationInput Input() => new(
         "가우스 법칙은 폐곡면의 전기선속과 내부 전하를 연결한다.",
         1,
         ["shortAnswer"],
         null,
         "question-generation-v1");
+
+    [Theory]
+    [InlineData("gpt-6.1-sol", true)]
+    [InlineData("gpt-5.6-sol", true)]
+    [InlineData("gpt-4.1", false)]
+    [InlineData("gpt-7-future", false)]
+    public async Task SingleConcept_UsesStableSchemaAndSupportedCacheOptions(string model, bool explicitCache)
+    {
+        var output = JsonSerializer.Serialize(new { questions = new[] {
+            new { type = "shortAnswer", prompt = "질문", choices = Array.Empty<object>(),
+                acceptableAnswers = new[] { "정답" }, explanation = "해설", difficulty = 1 } } });
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, new {
+            status = "completed", output = new[] { new { type = "message",
+                content = new[] { new { type = "output_text", text = output } } } } }));
+        var input = Input() with { SourceText = "", ConceptPlans = [new(
+            new QuestionGenerationConcept("concept-one", "웹 캐시", "캐시에서 객체를 반환한다."), 1, [4])],
+            BindConceptOnServer = true };
+        var questions = await CreateProvider(handler, model: model)
+            .GenerateQuestionsAsync(input, TestContext.Current.CancellationToken);
+        Assert.Single(questions); // Source/primary IDs are intentionally absent in model output.
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        var root = request.RootElement;
+        Assert.Equal("review-question-single-concept-v12", root.GetProperty("prompt_cache_key").GetString());
+        Assert.Equal(explicitCache, root.TryGetProperty("prompt_cache_options", out var options));
+        var commonInstructions = explicitCache
+            ? root.GetProperty("input")[0].GetProperty("content")[0].GetProperty("text").GetString()
+            : root.GetProperty("input")[0].GetProperty("content").GetString();
+        Assert.Contains("haera-che (해라체)", commonInstructions);
+        if (explicitCache)
+        {
+            Assert.Equal("explicit", options.GetProperty("mode").GetString());
+            Assert.Equal("30m", options.GetProperty("ttl").GetString());
+            Assert.Equal("developer", root.GetProperty("input")[0].GetProperty("role").GetString());
+            var prefix = root.GetProperty("input")[0].GetProperty("content")[0];
+            Assert.Equal("explicit", prefix.GetProperty("prompt_cache_breakpoint").GetProperty("mode").GetString());
+            Assert.DoesNotContain("concept-one", prefix.GetProperty("text").GetString());
+        }
+        var schema = root.GetProperty("text").GetProperty("format").GetProperty("schema");
+        Assert.DoesNotContain("sourceIds", schema.GetRawText());
+        Assert.DoesNotContain("primaryConceptId", schema.GetRawText());
+        var payload = JsonDocument.Parse(root.GetProperty("input")[1].GetProperty("content").GetString()!);
+        using (payload)
+        {
+            Assert.Equal("concept-one", payload.RootElement.GetProperty("source").GetProperty("id").GetString());
+            Assert.Equal(1, payload.RootElement.GetProperty("questionCount").GetInt32());
+            Assert.Equal(4, payload.RootElement.GetProperty("targetDifficulties")[0].GetInt32());
+        }
+    }
 
     private static HttpResponseMessage JsonResponse(
         HttpStatusCode statusCode,

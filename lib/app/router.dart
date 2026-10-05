@@ -6,6 +6,7 @@ import 'package:review_platform/features/ai_generation/ai_question_generation_vi
 import 'package:review_platform/features/documents/document_import_view.dart';
 import 'package:review_platform/features/library/folder_browser/folder_browser_view.dart';
 import 'package:review_platform/features/library/question_editor/question_editor_view.dart';
+import 'package:review_platform/features/library/question_list/concept_questions_view.dart';
 import 'package:review_platform/features/settings/settings_view.dart';
 import 'package:review_platform/features/settings/llm_profiles/llm_profiles_view.dart';
 import 'package:review_platform/features/settings/llm_profiles/llm_profiles_view_model.dart';
@@ -47,6 +48,22 @@ abstract final class AppRoutes {
   static String documentsForSource(String folderId, String sourceId) => Uri(
     path: documents,
     queryParameters: {'folderId': folderId, 'sourceId': sourceId},
+  ).toString();
+  static String documentsForConcept(
+    String folderId,
+    String sourceId,
+    String conceptId,
+  ) => Uri(
+    path: documents,
+    queryParameters: {
+      'folderId': folderId,
+      'sourceId': sourceId,
+      'conceptId': conceptId,
+    },
+  ).toString();
+  static String questionsForConcept(String conceptId, String title) => Uri(
+    path: '/concept/$conceptId/questions',
+    queryParameters: {'title': title},
   ).toString();
   static String documentsForJob(String folderId, String jobId) => Uri(
     path: documents,
@@ -137,6 +154,15 @@ GoRouter router(Ref ref) {
           folderId: state.uri.queryParameters['folderId']!,
           initialSourceId: state.uri.queryParameters['sourceId'],
           initialJobId: state.uri.queryParameters['jobId'],
+          initialConceptId: state.uri.queryParameters['conceptId'],
+        ),
+      ),
+      GoRoute(
+        parentNavigatorKey: rootNavigatorKey,
+        path: '/concept/:conceptId/questions',
+        builder: (context, state) => ConceptQuestionsView(
+          conceptId: state.pathParameters['conceptId']!,
+          conceptTitle: state.uri.queryParameters['title'] ?? '학습 개념',
         ),
       ),
       GoRoute(

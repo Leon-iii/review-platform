@@ -33,15 +33,30 @@ class QuizResultView extends ConsumerWidget {
               child: Column(
                 children: [
                   Icon(
-                    Icons.emoji_events_rounded,
+                    summary.stopped
+                        ? Icons.stop_circle_outlined
+                        : Icons.emoji_events_rounded,
                     size: 72,
                     color: Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    '학습 완료',
+                    summary.stopped ? '학습 중단' : '학습 완료',
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
+                  if (summary.stopped) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '전체 ${summary.session.totalQuestions}문항 중 ${summary.attempts.length}문항 채점 완료',
+                    ),
+                    const Text('채점하지 않은 문항은 점수와 정답률에서 제외됩니다.'),
+                  ],
+                  if (summary.skippedQuestions > 0) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '재검토 요청 ${summary.skippedQuestions}문항은 점수와 정답률에서 제외됩니다.',
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   Card(
                     child: Padding(
@@ -79,7 +94,14 @@ class QuizResultView extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  if (summary.session.filter.feedbackTiming ==
+                  if (summary.attempts.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Text('채점한 문항이 없어요.'),
+                      ),
+                    )
+                  else if (summary.session.filter.feedbackTiming ==
                       AnswerFeedbackTiming.afterCompletion)
                     for (final attempt in summary.attempts)
                       Padding(
@@ -87,14 +109,20 @@ class QuizResultView extends ConsumerWidget {
                         child: _AnswerResultCard(attempt: attempt),
                       )
                   else if (summary.wrongAttempts.isEmpty)
-                    const Card(
+                    Card(
                       child: Padding(
                         padding: EdgeInsets.all(20),
                         child: Row(
                           children: [
-                            Icon(Icons.check_circle_outline_rounded),
-                            SizedBox(width: 12),
-                            Expanded(child: Text('모든 문제를 맞혔어요.')),
+                            const Icon(Icons.check_circle_outline_rounded),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                summary.stopped || summary.skippedQuestions > 0
+                                    ? '채점한 문항은 모두 맞혔어요.'
+                                    : '모든 문제를 맞혔어요.',
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -169,9 +197,8 @@ class _AnswerResultCard extends StatelessWidget {
                       .map((choice) => choice.text)
                       .firstOrNull ??
                   '선택 없음',
-            QuestionType.shortAnswer =>
+            QuestionType.shortAnswer || QuestionType.essay =>
               attempt.response['textAnswer'] as String? ?? '',
-            QuestionType.essay => '서술형 답안',
           };
     final correctAnswer = switch (question.type) {
       QuestionType.multipleChoice || QuestionType.trueFalse =>
@@ -179,8 +206,8 @@ class _AnswerResultCard extends StatelessWidget {
             .where((choice) => choice.isCorrect)
             .map((choice) => choice.text)
             .join(', '),
-      QuestionType.shortAnswer => question.acceptableAnswers.join(', '),
-      QuestionType.essay => '수동 채점',
+      QuestionType.shortAnswer ||
+      QuestionType.essay => question.acceptableAnswers.join('\n'),
     };
 
     return Card(

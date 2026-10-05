@@ -1,5 +1,6 @@
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
+import 'package:review_platform/domain/formatters/page_number_formatter.dart';
 
 class StudySource {
   const StudySource({
@@ -140,17 +141,12 @@ class ConceptGenerationSeed {
   final StudyConcept concept;
 
   String get sourceLabel {
-    final pages = concept.pageNumbers.join(', ');
+    final pages = formatPageNumbers(concept.pageNumbers);
     final label =
         '${source.fileName}'
         '${concept.hasPageSource ? ' · p.$pages' : ''} · ${concept.title}';
     return label.length <= 200 ? label : label.substring(0, 200);
   }
-
-  String get sourceText => [
-    concept.title,
-    concept.content,
-  ].where((value) => value.trim().isNotEmpty).join('\n\n');
 }
 
 class SourceGenerationSeed {
@@ -163,12 +159,6 @@ class SourceGenerationSeed {
   String get sourceLabel => source.fileName.length <= 200
       ? source.fileName
       : source.fileName.substring(0, 200);
-  String get sourceText => [
-    for (var index = 0; index < concepts.length; index++)
-      '${index + 1}. ${concepts[index].title}\n'
-          '${concepts[index].hasPageSource ? '페이지: ${concepts[index].pageNumbers.join(', ')}\n' : ''}'
-          '${concepts[index].content}',
-  ].join('\n\n');
 
   // Request-level provenance only. Structured generation maps each returned
   // question to its validated primary concept and that concept's own pages.

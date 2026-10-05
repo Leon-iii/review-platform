@@ -35,6 +35,8 @@ class QuizSessionItem {
     required this.position,
     required this.questionSnapshot,
     this.attemptId,
+    this.pendingEssayResponse,
+    this.skippedForReview = false,
   });
 
   final String id;
@@ -43,6 +45,8 @@ class QuizSessionItem {
   final int position;
   final QuestionSnapshot questionSnapshot;
   final String? attemptId;
+  final Map<String, Object?>? pendingEssayResponse;
+  final bool skippedForReview;
 }
 
 class QuizSessionDetails {
@@ -50,4 +54,7 @@ class QuizSessionDetails {
 
   final QuizSession session;
   final List<QuizSessionItem> items;
+  int get skippedQuestions =>
+      items.where((item) => item.skippedForReview).length;
+  int get processedQuestions => session.completedQuestions + skippedQuestions;
 }
