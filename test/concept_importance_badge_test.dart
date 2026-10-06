@@ -9,6 +9,7 @@ import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/concept_status_badge.dart';
+import 'package:review_platform/shared/widgets/review_status_badge.dart';
 
 void main() {
   const pastels = [
@@ -40,9 +41,7 @@ void main() {
             : AppTheme.dark;
         final grayBorder = BorderSide(
           strokeAlign: BorderSide.strokeAlignOutside,
-          color: brightness == Brightness.dark
-              ? Colors.grey.shade700
-              : Colors.grey.shade400,
+          color: theme.colorScheme.outlineVariant,
         );
         await tester.pumpWidget(
           MaterialApp(
@@ -58,10 +57,33 @@ void main() {
                   for (final status in ConceptStatus.values)
                     ConceptStatusBadge(key: ValueKey(status), status: status),
                   const ConceptBadge(key: Key('source-badge'), label: 'p.1, 2'),
+                  const ReviewStatusBadge(
+                    key: Key('question-approved-badge'),
+                    reviewed: true,
+                    label: '승인됨',
+                  ),
                 ],
               ),
             ),
           ),
+        );
+        final conceptCompleted = find.descendant(
+          of: find.byKey(const ValueKey(ConceptStatus.approved)),
+          matching: find.byType(Chip),
+        );
+        final questionCompleted = find.descendant(
+          of: find.byKey(const Key('question-approved-badge')),
+          matching: find.byType(Chip),
+        );
+        final conceptChip = tester.widget<Chip>(conceptCompleted);
+        final questionChip = tester.widget<Chip>(questionCompleted);
+        expect(questionChip.backgroundColor, conceptChip.backgroundColor);
+        expect(questionChip.labelStyle, conceptChip.labelStyle);
+        expect(questionChip.shape, conceptChip.shape);
+        expect(questionChip.side, conceptChip.side);
+        expect(
+          tester.getSize(questionCompleted).height,
+          tester.getSize(conceptCompleted).height,
         );
         for (var index = 0; index < ConceptImportance.values.length; index++) {
           final importance = ConceptImportance.values[index];

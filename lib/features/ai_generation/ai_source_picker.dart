@@ -1,3 +1,4 @@
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -39,7 +40,6 @@ class AiSourcePickerField extends StatelessWidget {
           decoration: InputDecoration(
             labelText: '자료 이름',
             enabled: !locked,
-            border: const OutlineInputBorder(),
             helperText: locked ? '자료 화면에서 시작한 경우 자료를 변경할 수 없어요.' : null,
             helperMaxLines: 2,
             suffixIcon: locked
@@ -136,7 +136,7 @@ class _AiSourcePickerPanelState extends State<_AiSourcePickerPanel> {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.all(AppSpacing.lg),
     child: Column(
       children: [
         Row(
@@ -144,7 +144,7 @@ class _AiSourcePickerPanelState extends State<_AiSourcePickerPanel> {
             Expanded(
               child: Text(
                 '자료 선택',
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
             IconButton(
@@ -161,7 +161,6 @@ class _AiSourcePickerPanelState extends State<_AiSourcePickerPanel> {
           decoration: const InputDecoration(
             labelText: '자료·폴더 이름 검색',
             prefixIcon: Icon(Icons.search_rounded),
-            border: OutlineInputBorder(),
           ),
           onChanged: (value) =>
               setState(() => _query = value.trim().toLowerCase()),

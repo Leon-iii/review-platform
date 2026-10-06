@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -89,7 +90,7 @@ void main() {
       final prompt = find.byKey(const Key('question-prompt-field'));
       await tester.enterText(prompt, '변경한 문제');
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(find.byType(AppBackButton));
       await tester.pumpAndSettle();
       expect(confirmation, findsOneWidget);
       await tapVisible(
@@ -145,7 +146,7 @@ void main() {
     final prompt = find.byKey(const Key('question-prompt-field'));
     await tester.enterText(prompt, '');
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(BackButton));
+    await tester.tap(find.byType(AppBackButton));
     await tester.pumpAndSettle();
     await tapVisible(tester, saveExit);
     expect(prompt, findsOneWidget);

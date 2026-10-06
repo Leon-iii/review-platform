@@ -1,3 +1,4 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,7 +30,7 @@ class QuestionListView extends ConsumerWidget {
     final jobs = ref.watch(folderDocumentJobsProvider(folderId));
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 24, 4, 96),
+      padding: const EdgeInsets.fromLTRB(0, 24, 0, 96),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -55,7 +56,7 @@ class QuestionListView extends ConsumerWidget {
                       child: Text(
                         '자료',
                         key: const Key('source-section-header'),
-                        style: Theme.of(context).textTheme.titleLarge
+                        style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -207,7 +208,7 @@ class QuestionListView extends ConsumerWidget {
               Expanded(
                 child: Text(
                   '문제',
-                  style: Theme.of(context).textTheme.titleLarge
+                  style: Theme.of(context).textTheme.titleMedium
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
@@ -268,7 +269,7 @@ class QuestionListView extends ConsumerWidget {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => PopScope(
           canPop: !saving,
-          child: AlertDialog(
+          child: AppDialog(
             title: const Text('새 자료'),
             content: SizedBox(
               width: 480,
@@ -402,7 +403,7 @@ class QuestionListView extends ConsumerWidget {
     var draftName = source.fileName;
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppDialog(
         title: const Text('자료 이름 변경'),
         content: TextFormField(
           key: const Key('pdf-source-name-field'),
@@ -412,7 +413,6 @@ class QuestionListView extends ConsumerWidget {
           decoration: InputDecoration(
             labelText: '자료 이름',
             hintText: source.isManual ? '복습 노트' : '강의자료.pdf',
-            border: OutlineInputBorder(),
           ),
           onChanged: (value) => draftName = value,
           onFieldSubmitted: (value) {
@@ -460,7 +460,7 @@ class QuestionListView extends ConsumerWidget {
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppDialog(
         title: const Text('자료 삭제'),
         content: Text(
           '${source.fileName}을(를) 삭제하시겠습니까?\n\n'

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -19,7 +21,10 @@ class QuizResultView extends ConsumerWidget {
 
     return Scaffold(
       key: const Key('quiz-result-view'),
-      appBar: AppBar(title: const Text('퀴즈 결과')),
+      appBar: AppPageBar(
+        fallback: AppRoutes.studySetup,
+        title: const Text('퀴즈 결과'),
+      ),
       body: result.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
@@ -27,9 +32,11 @@ class QuizResultView extends ConsumerWidget {
         ),
         data: (summary) => Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: AppLayout.pagePadding(context),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 620),
+              constraints: const BoxConstraints(
+                maxWidth: AppLayout.readingWidth,
+              ),
               child: Column(
                 children: [
                   Icon(
@@ -60,23 +67,29 @@ class QuizResultView extends ConsumerWidget {
                   const SizedBox(height: 28),
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(AppSpacing.lg),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _ResultValue(
-                            label: '총점',
-                            value:
-                                '${summary.totalScore.toStringAsFixed(0)}/${summary.maxScore.toStringAsFixed(0)}',
+                          Expanded(
+                            child: _ResultValue(
+                              label: '총점',
+                              value:
+                                  '${summary.totalScore.toStringAsFixed(0)}/${summary.maxScore.toStringAsFixed(0)}',
+                            ),
                           ),
-                          _ResultValue(
-                            label: '정답',
-                            value:
-                                '${summary.correctCount}/${summary.attempts.length}',
+                          Expanded(
+                            child: _ResultValue(
+                              label: '정답',
+                              value:
+                                  '${summary.correctCount}/${summary.attempts.length}',
+                            ),
                           ),
-                          _ResultValue(
-                            label: '정답률',
-                            value: '${summary.accuracyPercent}%',
+                          Expanded(
+                            child: _ResultValue(
+                              label: '정답률',
+                              value: '${summary.accuracyPercent}%',
+                            ),
                           ),
                         ],
                       ),
@@ -90,7 +103,7 @@ class QuizResultView extends ConsumerWidget {
                               AnswerFeedbackTiming.afterCompletion
                           ? '문제별 결과'
                           : '오답 문제',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -161,9 +174,10 @@ class QuizResultView extends ConsumerWidget {
                   const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
-                    child: TextButton(
+                    child: TextButton.icon(
                       onPressed: () => context.go(AppRoutes.home),
-                      child: const Text('홈으로'),
+                      icon: const Icon(Icons.home_outlined),
+                      label: const Text('홈으로'),
                     ),
                   ),
                 ],

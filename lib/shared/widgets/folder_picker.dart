@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/domain/models/folder.dart';
 
 class FolderPickerField extends StatelessWidget {
@@ -41,7 +42,6 @@ class FolderPickerField extends StatelessWidget {
             decoration: InputDecoration(
               labelText: labelText,
               helperText: helperText,
-              border: const OutlineInputBorder(),
               suffixIcon: const Icon(Icons.folder_open_rounded),
             ),
             child: Text(
@@ -228,7 +228,6 @@ class _FolderPickerPanelState extends State<_FolderPickerPanel> {
                       onPressed: _searchController.clear,
                       icon: const Icon(Icons.clear_rounded),
                     ),
-              border: const OutlineInputBorder(),
             ),
           ),
         ),
@@ -393,7 +392,7 @@ class _FolderRow extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            width: 40,
+            width: AppLayout.touchTarget,
             child: hasChildren
                 ? IconButton(
                     tooltip: expanded ? '접기' : '펼치기',

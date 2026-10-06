@@ -477,3 +477,21 @@ Windows의 읽기 전용 `OCR 원문 대조`에서는 원본·추출본을 페�
 `revision`을 포함하며, 원본 PDF·페이지 이미지·검토 초안에도 동일한 접근 토큰 인증을 적용합니다.
 페이지·이미지 GET은 완료된 작업에도 허용하고 페이지 응답에 `readOnly: true`를 반환합니다.
 페이지 PUT은 검토 대기 상태에서만 허용하며 완료된 작업은 재수정하지 않습니다.
+
+## UI/UX 기준과 검증
+
+화면 개발은 루트 `UI_UX_DESIGN_GUIDELINES_v2.md`를 따릅니다.
+공통 토큰은 `lib/app/design_tokens.dart`, 테마는 `lib/app/theme.dart`에 있으며,
+헤더·동등 행동 그룹·dialog·유형 선택·배지는 `lib/shared/widgets`에서 재사용합니다.
+전체 화면 조사, 실제 Windows 조작 결과와 미검증 항목은
+[`docs/ui_ux_refactor_v2.md`](docs/ui_ux_refactor_v2.md)에 기록했습니다.
+
+사용자 DB·서버·유료 API를 건드리지 않고 화면을 확인하려면:
+
+```powershell
+flutter run -d windows -t tool/ui_preview.dart
+```
+
+이 진입점은 메모리 DB와 합성 자료·가짜 API만 사용합니다. 실제 앱 실행/빌드는
+기존처럼 기본 `lib/main.dart`를 사용하세요. 반응형·글자 확대·복귀·입력 보호·검수
+중복 제출 회귀 테스트는 `test/ui_ux_v2_test.dart`에 있습니다.

@@ -1,4 +1,8 @@
+import 'package:review_platform/shared/widgets/question_type_options.dart';
+import 'package:review_platform/shared/widgets/app_option_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -59,7 +63,10 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
 
     return Scaffold(
       key: const Key('study-setup-view'),
-      appBar: AppBar(title: const Text('문제 풀기 설정')),
+      appBar: AppPageBar(
+        fallback: AppRoutes.home,
+        title: const Text('문제 풀기 설정'),
+      ),
       body: folders.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => _ErrorMessage(error: error),
@@ -71,20 +78,22 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
               : options.first.folder.id;
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+            padding: AppLayout.pagePadding(context),
             children: [
               Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 680),
+                  constraints: const BoxConstraints(
+                    maxWidth: AppLayout.readingWidth,
+                  ),
                   child: Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(AppSpacing.lg),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
                             '학습 범위',
-                            style: Theme.of(context).textTheme.titleLarge,
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 16),
                           FolderPickerField(
@@ -104,55 +113,25 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              FilterChip(
-                                key: const Key('true-false-filter'),
-                                label: const Text('O/X'),
-                                avatar: const Icon(Icons.rule_rounded),
-                                selected: _types.contains(
-                                  QuestionType.trueFalse,
-                                ),
-                                onSelected: (selected) => _toggleType(
-                                  QuestionType.trueFalse,
-                                  selected,
-                                ),
+                          AppOptionSelector<QuestionType>(
+                            segments: questionTypeOptions,
+                            segmentKeys: const {
+                              QuestionType.trueFalse: Key('true-false-filter'),
+                              QuestionType.multipleChoice: Key(
+                                'multiple-choice-filter',
                               ),
-                              FilterChip(
-                                key: const Key('multiple-choice-filter'),
-                                label: const Text('객관식'),
-                                avatar: const Icon(Icons.list_alt_rounded),
-                                selected: _types.contains(
-                                  QuestionType.multipleChoice,
-                                ),
-                                onSelected: (selected) => _toggleType(
-                                  QuestionType.multipleChoice,
-                                  selected,
-                                ),
+                              QuestionType.shortAnswer: Key(
+                                'short-answer-filter',
                               ),
-                              FilterChip(
-                                key: const Key('short-answer-filter'),
-                                label: const Text('단답형'),
-                                avatar: const Icon(Icons.short_text_rounded),
-                                selected: _types.contains(
-                                  QuestionType.shortAnswer,
-                                ),
-                                onSelected: (selected) => _toggleType(
-                                  QuestionType.shortAnswer,
-                                  selected,
-                                ),
-                              ),
-                              FilterChip(
-                                key: const Key('essay-filter'),
-                                label: const Text('서술형'),
-                                avatar: const Icon(Icons.notes_rounded),
-                                selected: _types.contains(QuestionType.essay),
-                                onSelected: (selected) =>
-                                    _toggleType(QuestionType.essay, selected),
-                              ),
-                            ],
+                              QuestionType.essay: Key('essay-filter'),
+                            },
+                            multiSelectionEnabled: true,
+                            emptySelectionAllowed: true,
+                            selected: _types,
+                            onSelectionChanged: (types) => setState(() {
+                              _types.clear();
+                              _types.addAll(types);
+                            }),
                           ),
                           const SizedBox(height: 28),
                           Text(
@@ -195,7 +174,6 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                             initialValue: _questionCount,
                             decoration: const InputDecoration(
                               labelText: '문제 수',
-                              border: OutlineInputBorder(),
                             ),
                             items: const [
                               DropdownMenuItem(value: 5, child: Text('5문제')),
@@ -288,16 +266,6 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
     );
   }
 
-  void _toggleType(QuestionType type, bool selected) {
-    setState(() {
-      if (selected) {
-        _types.add(type);
-      } else {
-        _types.remove(type);
-      }
-    });
-  }
-
   String _difficultyLabel(double value) {
     final level = value.round();
     return '$level · ${_difficultyLabels[level]}';
@@ -342,7 +310,7 @@ class _EmptyFolders extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

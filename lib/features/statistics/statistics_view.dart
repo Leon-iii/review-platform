@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -15,12 +17,12 @@ class StatisticsView extends ConsumerWidget {
 
     return Scaffold(
       key: const Key('statistics-view'),
-      appBar: AppBar(title: const Text('통계')),
+      appBar: AppPageBar(showBack: false, title: const Text('통계')),
       body: statistics.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: AppErrorNotice(error: error, fallback: '통계를 불러오지 못했어요.'),
           ),
         ),
@@ -38,23 +40,23 @@ class _StatisticsContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+      padding: AppLayout.pagePadding(context),
       children: [
         Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
+            constraints: const BoxConstraints(maxWidth: AppLayout.readingWidth),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _Overview(summary: summary),
                 const SizedBox(height: 28),
-                Text('기간별 정답률', style: Theme.of(context).textTheme.titleLarge),
+                Text('기간별 정답률', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 12),
                 _AccuracyRow(label: '최근 7일', metric: summary.last7Days),
                 const SizedBox(height: 12),
                 _AccuracyRow(label: '최근 30일', metric: summary.last30Days),
                 const SizedBox(height: 28),
-                Text('폴더별 정답률', style: Theme.of(context).textTheme.titleLarge),
+                Text('폴더별 정답률', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 12),
                 if (summary.folderStatistics.isEmpty)
                   const _EmptyCard(message: '아직 폴더별 학습 기록이 없어요.')
@@ -70,7 +72,7 @@ class _StatisticsContent extends StatelessWidget {
                     Expanded(
                       child: Text(
                         '최근 오답',
-                        style: Theme.of(context).textTheme.titleLarge,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
                     if (summary.recentWrongQuestions.isNotEmpty)
@@ -176,10 +178,11 @@ class _AccuracyRow extends StatelessWidget {
     final hasAttempts = metric.maxScore > 0;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Row(
           children: [
-            SizedBox(width: 76, child: Text(label)),
+            Flexible(child: Text(label)),
+            const SizedBox(width: 12),
             Expanded(
               child: LinearProgressIndicator(
                 value: hasAttempts ? metric.score / metric.maxScore : 0,
@@ -188,12 +191,9 @@ class _AccuracyRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 16),
-            SizedBox(
-              width: 44,
-              child: Text(
-                hasAttempts ? '${metric.accuracyPercent}%' : '-',
-                textAlign: TextAlign.end,
-              ),
+            Text(
+              hasAttempts ? '${metric.accuracyPercent}%' : '-',
+              textAlign: TextAlign.end,
             ),
           ],
         ),
@@ -211,7 +211,7 @@ class _FolderAccuracy extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -220,7 +220,12 @@ class _FolderAccuracy extends StatelessWidget {
                 const Icon(Icons.folder_outlined),
                 const SizedBox(width: 10),
                 Expanded(child: Text(folder.folderName)),
-                Text('${folder.accuracyPercent}% · ${folder.attemptCount}회'),
+                Flexible(
+                  child: Text(
+                    '${folder.accuracyPercent}% · ${folder.attemptCount}회',
+                    textAlign: TextAlign.end,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -280,7 +285,7 @@ class _EmptyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Text(message, textAlign: TextAlign.center),
       ),
     );

@@ -1,6 +1,11 @@
+import 'package:review_platform/shared/widgets/question_type_options.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_option_selector.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/unsaved_changes_guard.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,12 +27,15 @@ class QuestionEditorView extends ConsumerWidget {
     final question = ref.watch(questionEditorViewModelProvider(questionId));
 
     return Scaffold(
-      appBar: AppBar(title: Text(questionId == null ? '문제 추가' : '문제 수정')),
+      appBar: AppPageBar(
+        title: Text(questionId == null ? '문제 추가' : '문제 수정'),
+        handleSystemBack: !question.hasValue,
+      ),
       body: question.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: AppErrorNotice(error: error, fallback: '문제를 불러오지 못했어요.'),
           ),
         ),
@@ -166,17 +174,20 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       busy: _isSaving || _isPickingConcept,
       onSave: _save,
       savedResult: true,
+      fallback: '/library/folder/${widget.folderId}',
       child: AbsorbPointer(
         absorbing: _isSaving,
         child: Form(
           key: _formKey,
           onChanged: () => setState(() {}),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+            padding: AppLayout.pagePadding(context),
             children: [
               Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
+                  constraints: const BoxConstraints(
+                    maxWidth: AppLayout.readingWidth,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -185,29 +196,8 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
-                      SegmentedButton<QuestionType>(
-                        segments: const [
-                          ButtonSegment(
-                            value: QuestionType.multipleChoice,
-                            icon: Icon(Icons.format_list_numbered_rounded),
-                            label: Text('객관식'),
-                          ),
-                          ButtonSegment(
-                            value: QuestionType.trueFalse,
-                            icon: Icon(Icons.rule_rounded),
-                            label: Text('O/X'),
-                          ),
-                          ButtonSegment(
-                            value: QuestionType.shortAnswer,
-                            icon: Icon(Icons.short_text_rounded),
-                            label: Text('단답형'),
-                          ),
-                          ButtonSegment(
-                            value: QuestionType.essay,
-                            icon: Icon(Icons.notes_rounded),
-                            label: Text('서술형'),
-                          ),
-                        ],
+                      AppOptionSelector<QuestionType>(
+                        segments: questionTypeOptions,
                         selected: {_type},
                         onSelectionChanged: (selection) {
                           setState(() {
@@ -229,7 +219,6 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         decoration: const InputDecoration(
                           labelText: '문제',
                           alignLabelWithHint: true,
-                          border: OutlineInputBorder(),
                         ),
                         validator: (value) =>
                             value == null || value.trim().isEmpty
@@ -247,11 +236,10 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                       const SizedBox(height: 24),
                       DropdownButtonFormField<int>(
                         key: const Key('question-difficulty-field'),
+                        isExpanded: true,
+                        itemHeight: null,
                         initialValue: _difficulty,
-                        decoration: const InputDecoration(
-                          labelText: '난이도',
-                          border: OutlineInputBorder(),
-                        ),
+                        decoration: const InputDecoration(labelText: '난이도'),
                         items: const [
                           DropdownMenuItem(value: 1, child: Text('1 · 매우 쉬움')),
                           DropdownMenuItem(value: 2, child: Text('2 · 쉬움')),
@@ -274,7 +262,6 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         decoration: const InputDecoration(
                           labelText: '해설 (선택)',
                           alignLabelWithHint: true,
-                          border: OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -393,7 +380,6 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                       enabled: !_isSaving,
                       decoration: InputDecoration(
                         labelText: '선택지 ${index + 1}',
-                        border: const OutlineInputBorder(),
                       ),
                       validator: (value) =>
                           value == null || value.trim().isEmpty
@@ -450,7 +436,6 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                     maxLines: essay ? 8 : 1,
                     decoration: InputDecoration(
                       labelText: '${essay ? '모범 답안' : '허용 정답'} ${index + 1}',
-                      border: const OutlineInputBorder(),
                     ),
                     validator: (value) => value == null || value.trim().isEmpty
                         ? (essay ? '모범 답안을 입력해 주세요.' : '허용 정답을 입력해 주세요.')

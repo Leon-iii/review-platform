@@ -308,7 +308,7 @@ void main() {
             find.text('출처 개념의 중요도를 따릅니다. 개념에서 수정하면 연결된 문제에도 반영됩니다.'),
             findsOneWidget,
           );
-          await tester.pageBack();
+          await tester.tap(find.byTooltip('뒤로가기'));
           await tester.pumpAndSettle();
         } else {
           slider.onChanged!(1);

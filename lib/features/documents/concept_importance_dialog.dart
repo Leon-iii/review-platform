@@ -1,3 +1,4 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
@@ -44,7 +45,7 @@ class _ConceptImportanceDialogState extends State<ConceptImportanceDialog> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_saving,
-    child: AlertDialog(
+    child: AppDialog(
       key: const Key('concept-importance-dialog'),
       title: const Text('중요도 설정'),
       content: SizedBox(
@@ -54,7 +55,7 @@ class _ConceptImportanceDialogState extends State<ConceptImportanceDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(widget.title, maxLines: 3, overflow: TextOverflow.ellipsis),
+              Text(widget.title),
               const SizedBox(height: 20),
               Text(
                 _importance.label,

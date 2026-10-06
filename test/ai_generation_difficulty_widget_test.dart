@@ -1,6 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_option_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/app/app.dart';
@@ -75,8 +76,8 @@ void main() {
             .read(routerProvider)
             .go('${AppRoutes.aiGenerate}?folderId=$folderId');
         await tester.pumpAndSettle();
-        final types = tester.widget<SegmentedButton<QuestionType>>(
-          find.byType(SegmentedButton<QuestionType>),
+        final types = tester.widget<AppOptionSelector<QuestionType>>(
+          find.byType(AppOptionSelector<QuestionType>),
         );
         expect(types.segments.map((segment) => segment.value).toList(), [
           QuestionType.trueFalse,

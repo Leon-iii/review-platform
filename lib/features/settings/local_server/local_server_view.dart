@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/shared/widgets/app_action_group.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -65,13 +68,18 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
 
     return Scaffold(
       key: const Key('local-server-view'),
-      appBar: AppBar(title: const Text('Local Server')),
+      appBar: AppPageBar(
+        fallback: '/settings',
+        title: const Text('Local Server'),
+      ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+        padding: AppLayout.pagePadding(context),
         children: [
           Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 820),
+              constraints: const BoxConstraints(
+                maxWidth: AppLayout.readingWidth,
+              ),
               child: Form(
                 key: _formKey,
                 child: Column(
@@ -89,7 +97,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                     const SizedBox(height: 20),
                     Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(AppSpacing.lg),
                         child: state.isLoadingSettings
                             ? const Center(child: CircularProgressIndicator())
                             : Column(
@@ -109,7 +117,6 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                     decoration: const InputDecoration(
                                       labelText: 'Server Port',
                                       hintText: '5080',
-                                      border: OutlineInputBorder(),
                                     ),
                                     validator: (value) {
                                       final port = int.tryParse(
@@ -151,9 +158,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                                     exitCode: state.runtime.processExitCode,
                                   ),
                                   const SizedBox(height: 18),
-                                  Wrap(
-                                    spacing: 10,
-                                    runSpacing: 10,
+                                  AppActionGroup(
                                     children: [
                                       OutlinedButton.icon(
                                         key: const Key(
@@ -205,7 +210,7 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                         Expanded(
                           child: Text(
                             'Server Logs',
-                            style: Theme.of(context).textTheme.titleLarge,
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
                         TextButton.icon(
@@ -240,10 +245,8 @@ class _LocalServerViewState extends ConsumerState<LocalServerView> {
                             state.runtime.logs.isEmpty
                                 ? '서버 로그가 여기에 표시됩니다.'
                                 : state.runtime.logs.join('\n'),
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                            ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontFamily: 'monospace'),
                           ),
                         ),
                       ),
@@ -373,10 +376,12 @@ class _StatusPanel extends StatelessWidget {
               children: [
                 Icon(Icons.circle, color: color, size: 13),
                 const SizedBox(width: 8),
-                Text(
-                  label,
-                  key: const Key('local-server-status'),
-                  style: Theme.of(context).textTheme.titleMedium,
+                Expanded(
+                  child: Text(
+                    label,
+                    key: const Key('local-server-status'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
               ],
             ),

@@ -1,4 +1,6 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 enum _ExitAction { discard, save }
 
@@ -10,6 +12,7 @@ class UnsavedChangesGuard extends StatefulWidget {
     required this.onSave,
     required this.child,
     this.savedResult,
+    this.fallback,
     super.key,
   });
 
@@ -17,6 +20,7 @@ class UnsavedChangesGuard extends StatefulWidget {
   final bool busy;
   final Future<bool> Function() onSave;
   final Object? savedResult;
+  final String? fallback;
   final Widget child;
 
   @override
@@ -37,7 +41,7 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
       }
       final action = await showDialog<_ExitAction>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => AppDialog(
           key: const Key('unsaved-changes-dialog'),
           title: const Text('저장하지 않은 변경사항이 있어요'),
           content: const Text('변경사항을 저장하고 나갈까요?'),
@@ -78,12 +82,21 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
     setState(() => _allowPop = true);
     // An explicit pop is intentional here: saving/discarding was already
     // confirmed. PopScope's callback receives didPop=true and does not re-prompt.
-    if (mounted) Navigator.of(context).pop(result);
+    if (!mounted) return;
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(result);
+    } else if (widget.fallback != null) {
+      context.go(widget.fallback!);
+    }
   }
 
   @override
   Widget build(BuildContext context) => PopScope<Object?>(
-    canPop: _allowPop || (!widget.hasChanges && !widget.busy),
+    canPop:
+        _allowPop ||
+        (!widget.hasChanges &&
+            !widget.busy &&
+            (widget.fallback == null || Navigator.of(context).canPop())),
     onPopInvokedWithResult: (didPop, result) {
       if (!didPop) requestExit(result);
     },

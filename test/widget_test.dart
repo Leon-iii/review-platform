@@ -203,7 +203,7 @@ void main() {
                 .label,
             contains('OpenAI'),
           );
-          await tester.pageBack();
+          await tester.tap(find.byTooltip('뒤로가기'));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox.shrink());
@@ -291,7 +291,7 @@ void main() {
       expect(profile.model, 'gpt-5-mini');
       expect(profile.reasoningEffort, isNull);
     }
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('llm-profiles-settings-tile')));
     await tester.pumpAndSettle();
@@ -338,7 +338,7 @@ void main() {
               .every((p) => p.maximumQuestionsPerRequest == 120),
           isTrue,
         );
-        await tester.pageBack();
+        await tester.tap(find.byTooltip('뒤로가기'));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('llm-profiles-settings-tile')));
         await tester.pumpAndSettle();
@@ -420,7 +420,7 @@ void main() {
     await openLlmProfiles(tester, api);
     await _setReasoningEffort(tester, 'high');
     expect(api.saveCalls, 0);
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('llm-profiles-view')), findsNothing);
     expect(api.saveCalls, 1);
@@ -447,7 +447,7 @@ void main() {
           .onChanged,
       isNull,
     );
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pump();
     expect(find.byKey(const Key('llm-profiles-view')), findsOneWidget);
     expect(api.saveCalls, 1);
@@ -611,7 +611,7 @@ void main() {
     await _waitForProfileAutosave(tester);
     expect(api.saveCalls, 0);
     expect(find.text('서버에서 사용할 수 있는 모델을 선택해 주세요.'), findsNWidgets(4));
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pumpAndSettle();
     expect(find.text('저장하지 않고 나갈까요?'), findsOneWidget);
     await tester.tap(find.text('계속 편집'));
@@ -621,7 +621,7 @@ void main() {
       tester.widget<TextFormField>(keyField).controller!.text,
       'pending-key',
     );
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('변경사항 버리기'));
     await tester.pumpAndSettle();
@@ -1213,7 +1213,7 @@ void main() {
     expect(visible(), isNot(contains('gpt-4o-mini')));
     expect(find.textContaining('현재 선택한 모델은 구형 모델입니다.'), findsWidgets);
     // Both the model choice and display preference now persist automatically.
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('llm-profiles-settings-tile')));
     await tester.pumpAndSettle();
@@ -1375,6 +1375,9 @@ void main() {
     await tester.enterText(find.byKey(const Key('choice-field-1')), 'A/m');
     await tester.enterText(find.byKey(const Key('choice-field-2')), 'T');
     await tester.enterText(find.byKey(const Key('choice-field-3')), 'Wb');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('save-question-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('save-question-button')));
     await tester.pumpAndSettle();
 
@@ -1600,7 +1603,7 @@ void main() {
       expect(find.text('이 폴더에 저장된 문제가 없어요.'), findsOneWidget);
       expect((await questions.getQuestion(questionId))!.folderId, targetId);
 
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('뒤로가기'));
       await tester.pumpAndSettle();
       expect(find.text('하위 폴더 0개, 문제 0개, 자료 0개'), findsOneWidget);
       await tester.tap(find.text('보관함'));

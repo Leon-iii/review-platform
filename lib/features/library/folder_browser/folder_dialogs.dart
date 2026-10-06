@@ -1,3 +1,4 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/domain/models/folder.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
@@ -48,17 +49,14 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return AppDialog(
       title: Text(widget.title),
       content: Form(
         key: _formKey,
         child: TextFormField(
           controller: _controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '폴더 이름',
-            border: OutlineInputBorder(),
-          ),
+          decoration: const InputDecoration(labelText: '폴더 이름'),
           textInputAction: TextInputAction.done,
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
@@ -96,7 +94,7 @@ Future<FolderMoveSelection?> showFolderMoveDialog(
   return showDialog<FolderMoveSelection>(
     context: context,
     builder: (context) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
+      builder: (context, setState) => AppDialog(
         title: const Text('폴더 옮기기'),
         content: SizedBox(
           width: 360,
@@ -133,7 +131,7 @@ Future<bool> showFolderDeleteDialog(
 }) async {
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => AppDialog(
       title: const Text('폴더 삭제'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

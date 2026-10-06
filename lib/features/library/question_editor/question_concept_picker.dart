@@ -1,3 +1,4 @@
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/features/library/question_editor/question_editor_view_model.dart';
@@ -31,7 +32,7 @@ class _QuestionConceptPickerState extends State<QuestionConceptPicker> {
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 720, maxHeight: 600),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           children: [
             Row(
@@ -39,7 +40,7 @@ class _QuestionConceptPickerState extends State<QuestionConceptPicker> {
                 Expanded(
                   child: Text(
                     '주개념 선택',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 IconButton(
@@ -56,7 +57,6 @@ class _QuestionConceptPickerState extends State<QuestionConceptPicker> {
               decoration: const InputDecoration(
                 labelText: '자료·개념·폴더 이름 검색',
                 prefixIcon: Icon(Icons.search_rounded),
-                border: OutlineInputBorder(),
               ),
               onChanged: (value) =>
                   setState(() => _query = value.trim().toLowerCase()),

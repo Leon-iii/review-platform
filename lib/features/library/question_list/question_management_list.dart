@@ -1,4 +1,7 @@
+import 'package:review_platform/app/design_tokens.dart';
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -117,7 +120,6 @@ class _QuestionManagementListState
                           }),
                     icon: const Icon(Icons.close_rounded),
                   ),
-            border: const OutlineInputBorder(),
           ),
           onChanged: (_) => setState(_selected.clear),
         ),
@@ -178,19 +180,18 @@ class _QuestionManagementListState
             spacing: 6,
             children: [
               if (_filter.type != null)
-                Chip(label: Text(questionTypeLabel(_filter.type!))),
+                ConceptBadge(label: questionTypeLabel(_filter.type!)),
               if (_filter.status != null)
-                Chip(label: Text(questionStatusLabel(_filter.status!))),
+                ConceptBadge(label: questionStatusLabel(_filter.status!)),
               if (_filter.importance != null)
-                Chip(label: Text('중요도 ${_filter.importance!.label}')),
+                ConceptBadge(label: '중요도 ${_filter.importance!.label}'),
               if (_filter.minDifficulty != 1 || _filter.maxDifficulty != 5)
-                Chip(
-                  label: Text(
-                    '난이도 ${_filter.minDifficulty}–${_filter.maxDifficulty}',
-                  ),
+                ConceptBadge(
+                  label:
+                      '난이도 ${_filter.minDifficulty}–${_filter.maxDifficulty}',
                 ),
               if (_filter.sourceId != null)
-                Chip(label: Text(sources[_filter.sourceId] ?? '선택한 자료')),
+                ConceptBadge(label: sources[_filter.sourceId] ?? '선택한 자료'),
               TextButton(
                 key: const Key('reset-question-filters'),
                 onPressed: _busy
@@ -257,7 +258,7 @@ class _QuestionManagementListState
         if (visible.isEmpty)
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: Text(
                 widget.questions.isEmpty
                     ? widget.folderId != null
@@ -355,7 +356,7 @@ class _QuestionManagementListState
         case QuestionManagementAction.delete:
           final confirmed = await showDialog<bool>(
             context: context,
-            builder: (context) => AlertDialog(
+            builder: (context) => AppDialog(
               title: const Text('문제 삭제'),
               content: Text('선택한 문제 ${ids.length}개를 삭제하시겠습니까?'),
               actions: [
@@ -414,7 +415,7 @@ class _QuestionManagementListState
     final result = await showDialog<QuestionManagementFilter>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
+        builder: (context, update) => AppDialog(
           title: const Text('문제 필터'),
           content: SizedBox(
             width: 440,

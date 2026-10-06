@@ -1,8 +1,10 @@
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
+import 'package:review_platform/shared/widgets/app_action_group.dart';
 import 'package:review_platform/features/documents/document_ocr_review_view.dart';
 import 'package:review_platform/features/documents/document_job_delete_button.dart';
 
@@ -66,20 +68,22 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
         }
         final job = row.job;
         return ListView(
-          padding: const EdgeInsets.all(20),
+          padding: AppLayout.pagePadding(context),
           children: [
             Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 840),
+                constraints: const BoxConstraints(
+                  maxWidth: AppLayout.readingWidth,
+                ),
                 child: Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(AppSpacing.lg),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
                           job.fileName,
-                          style: Theme.of(context).textTheme.titleLarge,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 12),
                         Text(job.statusLabel),
@@ -112,9 +116,7 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
                           AppErrorNotice(error: job.error!),
                         ],
                         const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
+                        AppActionGroup(
                           children: [
                             if (job.isAwaitingReview)
                               FilledButton.icon(

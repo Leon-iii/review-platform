@@ -1,4 +1,10 @@
+import 'package:review_platform/shared/widgets/question_type_options.dart';
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_action_group.dart';
+import 'package:review_platform/shared/widgets/app_option_selector.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +21,7 @@ import 'package:review_platform/features/ai_generation/ai_source_picker.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
+import 'package:review_platform/shared/widgets/review_status_badge.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 
 class AiQuestionGenerationView extends ConsumerStatefulWidget {
@@ -105,7 +112,7 @@ class _AiQuestionGenerationViewState
 
     return Scaffold(
       key: const Key('ai-generation-view'),
-      appBar: AppBar(title: const Text('AI 문제 생성')),
+      appBar: AppPageBar(title: const Text('AI 문제 생성')),
       body: _loadingConceptSeed
           ? const Center(child: CircularProgressIndicator())
           : generation.when(
@@ -203,11 +210,13 @@ class _AiQuestionGenerationViewState
         return Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+            padding: AppLayout.pagePadding(context),
             children: [
               Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
+                  constraints: const BoxConstraints(
+                    maxWidth: AppLayout.readingWidth,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -233,7 +242,7 @@ class _AiQuestionGenerationViewState
                       ),
                       const SizedBox(height: 8),
                       if (_usesConcepts) ...[
-                        Row(
+                        _ConceptSelectionHeader(
                           key: const Key('ai-concept-list-header'),
                           children: [
                             Expanded(
@@ -241,20 +250,11 @@ class _AiQuestionGenerationViewState
                                 '학습 개념 · 선택 ${_generationConcepts.length}/${_availableConcepts.length}개',
                                 key: const Key('ai-concept-selection-label'),
                                 style: Theme.of(context).textTheme.titleMedium,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             const SizedBox(width: 8),
                             TextButton(
                               key: const Key('ai-select-all-concepts'),
-                              style: TextButton.styleFrom(
-                                minimumSize: Size.zero,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 12,
-                                ),
-                              ),
                               onPressed: () => setState(
                                 () => _selectedConceptIds
                                   ..clear()
@@ -264,13 +264,6 @@ class _AiQuestionGenerationViewState
                             ),
                             TextButton(
                               key: const Key('ai-deselect-all-concepts'),
-                              style: TextButton.styleFrom(
-                                minimumSize: Size.zero,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 12,
-                                ),
-                              ),
                               onPressed: () =>
                                   setState(_selectedConceptIds.clear),
                               child: const Text('선택 해제'),
@@ -294,7 +287,6 @@ class _AiQuestionGenerationViewState
                             labelText: '학습 내용',
                             hintText: '문제를 만들 학습 내용을 붙여 넣으세요.',
                             alignLabelWithHint: true,
-                            border: OutlineInputBorder(),
                           ),
                           validator: (value) {
                             final length = value?.trim().length ?? 0;
@@ -311,31 +303,10 @@ class _AiQuestionGenerationViewState
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
-                      SegmentedButton<QuestionType>(
+                      AppOptionSelector<QuestionType>(
                         multiSelectionEnabled: true,
                         emptySelectionAllowed: false,
-                        segments: const [
-                          ButtonSegment(
-                            value: QuestionType.trueFalse,
-                            icon: Icon(Icons.rule_rounded),
-                            label: Text('O/X'),
-                          ),
-                          ButtonSegment(
-                            value: QuestionType.multipleChoice,
-                            icon: Icon(Icons.format_list_numbered_rounded),
-                            label: Text('객관식'),
-                          ),
-                          ButtonSegment(
-                            value: QuestionType.shortAnswer,
-                            icon: Icon(Icons.short_text_rounded),
-                            label: Text('단답형'),
-                          ),
-                          ButtonSegment(
-                            value: QuestionType.essay,
-                            icon: Icon(Icons.notes_rounded),
-                            label: Text('서술형'),
-                          ),
-                        ],
+                        segments: questionTypeOptions,
                         selected: _questionTypes,
                         onSelectionChanged: (value) =>
                             setState(() => _questionTypes = value),
@@ -428,7 +399,6 @@ class _AiQuestionGenerationViewState
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: '자동 생성량',
-                            border: OutlineInputBorder(),
                           ),
                           items: [
                             DropdownMenuItem(
@@ -475,7 +445,6 @@ class _AiQuestionGenerationViewState
                             labelText: '문제 수',
                             helperText: '1개에서 20개까지 입력할 수 있어요.',
                             suffixText: '개',
-                            border: OutlineInputBorder(),
                           ),
                           validator: (value) {
                             final count = int.tryParse(value ?? '');
@@ -797,20 +766,31 @@ class _AiQuestionGenerationViewState
   }
 }
 
-class _ReviewPanel extends ConsumerWidget {
+class _ReviewPanel extends ConsumerStatefulWidget {
   const _ReviewPanel({required this.review, required this.provider});
 
   final AiQuestionReviewState review;
   final AiQuestionGenerationControllerProvider provider;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ReviewPanel> createState() => _ReviewPanelState();
+}
+
+class _ReviewPanelState extends ConsumerState<_ReviewPanel> {
+  bool _busy = false;
+  AiQuestionReviewState get review => widget.review;
+  AiQuestionGenerationControllerProvider get provider => widget.provider;
+
+  @override
+  Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      padding: AppLayout.pagePadding(context),
       children: [
         Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 840),
+            constraints: const BoxConstraints(
+              maxWidth: AppLayout.managementWidth,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -823,55 +803,61 @@ class _ReviewPanel extends ConsumerWidget {
                 ],
                 Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(AppSpacing.lg),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           '생성된 문제 ${review.items.length}개',
-                          style: Theme.of(context).textTheme.titleLarge,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          '${review.metadata.provider} · ${review.metadata.model} · '
-                          '${review.metadata.promptVersion}',
-                        ),
+                        Text('생성 모델: ${review.metadata.model}'),
                         const SizedBox(height: 16),
-                        Row(
+                        AppActionGroup(
                           children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                key: const Key(
-                                  'approve-all-ai-questions-button',
-                                ),
-                                onPressed: review.pendingCount == 0
-                                    ? null
-                                    : () => _run(
-                                        context,
-                                        () => ref
-                                            .read(provider.notifier)
-                                            .approveAll(),
-                                        '남은 Draft 문제를 모두 승인했어요.',
-                                      ),
-                                icon: const Icon(Icons.done_all_rounded),
-                                label: Text('남은 ${review.pendingCount}개 모두 승인'),
-                              ),
+                            FilledButton.icon(
+                              key: const Key('approve-all-ai-questions-button'),
+                              onPressed: _busy || review.pendingCount == 0
+                                  ? null
+                                  : () => _run(
+                                      context,
+                                      () => ref
+                                          .read(provider.notifier)
+                                          .approveAll(),
+                                      '남은 문제를 모두 승인했어요.',
+                                    ),
+                              icon: const Icon(Icons.done_all_rounded),
+                              label: Text('남은 ${review.pendingCount}개 모두 승인'),
                             ),
-                            const SizedBox(width: 10),
                             OutlinedButton(
-                              onPressed: () =>
-                                  context.go(AppRoutes.folder(review.folderId)),
+                              onPressed: _busy
+                                  ? null
+                                  : () => context.go(
+                                      AppRoutes.folder(review.folderId),
+                                    ),
                               child: const Text('검수 종료'),
                             ),
                           ],
                         ),
+                        if (_busy) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          const LinearProgressIndicator(
+                            semanticsLabel: '검수 변경사항 저장 중',
+                          ),
+                        ],
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 for (final item in review.items) ...[
-                  _ReviewCard(item: item, provider: provider),
+                  _ReviewCard(
+                    item: item,
+                    provider: provider,
+                    enabled: !_busy,
+                    run: (action, success) => _run(context, action, success),
+                  ),
                   const SizedBox(height: 10),
                 ],
               ],
@@ -885,33 +871,46 @@ class _ReviewPanel extends ConsumerWidget {
   Future<void> _run(
     BuildContext context,
     Future<void> Function() action,
-    String success,
+    String? success,
   ) async {
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
       await action();
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(success)));
+      if (success != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(success)));
+      }
     } catch (error) {
       if (!context.mounted) return;
       final message = error is AppFailure ? error.message : '검수 작업을 완료하지 못했어요.';
       showAppError(context, message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 }
 
 class _ReviewCard extends ConsumerWidget {
-  const _ReviewCard({required this.item, required this.provider});
+  const _ReviewCard({
+    required this.item,
+    required this.provider,
+    required this.enabled,
+    required this.run,
+  });
 
   final AiQuestionReviewItem item;
   final AiQuestionGenerationControllerProvider provider;
+  final bool enabled;
+  final Future<void> Function(Future<void> Function(), String?) run;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final question = item.question;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -919,9 +918,12 @@ class _ReviewCard extends ConsumerWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                Chip(label: Text(_typeLabel(question.type))),
-                Chip(label: Text(_statusLabel(item.status))),
-                Chip(label: Text('난이도 ${question.difficulty}/5')),
+                ConceptBadge(label: _typeLabel(question.type)),
+                ReviewStatusBadge(
+                  reviewed: item.status == AiReviewStatus.approved,
+                  label: _statusLabel(item.status),
+                ),
+                ConceptBadge(label: '난이도 ${question.difficulty}/5'),
               ],
             ),
             const SizedBox(height: 10),
@@ -949,21 +951,19 @@ class _ReviewCard extends ConsumerWidget {
             ],
             if (item.status == AiReviewStatus.pending) ...[
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              AppActionGroup(
                 children: [
                   FilledButton.tonal(
-                    onPressed: () => _approve(context, ref),
+                    onPressed: enabled ? () => _approve(context, ref) : null,
                     child: const Text('승인'),
                   ),
                   OutlinedButton(
-                    onPressed: () => _edit(context, ref),
+                    onPressed: enabled ? () => _edit(context, ref) : null,
                     child: const Text('수정 후 승인'),
                   ),
                   TextButton(
-                    onPressed: () => _reject(context, ref),
-                    child: const Text('거절'),
+                    onPressed: enabled ? () => _reject(context, ref) : null,
+                    child: const Text('삭제'),
                   ),
                 ],
               ),
@@ -983,20 +983,22 @@ class _ReviewCard extends ConsumerWidget {
   }
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    final saved = await context.push<bool>(
-      AppRoutes.editQuestion(item.questionId),
-    );
-    if (saved == true) {
-      ref.read(provider.notifier).markEditedAndApproved(item.questionId);
-    }
+    await run(() async {
+      final saved = await context.push<bool>(
+        AppRoutes.editQuestion(item.questionId),
+      );
+      if (saved == true && context.mounted) {
+        ref.read(provider.notifier).markEditedAndApproved(item.questionId);
+      }
+    }, null);
   }
 
   Future<void> _reject(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('생성 문제 거절'),
-        content: const Text('이 Draft 문제를 삭제하시겠습니까?'),
+      builder: (context) => AppDialog(
+        title: const Text('문제 삭제'),
+        content: Text('다음 생성 문제를 삭제할까요?\n\n${item.question.prompt}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1004,7 +1006,7 @@ class _ReviewCard extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('거절'),
+            child: const Text('삭제'),
           ),
         ],
       ),
@@ -1013,7 +1015,7 @@ class _ReviewCard extends ConsumerWidget {
     await _run(
       context,
       () => ref.read(provider.notifier).reject(item.questionId),
-      '생성 문제를 거절했어요.',
+      '생성 문제를 삭제했어요.',
     );
   }
 
@@ -1021,18 +1023,7 @@ class _ReviewCard extends ConsumerWidget {
     BuildContext context,
     Future<void> Function() action,
     String success,
-  ) async {
-    try {
-      await action();
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(success)));
-    } catch (error) {
-      if (!context.mounted) return;
-      final message = error is AppFailure ? error.message : '검수 작업을 완료하지 못했어요.';
-      showAppError(context, message);
-    }
-  }
+  ) => run(action, success);
 
   String _typeLabel(QuestionType type) => switch (type) {
     QuestionType.multipleChoice => '객관식',
@@ -1042,8 +1033,28 @@ class _ReviewCard extends ConsumerWidget {
   };
 
   String _statusLabel(AiReviewStatus status) => switch (status) {
-    AiReviewStatus.pending => 'Draft',
+    AiReviewStatus.pending => '미승인',
     AiReviewStatus.approved => '승인됨',
-    AiReviewStatus.rejected => '거절됨',
+    AiReviewStatus.rejected => '삭제됨',
   };
+}
+
+class _ConceptSelectionHeader extends StatelessWidget {
+  const _ConceptSelectionHeader({required this.children, super.key});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+      if (constraints.maxWidth >= 300 * scale) return Row(children: children);
+      // Unwrap the row's Expanded label in a narrow vertical layout.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          (children.first as Expanded).child,
+          Wrap(spacing: 8, runSpacing: 8, children: children.skip(2).toList()),
+        ],
+      );
+    },
+  );
 }

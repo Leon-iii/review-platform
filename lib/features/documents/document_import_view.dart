@@ -1,5 +1,9 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_action_group.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:review_platform/shared/widgets/animated_card_expansion.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -71,7 +75,8 @@ class _DocumentImportViewState extends ConsumerState<DocumentImportView> {
         ref.read(controllerProvider.notifier).activeJobId;
     return Scaffold(
       key: const Key('document-import-view'),
-      appBar: AppBar(
+      appBar: AppPageBar(
+        fallback: AppRoutes.folder(widget.folderId),
         title: Text(
           state.value?.source.fileName ?? 'PDF 학습자료',
           key: const Key('document-title'),
@@ -155,23 +160,25 @@ class _ImportPrompt extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      padding: AppLayout.pagePadding(context),
       children: [
         Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 840),
+            constraints: const BoxConstraints(
+              maxWidth: AppLayout.managementWidth,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(AppSpacing.lg),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
                           'PDF에서 학습 개념 추출',
-                          style: Theme.of(context).textTheme.titleLarge,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 8),
                         const Text(
@@ -232,27 +239,24 @@ class _ConceptReview extends ConsumerWidget {
     // keep their tooltips and accessibility without the broken viewport path.
     return SingleChildScrollView(
       key: const Key('concept-review-scroll-view'),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      padding: AppLayout.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 840),
+              constraints: const BoxConstraints(
+                maxWidth: AppLayout.managementWidth,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(AppSpacing.lg),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            review.source.fileName,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 6),
                           Text(
                             '${review.source.isManual ? '사용자 생성 자료' : '${review.source.pageCount}페이지'} · 개념 ${review.concepts.length}개',
                           ),
@@ -283,100 +287,81 @@ class _ConceptReview extends ConsumerWidget {
                                       MediaQuery.textScalerOf(context)
                                           .scale(14) /
                                       14;
-                              final style = ButtonStyle(
-                                padding: const WidgetStatePropertyAll(
-                                  EdgeInsets.symmetric(horizontal: 8),
-                                ),
-                                minimumSize: const WidgetStatePropertyAll(
-                                  Size(0, 48),
-                                ),
-                              );
-                              return Row(
+                              return AppActionGroup(
                                 children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      key: const Key('add-concept-button'),
-                                      style: style,
-                                      onPressed: () => _showConceptEditor(
-                                        context,
-                                        onSave:
-                                            (
-                                              title,
-                                              content,
-                                              importance,
-                                              reviewed,
-                                            ) => ref
-                                                .read(provider.notifier)
-                                                .addConcept(
-                                                  title: title,
-                                                  content: content,
-                                                  importance: importance,
-                                                  reviewed: reviewed,
-                                                ),
-                                      ),
-                                      icon: showIcons
-                                          ? const Icon(Icons.add_rounded)
-                                          : null,
-                                      label: const Text(
-                                        '개념 추가',
-                                        textAlign: TextAlign.center,
-                                      ),
+                                  OutlinedButton.icon(
+                                    key: const Key('add-concept-button'),
+                                    onPressed: () => _showConceptEditor(
+                                      context,
+                                      onSave:
+                                          (
+                                            title,
+                                            content,
+                                            importance,
+                                            reviewed,
+                                          ) => ref
+                                              .read(provider.notifier)
+                                              .addConcept(
+                                                title: title,
+                                                content: content,
+                                                importance: importance,
+                                                reviewed: reviewed,
+                                              ),
+                                    ),
+                                    icon: showIcons
+                                        ? const Icon(Icons.add_rounded)
+                                        : null,
+                                    label: const Text(
+                                      '개념 추가',
+                                      textAlign: TextAlign.center,
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
+                                  OutlinedButton.icon(
+                                    key: const Key(
+                                      'request-concept-revision-button',
+                                    ),
+                                    onPressed: () => _requestRevision(
+                                      context,
+                                      ref,
+                                      initialSelectedIds: const {},
+                                    ),
+                                    icon: showIcons
+                                        ? const Icon(
+                                            Icons.auto_fix_high_rounded,
+                                          )
+                                        : null,
+                                    label: const Text(
+                                      '수정 요청',
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  Tooltip(
+                                    message: '이 자료의 검토 완료된 개념으로 문제를 생성합니다.',
+                                    child: FilledButton.icon(
                                       key: const Key(
-                                        'request-concept-revision-button',
+                                        'generate-source-questions-button',
                                       ),
-                                      style: style,
-                                      onPressed: () => _requestRevision(
-                                        context,
-                                        ref,
-                                        initialSelectedIds: const {},
-                                      ),
+                                      onPressed:
+                                          review.concepts.any(
+                                            (concept) =>
+                                                concept.status ==
+                                                ConceptStatus.approved,
+                                          )
+                                          ? () => context.push(
+                                              AppRoutes.aiGenerateForSource(
+                                                review.source.folderId,
+                                                review.source.id,
+                                              ),
+                                            )
+                                          : null,
                                       icon: showIcons
                                           ? const Icon(
-                                              Icons.auto_fix_high_rounded,
+                                              Icons.auto_awesome_rounded,
                                             )
                                           : null,
                                       label: const Text(
-                                        '수정 요청',
+                                        '문제 생성',
                                         textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Tooltip(
-                                      message: '이 자료의 검토 완료된 개념으로 문제를 생성합니다.',
-                                      child: FilledButton.icon(
-                                        key: const Key(
-                                          'generate-source-questions-button',
-                                        ),
-                                        style: style,
-                                        onPressed:
-                                            review.concepts.any(
-                                              (concept) =>
-                                                  concept.status ==
-                                                  ConceptStatus.approved,
-                                            )
-                                            ? () => context.push(
-                                                AppRoutes.aiGenerateForSource(
-                                                  review.source.folderId,
-                                                  review.source.id,
-                                                ),
-                                              )
-                                            : null,
-                                        icon: showIcons
-                                            ? const Icon(
-                                                Icons.auto_awesome_rounded,
-                                              )
-                                            : null,
-                                        label: const Text(
-                                          '문제 생성',
-                                          textAlign: TextAlign.center,
-                                        ),
                                       ),
                                     ),
                                   ),
@@ -481,7 +466,7 @@ class _ConceptReview extends ConsumerWidget {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => AppDialog(
           title: const Text('개념 수정 요청'),
           content: SizedBox(
             width: 560,
@@ -743,7 +728,7 @@ class _ConceptReview extends ConsumerWidget {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => AppDialog(
           title: const Text('AI 수정안 검토'),
           content: SizedBox(
             width: 680,
@@ -1092,7 +1077,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1108,13 +1093,22 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                     key: ValueKey('concept-badges-${concept.id}'),
                     spacing: 8,
                     runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: _badges(context, ref, compact: false),
                   ),
                   const SizedBox(height: 8),
                   _DesktopConceptSelection(
-                    child: Text(
-                      concept.content,
-                      key: ValueKey('concept-content-${concept.id}'),
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: AppLayout.readingWidth,
+                        ),
+                        child: Text(
+                          concept.content,
+                          key: ValueKey('concept-content-${concept.id}'),
+                        ),
+                      ),
                     ),
                   ),
                   Divider(
@@ -1172,14 +1166,9 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                         label: const Text('이 개념으로 문제 생성'),
                       );
                       if (wide) {
-                        return Row(
-                          children: [
-                            approval,
-                            const SizedBox(width: 12),
-                            Expanded(child: revision),
-                            const SizedBox(width: 12),
-                            Expanded(child: generation),
-                          ],
+                        return AppActionGroup(
+                          minimumButtonWidth: 190,
+                          children: [approval, revision, generation],
                         );
                       }
                       return Column(
@@ -1262,7 +1251,10 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
   Widget _header(BuildContext context, WidgetRef ref) => LayoutBuilder(
     builder: (context, constraints) {
       final badges = _badges(context, ref, compact: true);
-      return Row(
+      final inlineBadges =
+          constraints.maxWidth >=
+          480 * MediaQuery.textScalerOf(context).scale(14) / 14;
+      final titleRow = Row(
         key: ValueKey('concept-header-${concept.id}'),
         crossAxisAlignment: expanded
             ? CrossAxisAlignment.start
@@ -1285,7 +1277,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                           onTap: onToggle,
                           borderRadius: BorderRadius.circular(8),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             child: Row(
                               mainAxisSize: expanded
                                   ? MainAxisSize.max
@@ -1326,7 +1318,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                     ),
                   ),
                 ),
-                if (!expanded) ...[
+                if (!expanded && inlineBadges) ...[
                   const SizedBox(width: 8),
                   ConstrainedBox(
                     constraints: BoxConstraints(
@@ -1348,8 +1340,8 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
           ),
           if (!expanded) const SizedBox(width: 4),
           SizedBox(
-            width: 32,
-            height: 40,
+            width: AppLayout.touchTarget,
+            height: AppLayout.touchTarget,
             child: PopupMenuButton<_ConceptAction>(
               key: ValueKey('concept-menu-${concept.id}'),
               tooltip: '개념 메뉴',
@@ -1368,6 +1360,20 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                 PopupMenuItem(value: _ConceptAction.delete, child: Text('삭제')),
               ],
             ),
+          ),
+        ],
+      );
+      if (expanded || inlineBadges) return titleRow;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          titleRow,
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: badges,
           ),
         ],
       );
@@ -1427,7 +1433,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppDialog(
         title: const Text('개념 삭제'),
         content: Text('${concept.title} 개념을 삭제하시겠습니까?'),
         actions: [
@@ -1517,7 +1523,17 @@ class _ConceptBadgeAction extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           // The visual Chip stays passive; this control owns taps and focus.
-          child: IgnorePointer(child: child),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: AppLayout.touchTarget,
+              minHeight: AppLayout.touchTarget,
+            ),
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: IgnorePointer(child: child),
+            ),
+          ),
         ),
       ),
     ),
@@ -1576,7 +1592,7 @@ Future<void> _showConceptEditor(
               (title, content, importance, reviewed) != initialEditState,
           busy: saving,
           onSave: save,
-          child: AlertDialog(
+          child: AppDialog(
             title: Text(initialConcept == null ? '개념 추가' : '개념 수정'),
             content: SizedBox(
               width: 560,
@@ -1718,7 +1734,7 @@ class _ImportProgress extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: const [
@@ -1750,7 +1766,7 @@ class _ImportError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

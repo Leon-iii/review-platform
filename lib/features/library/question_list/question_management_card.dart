@@ -1,3 +1,4 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,7 @@ import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:review_platform/shared/widgets/animated_card_expansion.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
+import 'package:review_platform/shared/widgets/review_status_badge.dart';
 
 String questionTypeLabel(QuestionType type) => switch (type) {
   QuestionType.multipleChoice => '객관식',
@@ -171,7 +173,8 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                           compact: true,
                           showPrefix: true,
                         ),
-                        ConceptBadge(
+                        ReviewStatusBadge(
+                          reviewed: question.status == QuestionStatus.approved,
                           label: questionStatusLabel(question.status),
                           compact: true,
                         ),
@@ -303,7 +306,7 @@ Future<void> showQuestionConcept(
   final future = repository.getSourceWithConcepts(reference.sourceId);
   return showDialog<void>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => AppDialog(
       title: const Text('연결된 개념'),
       content: SizedBox(
         width: 640,

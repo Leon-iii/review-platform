@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -21,7 +23,9 @@ class FolderBrowserView extends ConsumerWidget {
 
     return Scaffold(
       key: const Key('library-view'),
-      appBar: AppBar(
+      appBar: AppPageBar(
+        showBack: folderId != null,
+        fallback: AppRoutes.library,
         title: browserState.maybeWhen(
           data: (state) => Text(state.currentFolder?.name ?? '문제 관리'),
           orElse: () => const Text('문제 관리'),
@@ -195,7 +199,7 @@ class _FolderList extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 '아직 폴더가 없어요.',
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
               const Text('새 폴더를 만들어 문제를 정리해 보세요.'),
@@ -205,29 +209,31 @@ class _FolderList extends StatelessWidget {
       );
     }
 
-    return Center(
+    return Align(
+      alignment: Alignment.topCenter,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 840),
+        constraints: const BoxConstraints(maxWidth: AppLayout.managementWidth),
         // The question list is already eager. Avoid RenderViewport's synthetic
         // two-pane semantics ancestor around its filter/menu tooltips: opening
         // their overlays can leave dangling Windows AXTree children (#182444).
         // Keep tooltip labels, scrolling and screen-reader actions intact.
         child: SingleChildScrollView(
           key: const Key('folder-browser-scroll-view'),
+          padding: AppLayout.pagePadding(context),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (state.visibleFolders.isNotEmpty) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                   child: Text(
                     '폴더',
-                    style: Theme.of(context).textTheme.titleLarge
+                    style: Theme.of(context).textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: EdgeInsets.zero,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -280,7 +286,7 @@ class _FolderList extends StatelessWidget {
               ],
               if (state.currentFolder != null)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: EdgeInsets.zero,
                   child: QuestionListView(folderId: state.currentFolder!.id),
                 ),
             ],

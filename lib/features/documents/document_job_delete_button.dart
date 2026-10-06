@@ -1,3 +1,4 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
@@ -57,7 +58,7 @@ class _DocumentJobDeleteButtonState
     if (_busy || _moving) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppDialog(
         title: const Text('PDF 작업 삭제'),
         content: Text(
           '“${widget.fileName}” 작업을 삭제할까요?\n'

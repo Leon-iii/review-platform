@@ -470,20 +470,30 @@ void main() {
         );
         final selectAll = find.byKey(const Key('ai-select-all-concepts'));
         final deselectAll = find.byKey(const Key('ai-deselect-all-concepts'));
+        final headerInline = tester.getSize(header).width >= 300 * scale;
         for (final button in [selectAll, deselectAll]) {
+          if (headerInline) {
+            expect(
+              tester.getCenter(button).dy,
+              closeTo(tester.getCenter(selectionLabel).dy, 0.1),
+            );
+            expect(
+              tester.getTopLeft(button).dx,
+              greaterThan(tester.getTopRight(selectionLabel).dx),
+            );
+          } else {
+            expect(
+              tester.getTopLeft(button).dy,
+              greaterThanOrEqualTo(tester.getBottomLeft(selectionLabel).dy),
+            );
+          }
+        }
+        if (headerInline) {
           expect(
-            tester.getCenter(button).dy,
-            closeTo(tester.getCenter(selectionLabel).dy, 0.1),
-          );
-          expect(
-            tester.getTopLeft(button).dx,
-            greaterThan(tester.getTopRight(selectionLabel).dx),
+            tester.getTopRight(deselectAll).dx,
+            closeTo(tester.getTopRight(header).dx, 0.1),
           );
         }
-        expect(
-          tester.getTopRight(deselectAll).dx,
-          closeTo(tester.getTopRight(header).dx, 0.1),
-        );
         final box = find.byKey(const Key('ai-concept-list-box'));
         final list = find.byKey(const Key('ai-concept-list'));
         await tester.ensureVisible(box);
@@ -1574,8 +1584,11 @@ void main() {
         expect(paragraphFor(tester, title).didExceedMaxLines, isTrue);
         final shortTitle = find.byKey(Key('concept-title-${second.id}'));
         final shortParagraph = paragraphFor(tester, shortTitle);
+        // 48dp interactive badges/menu reserve space before the title. Its
+        // ellipsis is allowed only when the actual remaining width needs it.
         final shortTitleFits =
-            scale == 1.0 || defaultTargetPlatform == TargetPlatform.windows;
+            tester.getSize(shortTitle).width >=
+            shortParagraph.getMaxIntrinsicWidth(double.infinity) - 0.1;
         expect(shortParagraph.didExceedMaxLines, !shortTitleFits);
         if (shortTitleFits) {
           expect(
@@ -1583,46 +1596,75 @@ void main() {
             closeTo(shortParagraph.getMaxIntrinsicWidth(double.infinity), 0.1),
           );
         }
-        expect(
-          tester.getTopLeft(find.byKey(Key('concept-status-${second.id}'))).dx -
-              tester.getTopRight(shortTitle).dx,
-          closeTo(8, 0.1),
-        );
-        final manualTitle = find.byKey(Key('concept-title-${manual.id}'));
-        final manualParagraph = paragraphFor(tester, manualTitle);
-        expect(manualParagraph.didExceedMaxLines, !shortTitleFits);
-        if (shortTitleFits) {
+        final inlineBadges = defaultTargetPlatform == TargetPlatform.windows;
+        if (inlineBadges) {
           expect(
-            tester.getSize(manualTitle).width,
-            closeTo(manualParagraph.getMaxIntrinsicWidth(double.infinity), 0.1),
+            tester
+                    .getTopLeft(find.byKey(Key('concept-status-${second.id}')))
+                    .dx -
+                tester.getTopRight(shortTitle).dx,
+            closeTo(8, 0.1),
           );
-        }
-        expect(
-          tester.getTopLeft(find.byKey(Key('concept-status-${manual.id}'))).dx -
-              tester.getTopRight(manualTitle).dx,
-          closeTo(8, 0.1),
-        );
-        expect(
-          tester.getTopLeft(status).dx - tester.getTopRight(title).dx,
-          closeTo(8, 0.1),
-        );
-        expect(
-          tester.getTopRight(title).dx,
-          lessThan(tester.getTopLeft(status).dx),
-        );
-        expect(
-          tester.getTopRight(status).dx,
-          lessThan(tester.getTopLeft(importance).dx),
-        );
-        expect(
-          tester.getTopRight(importance).dx,
-          lessThan(tester.getTopLeft(page).dx),
-        );
-        for (final badge in [status, importance, page]) {
+          final manualTitle = find.byKey(Key('concept-title-${manual.id}'));
+          final manualParagraph = paragraphFor(tester, manualTitle);
+          final manualTitleFits =
+              tester.getSize(manualTitle).width >=
+              manualParagraph.getMaxIntrinsicWidth(double.infinity) - 0.1;
+          expect(manualParagraph.didExceedMaxLines, !manualTitleFits);
+          if (manualTitleFits) {
+            expect(
+              tester.getSize(manualTitle).width,
+              closeTo(
+                manualParagraph.getMaxIntrinsicWidth(double.infinity),
+                0.1,
+              ),
+            );
+          }
           expect(
-            tester.getCenter(badge).dy,
-            closeTo(tester.getCenter(title).dy, 4),
+            tester
+                    .getTopLeft(find.byKey(Key('concept-status-${manual.id}')))
+                    .dx -
+                tester.getTopRight(manualTitle).dx,
+            closeTo(8, 0.1),
           );
+          expect(
+            tester.getTopLeft(status).dx - tester.getTopRight(title).dx,
+            closeTo(8, 0.1),
+          );
+          expect(
+            tester.getTopRight(title).dx,
+            lessThan(tester.getTopLeft(status).dx),
+          );
+          expect(
+            tester.getTopRight(status).dx,
+            lessThan(tester.getTopLeft(importance).dx),
+          );
+          expect(
+            tester.getTopRight(importance).dx,
+            lessThan(tester.getTopLeft(page).dx),
+          );
+          for (final badge in [status, importance, page]) {
+            expect(
+              tester.getCenter(badge).dy,
+              closeTo(tester.getCenter(title).dy, 4),
+            );
+          }
+        } else {
+          for (final badge in [status, importance, page]) {
+            expect(
+              tester.getTopLeft(badge).dy,
+              greaterThan(tester.getBottomLeft(title).dy),
+            );
+          }
+          final chipHeights = [
+            for (final badge in [status, importance, page])
+              tester
+                  .getSize(
+                    find.descendant(of: badge, matching: find.byType(Chip)),
+                  )
+                  .height,
+          ];
+          expect(chipHeights.toSet().length, 1);
         }
         expect(
           find.byKey(Key('concept-page-source-${manual.id}')),
@@ -1724,14 +1766,25 @@ void main() {
         const Key('request-concept-revision-button'),
       );
       expect(tester.widget<FilledButton>(sourceGenerate).onPressed, isNull);
-      expect(
-        tester.getCenter(sourceGenerate).dx,
-        greaterThan(tester.getCenter(sourceRevise).dx),
-      );
-      expect(
-        tester.getCenter(sourceGenerate).dy,
-        closeTo(tester.getCenter(sourceRevise).dy, 1),
-      );
+      if (wide) {
+        expect(
+          tester.getCenter(sourceGenerate).dx,
+          greaterThan(tester.getCenter(sourceRevise).dx),
+        );
+        expect(
+          tester.getCenter(sourceGenerate).dy,
+          closeTo(tester.getCenter(sourceRevise).dy, 1),
+        );
+      } else {
+        expect(
+          tester.getTopLeft(sourceGenerate).dx,
+          tester.getTopLeft(sourceRevise).dx,
+        );
+        expect(
+          tester.getTopLeft(sourceGenerate).dy,
+          greaterThan(tester.getBottomLeft(sourceRevise).dy),
+        );
+      }
       final sourceActions = find.byKey(const Key('source-actions'));
       final sourceAdd = find.byKey(const Key('add-concept-button'));
       final badgeTheme = Theme.of(tester.element(sourceAdd));
@@ -1758,10 +1811,21 @@ void main() {
         tester.getSize(sourceAdd).width,
         closeTo(tester.getSize(sourceRevise).width, 1),
       );
-      expect(
-        tester.getTopLeft(sourceRevise).dx,
-        greaterThan(tester.getTopRight(sourceAdd).dx),
-      );
+      if (wide) {
+        expect(
+          tester.getTopLeft(sourceRevise).dx,
+          greaterThan(tester.getTopRight(sourceAdd).dx),
+        );
+      } else {
+        expect(
+          tester.getTopLeft(sourceRevise).dx,
+          tester.getTopLeft(sourceAdd).dx,
+        );
+        expect(
+          tester.getTopLeft(sourceRevise).dy,
+          greaterThan(tester.getBottomLeft(sourceAdd).dy),
+        );
+      }
       expect(
         tester.getTopRight(sourceGenerate).dx,
         closeTo(tester.getTopRight(sourceActions).dx, 1),
@@ -1848,12 +1912,7 @@ void main() {
           BorderSide.none,
         ];
         expect(reference.side!.width, 1);
-        expect(
-          reference.side!.color,
-          badgeTheme.brightness == Brightness.dark
-              ? Colors.grey.shade700
-              : Colors.grey.shade400,
-        );
+        expect(reference.side!.color, badgeTheme.colorScheme.outlineVariant);
         for (var index = 0; index < chips.length; index++) {
           final finder = chips[index];
           final chip = tester.widget<Chip>(finder);
@@ -1933,7 +1992,7 @@ void main() {
       expect(find.byKey(Key('ai-concept-${first.id}')), findsOneWidget);
       expect(find.text('1. ${first.title}'), findsOneWidget);
       expect(find.text(first.content), findsNothing);
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('뒤로가기'));
       await tester.pumpAndSettle();
       await tapVisible(
         tester,

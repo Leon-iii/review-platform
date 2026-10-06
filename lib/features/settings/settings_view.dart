@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_action_group.dart';
+import 'package:review_platform/shared/widgets/concept_badge.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -25,20 +29,22 @@ class SettingsView extends ConsumerWidget {
 
     return Scaffold(
       key: const Key('settings-view'),
-      appBar: AppBar(title: const Text('설정')),
+      appBar: AppPageBar(showBack: false, title: const Text('설정')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+        padding: AppLayout.pagePadding(context),
         children: [
           Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
+              constraints: const BoxConstraints(
+                maxWidth: AppLayout.readingWidth,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (isWindows) ...[
                     Text(
                       '로컬 서버',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 12),
                     Card(
@@ -52,16 +58,16 @@ class SettingsView extends ConsumerWidget {
                         trailing: _LocalServerStatusTrailing(
                           status: localServerState!.runtime.status,
                         ),
-                        onTap: () => context.go(AppRoutes.localServer),
+                        onTap: () => context.push(AppRoutes.localServer),
                       ),
                     ),
                     const SizedBox(height: 28),
                   ],
-                  Text('동기화', style: Theme.of(context).textTheme.titleLarge),
+                  Text('동기화', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(AppSpacing.lg),
                       child: settings.when(
                         loading: () =>
                             const Center(child: CircularProgressIndicator()),
@@ -83,7 +89,7 @@ class SettingsView extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 28),
-                  Text('AI', style: Theme.of(context).textTheme.titleLarge),
+                  Text('AI', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   Card(
                     child: ListTile(
@@ -94,11 +100,11 @@ class SettingsView extends ConsumerWidget {
                         '문제 생성·개념 추출·개념 수정·OCR의 모델과 옵션을 각각 설정합니다.',
                       ),
                       trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => context.go(AppRoutes.llmProfiles),
+                      onTap: () => context.push(AppRoutes.llmProfiles),
                     ),
                   ),
                   const SizedBox(height: 28),
-                  Text('화면', style: Theme.of(context).textTheme.titleLarge),
+                  Text('화면', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   const Card(
                     child: ListTile(
@@ -210,7 +216,7 @@ class _SyncFormState extends ConsumerState<_SyncForm> {
                   : '개인 서버 연결 설정됨',
             ),
             subtitle: Text(_statusText(widget.status)),
-            trailing: Chip(label: Text('대기 ${widget.status.pendingCount}건')),
+            trailing: ConceptBadge(label: '대기 ${widget.status.pendingCount}건'),
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -221,7 +227,6 @@ class _SyncFormState extends ConsumerState<_SyncForm> {
             decoration: const InputDecoration(
               labelText: '서버 주소',
               hintText: 'http://192.168.0.10:5080',
-              border: OutlineInputBorder(),
             ),
             validator: (value) => value == null || value.trim().isEmpty
                 ? '서버 주소를 입력해 주세요.'
@@ -240,7 +245,6 @@ class _SyncFormState extends ConsumerState<_SyncForm> {
               hintText: widget.initialSettings.hasAccessToken
                   ? '비워 두면 저장된 토큰 유지'
                   : '서버와 동일한 토큰',
-              border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 tooltip: _obscureToken ? '토큰 표시' : '토큰 숨기기',
                 onPressed: () => setState(() => _obscureToken = !_obscureToken),
@@ -264,28 +268,23 @@ class _SyncFormState extends ConsumerState<_SyncForm> {
             AppErrorNotice(error: error),
           ],
           const SizedBox(height: 20),
-          Row(
+          AppActionGroup(
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: sync.isLoading ? null : _save,
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('설정 저장'),
-                ),
+              OutlinedButton.icon(
+                onPressed: sync.isLoading ? null : _save,
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('설정 저장'),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.icon(
-                  key: const Key('manual-sync-button'),
-                  onPressed: sync.isLoading ? null : _synchronize,
-                  icon: sync.isLoading
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync_rounded),
-                  label: Text(sync.isLoading ? '동기화 중...' : '수동 동기화'),
-                ),
+              FilledButton.icon(
+                key: const Key('manual-sync-button'),
+                onPressed: sync.isLoading ? null : _synchronize,
+                icon: sync.isLoading
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.sync_rounded),
+                label: Text(sync.isLoading ? '동기화 중...' : '수동 동기화'),
               ),
             ],
           ),

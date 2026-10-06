@@ -1,3 +1,5 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -28,7 +30,7 @@ Future<void> _showErrorDialog(BuildContext context, AppErrorEvent event) =>
       barrierDismissible: false,
       builder: (context) => PopScope(
         canPop: false,
-        child: AlertDialog(
+        child: AppDialog(
           key: const Key('app-error-dialog'),
           icon: Icon(
             Icons.error_outline_rounded,

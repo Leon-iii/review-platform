@@ -1,4 +1,7 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -34,28 +37,29 @@ class _QuizViewState extends ConsumerState<QuizView> {
       },
       child: Scaffold(
         key: const Key('quiz-view'),
-        appBar: AppBar(
+        appBar: AppPageBar(
           title: const Text('문제 풀기'),
-          leading:
+          fallback: AppRoutes.studySetup,
+          handleSystemBack:
+              !quiz.hasValue || quiz.value!.details.session.finishedAt != null,
+          backKey:
               quiz.hasValue && quiz.value!.details.session.finishedAt == null
-              ? IconButton(
-                  key: const Key('stop-quiz-button'),
-                  tooltip: '뒤로가기',
-                  onPressed:
-                      _confirmingStop ||
-                          _confirmingReview ||
-                          quiz.value!.isSubmitting
-                      ? null
-                      : _confirmStop,
-                  icon: const Icon(Icons.arrow_back_rounded),
-                )
+              ? const Key('stop-quiz-button')
+              : null,
+          backEnabled:
+              !_confirmingStop &&
+              !_confirmingReview &&
+              !(quiz.value?.isSubmitting ?? false),
+          onBack:
+              quiz.hasValue && quiz.value!.details.session.finishedAt == null
+              ? _confirmStop
               : null,
         ),
         body: quiz.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, stackTrace) => Center(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -84,11 +88,13 @@ class _QuizViewState extends ConsumerState<QuizView> {
 
             return ListView(
               key: ValueKey(item.id),
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+              padding: AppLayout.pagePadding(context),
               children: [
                 Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 760),
+                    constraints: const BoxConstraints(
+                      maxWidth: AppLayout.readingWidth,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -108,7 +114,7 @@ class _QuizViewState extends ConsumerState<QuizView> {
                         const SizedBox(height: 28),
                         Card(
                           child: Padding(
-                            padding: const EdgeInsets.all(24),
+                            padding: const EdgeInsets.all(AppSpacing.lg),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
@@ -239,7 +245,6 @@ class _QuizViewState extends ConsumerState<QuizView> {
                                           ),
                                     decoration: const InputDecoration(
                                       labelText: '답',
-                                      border: OutlineInputBorder(),
                                     ),
                                   ),
                               ],
@@ -366,7 +371,7 @@ class _QuizViewState extends ConsumerState<QuizView> {
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => AppDialog(
           key: const Key('stop-quiz-confirm-dialog'),
           title: const Text('문제 풀이를 중단할까요?'),
           content: const Text(
@@ -375,25 +380,16 @@ class _QuizViewState extends ConsumerState<QuizView> {
             '자기 채점 대기 답안은 점수에 포함되지 않습니다.',
           ),
           actions: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    key: const Key('continue-quiz-button'),
-                    autofocus: true,
-                    onPressed: () => Navigator.of(dialogContext).pop(false),
-                    child: const Text('계속 풀기'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    key: const Key('confirm-stop-quiz-button'),
-                    onPressed: () => Navigator.of(dialogContext).pop(true),
-                    child: const Text('중단하기'),
-                  ),
-                ),
-              ],
+            TextButton(
+              key: const Key('continue-quiz-button'),
+              autofocus: true,
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('계속 풀기'),
+            ),
+            FilledButton(
+              key: const Key('confirm-stop-quiz-button'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('중단하기'),
             ),
           ],
         ),
@@ -423,7 +419,7 @@ class _QuizViewState extends ConsumerState<QuizView> {
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => AppDialog(
           key: const Key('question-review-confirm-dialog'),
           title: const Text('문제 재검토를 요청할까요?'),
           content: const Text(
@@ -431,25 +427,16 @@ class _QuizViewState extends ConsumerState<QuizView> {
             '문제의 기존 검수 상태를 검수 필요로 되돌립니다. 검수 완료 전까지 새 퀴즈에 출제되지 않습니다.',
           ),
           actions: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    key: const Key('cancel-question-review-button'),
-                    autofocus: true,
-                    onPressed: () => Navigator.pop(dialogContext, false),
-                    child: const Text('계속 풀기'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    key: const Key('confirm-question-review-button'),
-                    onPressed: () => Navigator.pop(dialogContext, true),
-                    child: const Text('재검토 요청'),
-                  ),
-                ),
-              ],
+            TextButton(
+              key: const Key('cancel-question-review-button'),
+              autofocus: true,
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('계속 풀기'),
+            ),
+            FilledButton(
+              key: const Key('confirm-question-review-button'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('재검토 요청'),
             ),
           ],
         ),
@@ -582,7 +569,9 @@ class _TrueFalseAnswerButtons extends StatelessWidget {
         minimumSize: const Size(0, 160),
         visualDensity: VisualDensity.standard,
         textStyle: const TextStyle(fontSize: 72, fontWeight: FontWeight.w700),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.control),
+        ),
       ),
       child: FittedBox(
         fit: BoxFit.scaleDown,

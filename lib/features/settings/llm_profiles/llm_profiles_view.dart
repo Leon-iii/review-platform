@@ -1,6 +1,10 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/ai/llm_model_filter_store.dart';
@@ -18,7 +22,7 @@ class LlmProfilesView extends ConsumerWidget {
     final settings = ref.watch(llmProfilesControllerProvider);
     return Scaffold(
       key: const Key('llm-profiles-view'),
-      appBar: AppBar(title: const Text('용도별 AI 설정')),
+      appBar: AppPageBar(fallback: '/settings', title: const Text('용도별 AI 설정')),
       body: settings.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => _LoadError(
@@ -169,10 +173,12 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
               // dangling Windows AXTree children (flutter/flutter#182444).
               child: SingleChildScrollView(
                 key: const Key('llm-profile-scroll-view'),
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                padding: AppLayout.pagePadding(context),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 820),
+                    constraints: const BoxConstraints(
+                      maxWidth: AppLayout.readingWidth,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -181,7 +187,7 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
                             Expanded(
                               child: Text(
                                 '작업별 모델 설정',
-                                style: Theme.of(context).textTheme.titleLarge,
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
                             ),
                             IconButton.outlined(
@@ -220,12 +226,12 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
                         const SizedBox(height: 12),
                         Text(
                           'API Key',
-                          style: Theme.of(context).textTheme.titleLarge,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 12),
                         Card(
                           child: Padding(
-                            padding: const EdgeInsets.all(20),
+                            padding: const EdgeInsets.all(AppSpacing.lg),
                             child: Column(
                               children: [
                                 for (
@@ -264,7 +270,6 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
                                           helperText: configured
                                               ? '서버에 저장된 키가 있습니다.'
                                               : '아직 저장된 키가 없습니다.',
-                                          border: const OutlineInputBorder(),
                                           suffixIcon: IconButton(
                                             tooltip:
                                                 _visibleApiKeys.contains(
@@ -593,7 +598,7 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
     if (!saved) {
       final discard = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => AppDialog(
           title: const Text('저장하지 않고 나갈까요?'),
           content: const Text('변경사항이 아직 저장되지 않았어요. 계속 편집하거나 변경사항을 버릴 수 있습니다.'),
           actions: [
@@ -659,7 +664,7 @@ class _ProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -679,10 +684,7 @@ class _ProfileCard extends StatelessWidget {
               key: ValueKey('llm-provider-${draft.id}'),
               initialValue: draft.provider,
               isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: '실행 방식',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: '실행 방식'),
               items: [
                 for (final provider in LlmProviderKind.values)
                   DropdownMenuItem(
@@ -823,7 +825,6 @@ class _ProfileCard extends StatelessWidget {
                 decoration: const InputDecoration(
                   labelText: '요청 1회당 문제 생성 상한',
                   suffixText: '개',
-                  border: OutlineInputBorder(),
                   helperText:
                       '개념 기반 생성은 개념 하나의 요청에 적용합니다. 자유 텍스트 생성은 전체 응답에 적용합니다.',
                   helperMaxLines: 3,
@@ -926,8 +927,12 @@ class _ReasoningEffortSlider extends StatelessWidget {
       decoration: InputDecoration(
         labelText: 'Reasoning Effort',
         floatingLabelBehavior: FloatingLabelBehavior.always,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        border: const OutlineInputBorder(),
+        // The slider retains its 48dp target inside the same 56dp input border
+        // as the neighboring model dropdown. Larger text uses a stacked row.
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.xs,
+        ),
         helperMaxLines: 5,
         helperText: loading
             ? '모델의 추론 지원 정보를 확인하는 중입니다.'
@@ -940,8 +945,8 @@ class _ReasoningEffortSlider extends StatelessWidget {
             : '자동은 API 기본값${capabilities?.defaultReasoningEffort == null ? '' : ' (${capabilities!.defaultReasoningEffort})'}을 사용합니다. '
                   '높은 수준은 응답 시간과 토큰 비용을 늘릴 수 있습니다.',
       ),
-      child: SizedBox(
-        height: 40,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: AppLayout.touchTarget),
         child: Row(
           children: [
             Expanded(
@@ -1029,7 +1034,6 @@ class _ContextWindowDropdown extends StatelessWidget {
       isExpanded: true,
       decoration: InputDecoration(
         labelText: '컨텍스트 크기',
-        border: const OutlineInputBorder(),
         helperMaxLines: 5,
         helperText: !isLocal
             ? '자동: API 모델의 컨텍스트 한도를 사용합니다. 로컬 모델용 크기 제한과 PDF 분할 튜닝은 적용하지 않습니다.'
@@ -1202,7 +1206,6 @@ class _ModelDropdown extends StatelessWidget {
         labelText: '모델',
         helperText: helperText,
         helperMaxLines: 4,
-        border: const OutlineInputBorder(),
         suffixIcon: !loading && error == null
             ? null
             : Row(
@@ -1332,7 +1335,7 @@ class _LoadError extends StatelessWidget {
         : 'AI 설정을 불러오지 못했어요.';
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: AppErrorNotice(error: message, onRetry: onRetry),
       ),
     );

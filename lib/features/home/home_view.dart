@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_action_group.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,22 +19,23 @@ class HomeView extends ConsumerWidget {
 
     return Scaffold(
       key: const Key('home-view'),
-      appBar: AppBar(title: const Text('복습 노트')),
+      appBar: AppPageBar(showBack: false, title: const Text('복습 노트')),
       body: CustomScrollView(
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            padding: AppLayout.pagePadding(context),
             sliver: SliverToBoxAdapter(
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
+                  constraints: const BoxConstraints(
+                    maxWidth: AppLayout.readingWidth,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '오늘도 하나씩,',
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
+                        '학습 시작',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -39,15 +43,8 @@ class HomeView extends ConsumerWidget {
                         style: Theme.of(context).textTheme.bodyLarge
                             ?.copyWith(color: colorScheme.onSurfaceVariant),
                       ),
-                      const SizedBox(height: 32),
-                      _SummaryCard(
-                        colorScheme: colorScheme,
-                        statistics: statistics,
-                      ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
+                      const SizedBox(height: 16),
+                      AppActionGroup(
                         children: [
                           FilledButton.icon(
                             key: const Key('start-study-button'),
@@ -63,16 +60,21 @@ class HomeView extends ConsumerWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 24),
+                      _SummaryCard(
+                        colorScheme: colorScheme,
+                        statistics: statistics,
+                      ),
                       const SizedBox(height: 32),
                       Text(
                         '최근 학습',
-                        style: Theme.of(context).textTheme.titleLarge
+                        style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 12),
                       Card(
                         child: Padding(
-                          padding: const EdgeInsets.all(24),
+                          padding: const EdgeInsets.all(AppSpacing.lg),
                           child: Row(
                             children: [
                               Icon(
@@ -124,7 +126,7 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Row(
           children: [
             Expanded(

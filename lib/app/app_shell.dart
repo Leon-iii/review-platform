@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
+import 'package:review_platform/app/design_tokens.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({required this.currentPath, required this.child, super.key});
@@ -50,7 +51,8 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useNavigationRail = constraints.maxWidth >= 840;
+        final useNavigationRail =
+            constraints.maxWidth >= AppLayout.railBreakpoint;
 
         if (useNavigationRail) {
           return Scaffold(

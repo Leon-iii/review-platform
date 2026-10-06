@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
+import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/features/library/question_list/question_management_list.dart';
@@ -27,7 +29,7 @@ class ConceptQuestionsView extends ConsumerWidget {
     final questions = ref.watch(provider);
     return Scaffold(
       key: const Key('concept-questions-view'),
-      appBar: AppBar(title: const Text('연결된 문제')),
+      appBar: AppPageBar(title: const Text('연결된 문제')),
       body: questions.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => AppErrorNotice(
@@ -37,7 +39,9 @@ class ConceptQuestionsView extends ConsumerWidget {
         data: (items) => SingleChildScrollView(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 840),
+              constraints: const BoxConstraints(
+                maxWidth: AppLayout.managementWidth,
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -45,7 +49,7 @@ class ConceptQuestionsView extends ConsumerWidget {
                   children: [
                     Text(
                       conceptTitle,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
                     const Text('다른 폴더로 이동한 문제도 포함됩니다.'),

@@ -1,9 +1,13 @@
+import 'package:review_platform/shared/widgets/app_dialog.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/gestures.dart' show kDefaultMouseScrollToScaleFactor;
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/app_option_selector.dart';
+import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/documents/document_job_coordinator.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
@@ -212,7 +216,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
   }) async =>
       await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => AppDialog(
           title: Text(title),
           content: Text(message),
           actions: [
@@ -262,7 +266,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
     if (_dirty) {
       final choice = await showDialog<String>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => AppDialog(
           title: const Text('저장하지 않은 수정이 있어요'),
           content: const Text('검토 대기 상태는 유지됩니다. 이 페이지의 수정 내용을 저장할까요?'),
           actions: [
@@ -423,11 +427,10 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
     },
     child: Scaffold(
       key: const Key('ocr-review-view'),
-      appBar: AppBar(
-        leading: BackButton(
-          key: const Key('ocr-close-review'),
-          onPressed: _exit,
-        ),
+      appBar: AppPageBar(
+        backKey: const Key('ocr-close-review'),
+        onBack: _exit,
+        backEnabled: !_busy,
         title: Text(
           '${widget.fileName} · ${_readOnly ? 'OCR 원문 대조' : 'OCR 검토'}',
           maxLines: 1,
@@ -558,7 +561,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
       children: [
         Padding(
           padding: const EdgeInsets.all(8),
-          child: SegmentedButton<bool>(
+          child: AppOptionSelector<bool>(
             key: const Key('ocr-archive-text-mode'),
             segments: const [
               ButtonSegment(value: true, label: Text('OCR 원문')),
@@ -680,7 +683,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SegmentedButton<bool>(
+            AppOptionSelector<bool>(
               key: const Key('ocr-archive-text-mode'),
               segments: const [
                 ButtonSegment(value: true, label: Text('OCR 원문')),
@@ -792,7 +795,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
           TextButton(
             onPressed: () => showDialog<void>(
               context: context,
-              builder: (context) => AlertDialog(
+              builder: (context) => AppDialog(
                 title: const Text('원래 추출 결과'),
                 content: SizedBox(
                   width: 700,
@@ -940,7 +943,7 @@ class _OcrPageJumpDialogState extends State<_OcrPageJumpDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppDialog(
     title: const Text('페이지 이동'),
     content: TextField(
       key: const Key('ocr-jump-page-field'),
