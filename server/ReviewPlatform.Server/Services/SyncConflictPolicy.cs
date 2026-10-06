@@ -6,7 +6,8 @@ public static class SyncConflictPolicy
         string entityType,
         bool exists,
         DateTimeOffset incomingUpdatedAt,
-        DateTimeOffset existingUpdatedAt)
+        DateTimeOffset existingUpdatedAt,
+        bool isAnswerCorrection = false)
     {
         if (!exists)
         {
@@ -15,7 +16,7 @@ public static class SyncConflictPolicy
 
         if (entityType.Equals("attempt", StringComparison.Ordinal))
         {
-            return false;
+            return isAnswerCorrection && incomingUpdatedAt > existingUpdatedAt;
         }
 
         return incomingUpdatedAt >= existingUpdatedAt;

@@ -162,7 +162,7 @@ class DriftQuestionRepository implements QuestionRepository {
             ? detachedImportance ?? (await _hydrate(existing)).importance
             : validated.importance;
         await _requireFolder(validated.folderId);
-        final now = DateTime.now().toUtc();
+        final now = _nextQuestionVersion(existing);
         await _database.questionDao.updateQuestion(
           id,
           QuestionsCompanion(
@@ -208,7 +208,7 @@ class DriftQuestionRepository implements QuestionRepository {
         await _requireFolder(folderId);
         if (question.folderId == folderId) return;
 
-        final now = DateTime.now().toUtc();
+        final now = _nextQuestionVersion(question);
         // Keep choice/answer IDs and history intact; moving is not an edit.
         await _database.questionDao.updateQuestion(
           id,
@@ -228,8 +228,8 @@ class DriftQuestionRepository implements QuestionRepository {
   Future<void> deleteQuestion(String id) {
     return _guard(() async {
       await _database.transaction(() async {
-        await _requireQuestion(id);
-        final now = DateTime.now().toUtc();
+        final question = await _requireQuestion(id);
+        final now = _nextQuestionVersion(question);
         await _database.questionDao.softDeleteQuestion(id, now);
         await _database.syncDao.enqueue(
           entityType: SyncEntityType.question.name,
@@ -298,9 +298,9 @@ class DriftQuestionRepository implements QuestionRepository {
       final values = ids.toSet().toList(growable: false);
       if (values.isEmpty) return;
       await _database.transaction(() async {
-        final now = DateTime.now().toUtc();
         for (final id in values) {
-          await _requireQuestion(id);
+          final question = await _requireQuestion(id);
+          final now = _nextQuestionVersion(question);
           await _database.questionDao.updateQuestion(
             id,
             QuestionsCompanion(
@@ -388,6 +388,13 @@ class DriftQuestionRepository implements QuestionRepository {
       questionId,
       answerCompanions,
     );
+  }
+
+  DateTime _nextQuestionVersion(QuestionRow question) {
+    // A fast edit/move/delete after regrading must not regress its sync version.
+    final now = DateTime.now().toUtc();
+    final next = question.updatedAt.toUtc().add(const Duration(seconds: 1));
+    return now.isBefore(next) ? next : now;
   }
 
   Future<Question> _hydrate(QuestionRow row) async {

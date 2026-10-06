@@ -1,10 +1,17 @@
 import 'package:review_platform/core/errors/app_failure.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
+import 'package:review_platform/core/database/database_providers.dart';
+import 'package:review_platform/repositories/quiz_answer_correction_repository.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/quiz_session.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'quiz_result_view_model.g.dart';
+
+final quizAnswerCorrectionRepositoryProvider = Provider(
+  (ref) => QuizAnswerCorrectionRepository(ref.watch(appDatabaseProvider)),
+);
 
 class QuizResultSummary {
   const QuizResultSummary({

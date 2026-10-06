@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:review_platform/repositories/quiz_answer_correction_repository.dart';
+
 import 'package:drift/drift.dart';
 import 'package:review_platform/core/database/app_database.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -331,7 +333,7 @@ class DriftSyncRepository implements SyncRepository {
           entityType: entry.entityType.name,
           entityId: entry.entityId,
           operation: 'upsert',
-          updatedAt: row.createdAt.toUtc(),
+          updatedAt: attemptUpdatedAt(row),
           payload: {
             'id': row.id,
             'questionId': row.questionId,
@@ -570,11 +572,37 @@ class DriftSyncRepository implements SyncRepository {
             ),
         ]);
       case SyncEntityType.attempt:
-        if (isDelete ||
-            await _database.attemptDao.getAttempt(change.entityId) != null) {
+        if (isDelete) return;
+        final payload = _requirePayload(change);
+        final existing = await _database.attemptDao.getAttempt(change.entityId);
+        if (existing != null) {
+          final response = Map<String, Object?>.from(
+            payload['response'] as Map,
+          );
+          final correctionAt = DateTime.tryParse(
+            response[gradingCorrectionUpdatedAtKey] as String? ?? '',
+          );
+          if (correctionAt == null ||
+              !correctionAt.isAtSameMomentAs(change.updatedAt) ||
+              !change.updatedAt.isAfter(attemptUpdatedAt(existing))) {
+            return;
+          }
+          if (!isValidAttemptCorrection(existing, payload)) {
+            throw const SyncFailure('정답 수정의 원래 풀이 기록이 일치하지 않아요.');
+          }
+          await (_database.update(
+            _database.attempts,
+          )..where((row) => row.id.equals(change.entityId))).write(
+            AttemptsCompanion(
+              score: Value((payload['score']! as num).toDouble()),
+              responseJson: Value(jsonEncode(payload['response'])),
+              questionSnapshotJson: Value(
+                jsonEncode(payload['questionSnapshot']),
+              ),
+            ),
+          );
           return;
         }
-        final payload = _requirePayload(change);
         await _database.attemptDao.insertAttemptIfMissing(
           AttemptsCompanion.insert(
             id: change.entityId,

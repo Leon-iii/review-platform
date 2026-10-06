@@ -46,4 +46,15 @@ public sealed class SyncConflictPolicyTests
 
         Assert.False(result);
     }
+
+    [Fact]
+    public void ExplicitAnswerCorrection_UsesStrictlyNewerVersion()
+    {
+        Assert.True(SyncConflictPolicy.ShouldApply("attempt", true,
+            ExistingTime.AddSeconds(1), ExistingTime, isAnswerCorrection: true));
+        Assert.False(SyncConflictPolicy.ShouldApply("attempt", true,
+            ExistingTime, ExistingTime, isAnswerCorrection: true));
+        Assert.False(SyncConflictPolicy.ShouldApply("attempt", true,
+            ExistingTime.AddSeconds(-1), ExistingTime, isAnswerCorrection: true));
+    }
 }

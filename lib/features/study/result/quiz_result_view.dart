@@ -9,15 +9,86 @@ import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/attempt.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
 import 'package:review_platform/features/study/result/quiz_result_view_model.dart';
+import 'package:review_platform/repositories/quiz_answer_correction_repository.dart';
 
-class QuizResultView extends ConsumerWidget {
+class QuizResultView extends ConsumerStatefulWidget {
   const QuizResultView({required this.sessionId, super.key});
 
   final String sessionId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final result = ref.watch(quizResultProvider(sessionId));
+  ConsumerState<QuizResultView> createState() => _QuizResultViewState();
+}
+
+class _QuizResultViewState extends ConsumerState<QuizResultView> {
+  int _pendingUpdates = 0;
+  bool get _isUpdating => _pendingUpdates > 0;
+  String? _updatingAttemptId;
+
+  Future<void> _accept(Attempt attempt) async {
+    if (_isUpdating) return;
+    setState(() {
+      _pendingUpdates++;
+      _updatingAttemptId = attempt.id;
+    });
+    final repository = ref.read(quizAnswerCorrectionRepositoryProvider);
+    try {
+      final correction = await repository.acceptSubmittedAnswer(attempt.id);
+      if (!mounted) return;
+      ref.invalidate(quizResultProvider(widget.sessionId));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('제출한 답안을 정답으로 등록했어요.'),
+            duration: const Duration(seconds: 8),
+            action: SnackBarAction(
+              label: '실행취소',
+              // Snackbars have an inverse surface: use an accessible blue on it.
+              textColor: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.blue.shade800
+                  : Colors.blue.shade200,
+              onPressed: () => _undo(repository, correction),
+            ),
+          ),
+        );
+    } catch (error) {
+      if (mounted) showAppError(context, error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingUpdates--;
+          _updatingAttemptId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _undo(
+    QuizAnswerCorrectionRepository repository,
+    QuizAnswerCorrection correction,
+  ) async {
+    if (mounted) setState(() => _pendingUpdates++);
+    try {
+      await repository.undo(correction);
+      if (mounted) ref.invalidate(quizResultProvider(widget.sessionId));
+    } catch (error) {
+      if (mounted) showAppError(context, error);
+    } finally {
+      if (mounted) setState(() => _pendingUpdates--);
+    }
+  }
+
+  Widget _answerCard(Attempt attempt) => _AnswerResultCard(
+    key: ValueKey(attempt.id),
+    attempt: attempt,
+    onAccept: _isUpdating ? null : () => _accept(attempt),
+    isUpdating: _updatingAttemptId == attempt.id,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final result = ref.watch(quizResultProvider(widget.sessionId));
 
     return Scaffold(
       key: const Key('quiz-result-view'),
@@ -119,7 +190,7 @@ class QuizResultView extends ConsumerWidget {
                     for (final attempt in summary.attempts)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: _AnswerResultCard(attempt: attempt),
+                        child: _answerCard(attempt),
                       )
                   else if (summary.wrongAttempts.isEmpty)
                     Card(
@@ -144,7 +215,7 @@ class QuizResultView extends ConsumerWidget {
                     for (final attempt in summary.wrongAttempts)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: _AnswerResultCard(attempt: attempt),
+                        child: _answerCard(attempt),
                       ),
                   if (summary.wrongAttempts.isNotEmpty &&
                       summary.session.sourceFolderId != null) ...[
@@ -191,9 +262,16 @@ class QuizResultView extends ConsumerWidget {
 }
 
 class _AnswerResultCard extends StatelessWidget {
-  const _AnswerResultCard({required this.attempt});
+  const _AnswerResultCard({
+    required this.attempt,
+    required this.onAccept,
+    required this.isUpdating,
+    super.key,
+  });
 
   final Attempt attempt;
+  final VoidCallback? onAccept;
+  final bool isUpdating;
 
   @override
   Widget build(BuildContext context) {
@@ -256,6 +334,26 @@ class _AnswerResultCard extends StatelessWidget {
           if (question.explanation case final explanation?) ...[
             const SizedBox(height: 10),
             Text('해설: $explanation'),
+          ],
+          if (question.type == QuestionType.shortAnswer &&
+              !isCorrect &&
+              !attempt.isUnknown &&
+              (attempt.response['textAnswer'] as String? ?? '')
+                  .trim()
+                  .isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              key: Key('accept-submitted-answer-${attempt.id}'),
+              onPressed: onAccept,
+              icon: isUpdating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.playlist_add_check_rounded),
+              label: Text(isUpdating ? '정답 등록 중…' : '이 답안을 정답에 추가'),
+            ),
           ],
         ],
       ),
