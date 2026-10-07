@@ -14,7 +14,6 @@ import 'package:review_platform/features/library/question_list/question_list_vie
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
 import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
-import 'package:review_platform/shared/widgets/pdf_review_option.dart';
 import 'package:review_platform/features/library/question_list/question_management_list.dart';
 
 class QuestionListView extends ConsumerWidget {
@@ -78,7 +77,6 @@ class QuestionListView extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 if (supportsPdfDrop) ...[
-                  const PdfReviewOption(),
                   const Text(
                     '이 자료 영역에 PDF 파일을 끌어다 놓아 가져올 수 있어요. (1개 · 용량 제한은 서버 설정에 따릅니다.)',
                   ),
@@ -92,9 +90,7 @@ class QuestionListView extends ConsumerWidget {
                         child: ListTile(
                           key: Key('pdf-job-${job.id}'),
                           leading: Icon(
-                            job.isAwaitingReview
-                                ? Icons.fact_check_outlined
-                                : job.isActive
+                            job.isActive
                                 ? Icons.hourglass_top_rounded
                                 : Icons.picture_as_pdf_rounded,
                           ),
@@ -569,7 +565,6 @@ enum _PdfSourceAction { edit, move, delete }
 
 String _extractionLabel(String method) => switch (method) {
   'textLayer' => '텍스트 레이어',
-  'visionOcr' || 'ocr' => 'OCR',
-  'hybrid' => '텍스트 + OCR',
+  'visionOcr' || 'ocr' || 'hybrid' || 'textLayer' => 'PDF',
   _ => method,
 };

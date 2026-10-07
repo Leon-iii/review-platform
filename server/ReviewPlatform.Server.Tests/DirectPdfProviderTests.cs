@@ -9,7 +9,7 @@ namespace ReviewPlatform.Server.Tests;
 public sealed class DirectPdfProviderTests
 {
     [Fact]
-    public async Task NativePdfRequests_CountExactPayload_UseLargeOutput_KeepOnlyOllamaCap()
+    public async Task NativePdfRequests_CountExactPayload_UseLargeOutput_HasNoConceptCountCap()
     {
         var requests = new List<JsonElement>();
         using var client = new HttpClient(new Handler(async request =>
@@ -37,8 +37,6 @@ public sealed class DirectPdfProviderTests
         var schema = requests[1].GetProperty("text").GetProperty("format").GetProperty("schema");
         Assert.False(schema.GetProperty("properties").GetProperty("concepts").TryGetProperty("maxItems", out _));
         Assert.DoesNotContain("at most 8", DirectPdfConceptPrompt.SystemPrompt);
-        Assert.DoesNotContain("at most 8", ConceptExtractionPrompt.SystemPrompt);
-        Assert.Contains("at most 8", ConceptExtractionPrompt.OllamaSystemPrompt);
     }
 
     [Theory]

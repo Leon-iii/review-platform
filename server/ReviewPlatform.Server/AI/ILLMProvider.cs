@@ -16,14 +16,6 @@ public interface ILLMProvider
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
-        ConceptExtractionInput input,
-        CancellationToken cancellationToken = default)
-    {
-        throw new LlmProviderUnavailableException(
-            "선택한 LLM Provider는 개념 추출을 지원하지 않습니다.");
-    }
-
     Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
         ConceptRevisionInput input,
         CancellationToken cancellationToken = default)
@@ -32,13 +24,7 @@ public interface ILLMProvider
             "선택한 LLM Provider는 개념 수정을 지원하지 않습니다.");
     }
 
-    Task<DocumentVisionResult> ExtractPageContentAsync(
-        DocumentVisionInput input,
-        CancellationToken cancellationToken = default)
-    {
-        throw new LlmProviderUnavailableException(
-            "선택한 LLM Provider는 문서 이미지 분석을 지원하지 않습니다.");
-    }
+
 }
 
 public sealed record QuestionGenerationInput(

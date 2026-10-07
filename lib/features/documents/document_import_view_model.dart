@@ -1,7 +1,6 @@
 import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/core/documents/document_providers.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
-import 'package:review_platform/core/documents/pdf_review_preference.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
@@ -64,35 +63,13 @@ class DocumentImportController extends _$DocumentImportController {
     if (!ref.mounted) return false;
     final coordinator = ref.read(documentJobCoordinatorProvider);
     if (coordinator != null) {
-      final jobId = await coordinator.upload(
-        folderId,
-        picked,
-        reviewBeforeConcepts: ref.read(pdfReviewPreferenceProvider),
-        prepareOnly: true,
-      );
+      final jobId = await coordinator.upload(folderId, picked);
       if (!ref.mounted) return true;
       activeJobId = jobId;
       state = const AsyncData(null);
       return true;
     }
-    if (ref.read(pdfReviewPreferenceProvider)) {
-      throw const ValidationFailure('OCR 중간 검토를 지원하는 서버 연결이 필요해요.');
-    }
-    final result = await ref
-        .read(remoteDocumentApiProvider)
-        .importPdf(
-          configuration: configuration,
-          fileName: picked.fileName,
-          bytes: await picked.readBytes(),
-        );
-    if (!ref.mounted) return false;
-    final saved = await ref
-        .read(sourceRepositoryProvider)
-        .saveImport(folderId: folderId, result: result);
-    if (!ref.mounted) return false;
-    state = AsyncData(saved);
-    ref.invalidate(documentSourcesProvider(folderId));
-    return true;
+    throw const ValidationFailure('PDF 직접 추출을 지원하는 서버 연결이 필요해요.');
   }
 
   Future<void> loadSource(String sourceId) async {

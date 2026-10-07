@@ -6,7 +6,6 @@ import 'package:review_platform/core/documents/document_job_providers.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
 import 'package:review_platform/shared/widgets/app_action_group.dart';
-import 'package:review_platform/features/documents/document_ocr_review_view.dart';
 import 'package:review_platform/features/documents/document_job_delete_button.dart';
 
 class DocumentJobPanel extends ConsumerStatefulWidget {
@@ -68,7 +67,7 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
           });
         }
         final job = row.job;
-        if (job.isAwaitingSelection || (job.isDirect && job.canRetry)) {
+        if (job.isAwaitingSelection || job.canRetry) {
           return DocumentExtractionPanel(
             key: ValueKey('extraction-${job.id}'),
             jobId: job.id,
@@ -109,19 +108,11 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
                           Text(job.progressLabel),
                         ],
                         const SizedBox(height: 12),
-                        Text(
-                          job.isAwaitingReview
-                              ? 'OCR 검토를 기다리고 있어요. 검토 내용을 확정하기 전에는 개념 추출을 시작하지 않습니다. 화면을 나가거나 서버를 재시작해도 검토 내용은 보관됩니다.'
-                              : '화면을 나가도 서버에서 분석을 계속합니다. 서버가 다시 켜지면 완료한 지점부터 이어갑니다.',
+                        const Text(
+                          '화면을 나가도 서버에서 추출을 계속합니다. 서버가 다시 켜지면 완료한 묶음부터 이어갑니다.',
                         ),
-                        if (job.data['visionModel'] is String) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            job.isDirect
-                                ? 'PDF 직접 추출: ${job.data['conceptModel']}'
-                                : 'OCR: ${job.data['visionModel']} · 개념 추출: ${job.data['conceptModel']}',
-                          ),
-                        ],
+                        if (job.data['conceptModel'] is String)
+                          Text('PDF 개념 추출: ${job.data['conceptModel']}'),
                         if (job.error != null) ...[
                           const SizedBox(height: 12),
                           AppErrorNotice(error: job.error!),
@@ -129,37 +120,13 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
                         const SizedBox(height: 16),
                         AppActionGroup(
                           children: [
-                            if (job.isAwaitingReview)
-                              FilledButton.icon(
-                                key: const Key('open-ocr-review'),
-                                onPressed: _busy
-                                    ? null
-                                    : () => Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => DocumentOcrReviewView(
-                                            jobId: job.id,
-                                            fileName: job.fileName,
-                                          ),
-                                        ),
-                                      ),
-                                icon: const Icon(Icons.fact_check_outlined),
-                                label: const Text('OCR 내용 검토'),
-                              ),
-                            if (job.isActive || job.isAwaitingReview)
+                            if (job.isActive)
                               OutlinedButton(
                                 key: const Key('cancel-pdf-job'),
                                 onPressed: _busy
                                     ? null
                                     : () => _change('cancel'),
                                 child: const Text('분석 취소'),
-                              ),
-                            if (job.canRetry)
-                              FilledButton(
-                                key: const Key('retry-pdf-job'),
-                                onPressed: _busy
-                                    ? null
-                                    : () => _change('retry'),
-                                child: const Text('완료한 지점부터 재시도'),
                               ),
                             if (job.status == 'uploadFailed')
                               FilledButton(

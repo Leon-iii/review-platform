@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:review_platform/core/documents/document_picker.dart';
@@ -11,6 +12,7 @@ import 'fake_pdf_jobs.dart';
 
 class FakePdfExtractionApi extends FakePdfJobsApi
     implements RemoteDocumentExtractionApi {
+  Uint8List? previewBytes;
   String provider = 'openai';
   int revision = 0, starts = 0, checks = 0;
   String status = 'warning';
@@ -93,5 +95,9 @@ class FakePdfExtractionApi extends FakePdfJobsApi
     SyncConfiguration configuration,
     String id,
     int page,
-  ) => reviewImage(configuration, id, page);
+  ) async =>
+      previewBytes ??
+      base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII=',
+      );
 }

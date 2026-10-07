@@ -12,32 +12,26 @@ class PdfImportJob {
   String get fileName => data['fileName']! as String;
   String get status => data['status']! as String;
   String get stage => data['stage'] as String? ?? 'queued';
-  // Older clients persisted status-query connection failures as job errors.
-  // A waiting review has no running LLM task that could have failed. Ignore
-  // those stale errors, even before the first successful server refresh.
-  String? get error => isAwaitingReview ? null : data['error'] as String?;
+  String? get error => isAwaitingSelection ? null : data['error'] as String?;
   int get completedPages => (data['completedPages'] as num?)?.toInt() ?? 0;
   int get totalPages => (data['totalPages'] as num?)?.toInt() ?? 0;
   int get completedChunks => (data['completedChunks'] as num?)?.toInt() ?? 0;
   int get totalChunks => (data['totalChunks'] as num?)?.toInt() ?? 0;
   bool get canRetry => status == 'failed' || status == 'cancelled';
   bool get isActive => status == 'queued' || status == 'running';
-  bool get isAwaitingReview => status == 'awaiting_review';
-  bool get isAwaitingSelection => status == 'awaiting_selection';
+  bool get isAwaitingSelection =>
+      status == 'awaiting_selection' ||
+      status == 'awaiting_review' || // Legacy jobs must not resume the removed pipeline.
+      (status != 'completed' && data['extractionMode'] == 'ocr');
   bool get isDirect => data['extractionMode'] == 'direct';
-  double? get progress => totalPages == 0
-      ? null
-      : isDirect
-      ? (totalChunks > 0 ? (completedChunks / totalChunks).clamp(0, 1) : null)
-      : stage == 'concepts' && totalChunks > 0
-      ? (0.7 + 0.3 * completedChunks / totalChunks).clamp(0, 1)
-      : (0.7 * completedPages / totalPages).clamp(0, 1);
+  double? get progress =>
+      totalChunks > 0 ? (completedChunks / totalChunks).clamp(0, 1) : null;
   String get statusLabel => switch (status) {
     'uploading' => '업로드 중',
     'uploadFailed' => '업로드 미완료',
     'queued' => '분석 대기 중',
-    'awaiting_review' => 'OCR 검토 대기',
-    'awaiting_selection' => '추출 방식 선택 대기',
+    'awaiting_review' => '추출 설정 확인 필요',
+    'awaiting_selection' => '추출 설정 대기',
     'running' =>
       stage == 'rate_wait'
           ? 'API 한도 회복 대기 중'
@@ -55,9 +49,6 @@ class PdfImportJob {
     'completed' => '분석 완료',
     _ => '서버 확인 중',
   };
-  String get progressLabel => isAwaitingReview
-      ? '페이지 분석 완료 · 사용자 검토 대기'
-      : isDirect || stage == 'concepts'
-      ? '개념 추출 $completedChunks / $totalChunks 묶음'
-      : '페이지 분석 $completedPages / $totalPages 페이지';
+
+  String get progressLabel => '개념 추출 $completedChunks / $totalChunks 묶음';
 }

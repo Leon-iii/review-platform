@@ -168,7 +168,7 @@ public sealed partial class DocumentProcessingService
                     await Task.Delay(e.Delay + TimeSpan.FromMilliseconds(Random.Shared.Next(100, 600)), cancellationToken);
                 }
             }
-            var localPages = Enumerable.Range(1, range.PageCount).Select(page => new ExtractedDocumentPage(page, "")).ToArray();
+            var localPages = Enumerable.Range(1, range.PageCount);
             var validated = ValidateConcepts(generated!, localPages);
             if (validated.Count == 0) throw new DocumentImportException("이 묶음에서 개념을 추출하지 못했습니다.");
             checkpoint.Chunks.Add(validated.Select(concept => concept with

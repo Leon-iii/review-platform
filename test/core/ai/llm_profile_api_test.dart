@@ -50,7 +50,6 @@ void main() {
       settings.assignments[LlmPurpose.conceptRevision],
       'question-profile',
     );
-    expect(settings.assignments[LlmPurpose.documentVision], 'question-profile');
     expect(settings.apiKeyConfigured[LlmApiKeyProvider.openAi], isTrue);
     expect(settings.apiKeyConfigured[LlmApiKeyProvider.gemini], isFalse);
     expect(settings.apiKeyConfigured[LlmApiKeyProvider.claude], isFalse);
@@ -91,7 +90,6 @@ void main() {
         LlmPurpose.questionGeneration: 'question-profile',
         LlmPurpose.conceptExtraction: 'concept-profile',
         LlmPurpose.conceptRevision: 'question-profile',
-        LlmPurpose.documentVision: 'question-profile',
       },
       apiKeyConfigured: const {
         LlmApiKeyProvider.openAi: true,
@@ -115,7 +113,7 @@ void main() {
     expect(assignments['questionGeneration'], 'question-profile');
     expect(assignments['conceptExtraction'], 'concept-profile');
     expect(assignments['conceptRevision'], 'question-profile');
-    expect(assignments['documentVision'], 'question-profile');
+    expect(assignments.containsKey('documentVision'), isFalse);
     final apiKeys = Map<String, Object?>.from(requestBody['apiKeys']! as Map);
     expect(apiKeys['gemini'], 'gemini-secret');
     expect(apiKeys['claude'], 'claude-secret');

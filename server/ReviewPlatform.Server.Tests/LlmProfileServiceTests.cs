@@ -80,6 +80,21 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
             LlmPurposes.QuestionGeneration, TestContext.Current.CancellationToken)).Id);
     }
 
+
+    [Fact]
+    public async Task LegacyVisionAssignment_IsNotExposed_AndExistingProfilesRemain()
+    {
+        var existing = await service.GetSettingsAsync(TestContext.Current.CancellationToken);
+        var profile = existing.Profiles.Single();
+        database.LlmPurposeAssignments.Add(new ReviewPlatform.Server.Data.LlmPurposeAssignmentRecord { Purpose = "documentVision", ProfileId = profile.Id });
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var settings = await service.GetSettingsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, settings.Assignments.Count);
+        Assert.DoesNotContain("documentVision", settings.Assignments.Keys);
+        Assert.Equal(profile, settings.Profiles.Single());
+        Assert.True(await database.LlmPurposeAssignments.AnyAsync(a => a.Purpose == "documentVision", TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task FirstRead_SeedsBootstrapProfileForEveryPurpose()
     {
@@ -96,8 +111,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
             settings.Assignments[LlmPurposes.ConceptExtraction]);
         Assert.Equal(profile.Id,
             settings.Assignments[LlmPurposes.ConceptRevision]);
-        Assert.Equal(profile.Id,
-            settings.Assignments[LlmPurposes.DocumentVision]);
+        Assert.Equal(3, settings.Assignments.Count);
     }
 
     [Fact]
@@ -182,7 +196,6 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
                 [LlmPurposes.QuestionGeneration] = "fast",
                 [LlmPurposes.ConceptExtraction] = "quality",
                 [LlmPurposes.ConceptRevision] = "fast",
-                [LlmPurposes.DocumentVision] = "quality"
             });
 
         await service.UpdateSettingsAsync(
@@ -201,10 +214,6 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
         Assert.Equal("qwen3:4b", questions.Model);
         Assert.Equal("qwen3:8b", concepts.Model);
         Assert.Equal("qwen3:4b", revisions.Model);
-        var vision = await service.GetActiveProfileAsync(
-            LlmPurposes.DocumentVision,
-            TestContext.Current.CancellationToken);
-        Assert.Equal("qwen3:8b", vision.Model);
     }
 
     [Fact]
@@ -223,7 +232,6 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
                 [LlmPurposes.QuestionGeneration] = "missing",
                 [LlmPurposes.ConceptExtraction] = "only",
                 [LlmPurposes.ConceptRevision] = "only",
-                [LlmPurposes.DocumentVision] = "only"
             });
 
         var exception = await Assert.ThrowsAsync<LlmProfileValidationException>(
@@ -234,92 +242,9 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
         Assert.Contains("존재하지 않는", exception.Message);
     }
 
-    [Fact]
-    public async Task ExistingDefaultProfile_AddsVisionPurposeAndUpgradesQwenModel()
-    {
-        await service.GetSettingsAsync(TestContext.Current.CancellationToken);
-        var profile = await database.LlmProfiles.SingleAsync(
-            TestContext.Current.CancellationToken);
-        profile.Model = "qwen3:8b";
-        var visionAssignment = await database.LlmPurposeAssignments
-            .SingleAsync(
-                assignment => assignment.Purpose == LlmPurposes.DocumentVision,
-                TestContext.Current.CancellationToken);
-        database.LlmPurposeAssignments.Remove(visionAssignment);
-        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var settings = await service.GetSettingsAsync(
-            TestContext.Current.CancellationToken);
 
-        Assert.Equal(
-            "qwen3-vl:8b-instruct",
-            Assert.Single(settings.Profiles).Model);
-        Assert.Equal("default", settings.Assignments[LlmPurposes.DocumentVision]);
-    }
 
-    [Fact]
-    public async Task UserSelectedModel_IsNotOverwrittenAfterVisionMigration()
-    {
-        await service.GetSettingsAsync(TestContext.Current.CancellationToken);
-        var profile = await database.LlmProfiles.SingleAsync(
-            TestContext.Current.CancellationToken);
-        profile.Model = "qwen3:8b";
-        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-        var settings = await service.GetSettingsAsync(
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(
-            "qwen3:8b",
-            Assert.Single(settings.Profiles, profile => profile.Id == "default").Model);
-        Assert.Single(settings.Profiles);
-        Assert.Equal("default", settings.Assignments[LlmPurposes.DocumentVision]);
-    }
-
-    [Fact]
-    public async Task ManagedReasoningVisionProfile_IsUpgradedToInstructVariant()
-    {
-        await service.GetSettingsAsync(TestContext.Current.CancellationToken);
-        var profile = await database.LlmProfiles.SingleAsync(
-            TestContext.Current.CancellationToken);
-        profile.Model = "qwen3-vl:8b";
-        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-        var settings = await service.GetSettingsAsync(
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(
-            "qwen3-vl:8b-instruct",
-            Assert.Single(settings.Profiles).Model);
-    }
-
-    [Fact]
-    public async Task Update_RejectsReasoningVariantForDocumentVision()
-    {
-        var request = new UpdateLlmProfileSettingsRequest(
-            [
-                new LlmProfileInput(
-                    "reasoning-vision",
-                    "추론형 비전",
-                    "ollama",
-                    "qwen3-vl:8b")
-            ],
-            new Dictionary<string, string>
-            {
-                [LlmPurposes.QuestionGeneration] = "reasoning-vision",
-                [LlmPurposes.ConceptExtraction] = "reasoning-vision",
-                [LlmPurposes.ConceptRevision] = "reasoning-vision",
-                [LlmPurposes.DocumentVision] = "reasoning-vision"
-            });
-
-        var exception = await Assert.ThrowsAsync<LlmProfileValidationException>(
-            () => service.UpdateSettingsAsync(
-                request,
-                TestContext.Current.CancellationToken));
-
-        Assert.Contains("qwen3-vl:8b-instruct", exception.Message);
-        Assert.Contains("thinking 필드", exception.Message);
-    }
 
     [Fact]
     public async Task ContextWindow_PersistsPerProfileAndReachesActiveProfile()
@@ -375,7 +300,7 @@ public sealed class LlmProfileServiceTests : IAsyncLifetime
         for (var index = 0; index < 2; index++)
         {
             var settings = await service.GetSettingsAsync(TestContext.Current.CancellationToken);
-            Assert.Equal(4, settings.Profiles.Count);
+            Assert.Equal(3, settings.Profiles.Count);
             Assert.True(settings.ApiKeyConfigured["openai"]);
             Assert.DoesNotContain(settings.Profiles, profile => profile.Id == "default");
             foreach (var purpose in LlmPurposes.All)

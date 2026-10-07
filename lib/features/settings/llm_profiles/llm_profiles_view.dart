@@ -54,7 +54,6 @@ class _ProfileSettingsFormState extends ConsumerState<_ProfileSettingsForm>
     with WidgetsBindingObserver {
   static const _saveDelay = Duration(milliseconds: 700);
   static const _purposeDisplayOrder = [
-    LlmPurpose.documentVision,
     LlmPurpose.conceptExtraction,
     LlmPurpose.conceptRevision,
     LlmPurpose.questionGeneration,
@@ -673,12 +672,6 @@ class _ProfileCard extends StatelessWidget {
               key: ValueKey('llm-purpose-title-${draft.id}'),
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            if (draft.id == 'purpose-documentVision') ...[
-              const SizedBox(height: 6),
-              const Text(
-                'PDF의 이미지와 스캔 페이지를 읽는 용도입니다. 이미지 입력을 지원하는 모델을 선택해 주세요.',
-              ),
-            ],
             const SizedBox(height: 8),
             DropdownButtonFormField<LlmProviderKind>(
               key: ValueKey('llm-provider-${draft.id}'),

@@ -11,9 +11,8 @@ public sealed class StudyNotationPromptTests
     public void AllAiPathsShareLosslessMathRules()
     {
         foreach (var prompt in new[] {
-            ConceptExtractionPrompt.SystemPrompt, ConceptExtractionPrompt.OllamaSystemPrompt, DirectPdfConceptPrompt.SystemPrompt,
-            ConceptRevisionPrompt.SystemPrompt, DocumentVisionPrompt.SystemPrompt,
-            DocumentVisionPrompt.StructuredSystemPrompt, QuestionGenerationPrompt.SystemPrompt,
+            DirectPdfConceptPrompt.SystemPrompt,
+            ConceptRevisionPrompt.SystemPrompt, QuestionGenerationPrompt.SystemPrompt,
             QuestionGenerationPrompt.ConceptSystemPrompt })
         {
             Assert.Contains(StudyNotationPrompt.Instructions, prompt);
@@ -33,7 +32,7 @@ public sealed class StudyNotationPromptTests
     public void KoreanConceptsRetainOriginalTermsPerTitleAndPerConceptBody()
     {
         foreach (var prompt in new[] {
-            ConceptExtractionPrompt.SystemPrompt, ConceptExtractionPrompt.OllamaSystemPrompt, DirectPdfConceptPrompt.SystemPrompt,
+            DirectPdfConceptPrompt.SystemPrompt,
             ConceptRevisionPrompt.SystemPrompt })
         {
             Assert.Contains(ConceptLanguagePrompt.Instructions, prompt);
@@ -50,9 +49,6 @@ public sealed class StudyNotationPromptTests
     public void ExtractedSourceAndRevisionDataRetainBackslashesAndScriptScopeThroughJson()
     {
         const string notation = @"성능 (Performance): \(\mathrm{Performance}_{X} = \frac{1}{T_{X}}\), \[a_{i,j}^{(k)}\]";
-        var extraction = ConceptExtractionPrompt.BuildUserPrompt(new ConceptExtractionInput(
-            "source", "notation.pdf", [new ExtractedDocumentPage(1, notation)], ConceptExtractionPrompt.Version));
-        Assert.Contains(notation, extraction);
         var revision = ConceptRevisionPrompt.BuildUserPrompt(new ConceptRevisionInput(
             "source", "notation.pdf", 1, "표현만 정리",
             [new ConceptRevisionContext("concept", "성능 (Performance)", notation, [1], "held")],

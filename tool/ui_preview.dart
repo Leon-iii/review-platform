@@ -31,6 +31,7 @@ import 'package:review_platform/repositories/source_repository.dart';
 
 import '../test/support/fake_ai.dart';
 import '../test/support/fake_pdf_jobs.dart';
+import '../test/support/fake_pdf_extraction.dart';
 import '../test/support/fake_sync.dart';
 
 Future<void> main() async {
@@ -124,7 +125,7 @@ Future<UiPreviewFixture> createUiPreviewFixture({
     );
   }
   final secrets = _PreviewSecrets();
-  final pdfApi = FakePdfJobsApi();
+  final pdfApi = FakePdfExtractionApi();
   // A valid synthetic PNG: the legacy fake's malformed CRC is accepted by
   // widget tests but rejected by the native Windows image decoder.
   pdfApi.previewBytes = base64Decode(

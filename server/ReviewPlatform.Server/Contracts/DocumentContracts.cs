@@ -1,30 +1,5 @@
 namespace ReviewPlatform.Server.Contracts;
 
-public static class DocumentExtractionMethods
-{
-    public const string TextLayer = "textLayer";
-    public const string VisionOcr = "visionOcr";
-    public const string Hybrid = "hybrid";
-}
-
-public static class DocumentContentKinds
-{
-    public const string Text = "text";
-    public const string Diagram = "diagram";
-    public const string Table = "table";
-    public const string Uncertain = "uncertain";
-    public static bool IsValid(string? kind) => kind is Text or Diagram or Table or Uncertain;
-}
-
-public sealed record DocumentVisionRegion(string Kind, string Text, bool VisualRegion = false);
-
-public sealed record ExtractedDocumentPage(
-    int PageNumber,
-    string Text,
-    string ExtractionMethod = DocumentExtractionMethods.TextLayer,
-    bool RequiresVision = false,
-    IReadOnlyList<DocumentVisionRegion>? Regions = null);
-
 public sealed record DocumentPageExtractionMetadata(
     int PageNumber,
     string ExtractionMethod,
@@ -51,22 +26,6 @@ public sealed record ImportDocumentResponse(
     DocumentSourceMetadata Source,
     IReadOnlyList<GeneratedConceptDraft> Concepts,
     IReadOnlyList<DocumentPageExtractionMetadata> Pages);
-
-public sealed record ConceptExtractionInput(
-    string SourceId,
-    string FileName,
-    IReadOnlyList<ExtractedDocumentPage> Pages,
-    string PromptVersion);
-
-public sealed record DocumentVisionInput(
-    string FileName,
-    int PageNumber,
-    string MimeType,
-    byte[] ImageBytes,
-    string ImageHash,
-    string PromptVersion);
-
-public sealed record DocumentVisionResult(string Text, IReadOnlyList<DocumentVisionRegion>? Regions = null);
 
 public sealed record ConceptRevisionContext(
     string Id,

@@ -62,7 +62,7 @@ class _DocumentJobDeleteButtonState
         title: const Text('PDF 작업 삭제'),
         content: Text(
           '“${widget.fileName}” 작업을 삭제할까요?\n'
-          '진행 중인 분석을 중단하고 서버의 원본 PDF와 이 작업의 OCR·검토 내용을 삭제합니다. '
+          '진행 중인 분석을 중단하고 서버의 원본 PDF와 이 작업의 추출 진행 기록을 삭제합니다. '
           '이 작업은 되돌릴 수 없으며, 다시 분석하려면 PDF를 새로 업로드해야 합니다.',
         ),
         actions: [

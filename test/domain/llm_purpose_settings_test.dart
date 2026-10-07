@@ -17,10 +17,10 @@ void main() {
     apiKeyConfigured: {LlmApiKeyProvider.openAi: true},
   );
 
-  test('shared legacy settings become four independent purpose records', () {
+  test('shared legacy settings become three independent purpose records', () {
     final settings = legacy.forPurposes();
-    expect(settings.profiles, hasLength(4));
-    expect(settings.assignments.values.toSet(), hasLength(4));
+    expect(settings.profiles, hasLength(3));
+    expect(settings.assignments.values.toSet(), hasLength(3));
     for (final purpose in LlmPurpose.values) {
       final profile = settings.profiles.singleWhere(
         (profile) => profile.id == settings.assignments[purpose],
@@ -44,7 +44,8 @@ void main() {
     () {
       final broken = LlmProfileSettings(
         profiles: legacy.profiles,
-        assignments: {...legacy.assignments}..remove(LlmPurpose.documentVision),
+        assignments: {...legacy.assignments}
+          ..remove(LlmPurpose.conceptExtraction),
         apiKeyConfigured: legacy.apiKeyConfigured,
       );
       expect(broken.forPurposes, throwsFormatException);

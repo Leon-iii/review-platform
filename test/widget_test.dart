@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui' show PointerDeviceKind, SemanticsAction;
 
 import 'package:drift/native.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -143,12 +142,12 @@ void main() {
             findsNothing,
           );
           final model = find.byKey(
-            const Key('llm-model-purpose-documentVision'),
+            const Key('llm-model-purpose-conceptExtraction'),
           );
           final originalField = tester.element(model);
           final originalId = tester.getSemantics(model).id;
           final contextField = find.byKey(
-            const Key('llm-context-purpose-documentVision'),
+            const Key('llm-context-purpose-conceptExtraction'),
           );
           final originalContext = openAi ? null : tester.element(contextField);
           final refresh = find.byTooltip('모델 목록 새로고침');
@@ -167,7 +166,7 @@ void main() {
           await mouse.moveTo(tester.getCenter(refresh));
           await tester.pumpAndSettle();
           final filter = find.byKey(
-            const Key('llm-model-filter-purpose-documentVision'),
+            const Key('llm-model-filter-purpose-conceptExtraction'),
           );
           await mouse.moveTo(tester.getCenter(filter));
           await tester.pumpAndSettle();
@@ -220,13 +219,12 @@ void main() {
   }
 
   testWidgets(
-    '작업별 모델 설정은 OCR·개념 추출·개념 수정·문제 생성 순으로 표시한다',
+    '작업별 모델 설정은 개념 추출·개념 수정·문제 생성 순으로 표시한다',
     (tester) async {
       final api = _FakeLlmProfileApi(openAi: true);
       await openLlmProfiles(tester, api);
       final positions = [
         for (final purpose in [
-          LlmPurpose.documentVision,
           LlmPurpose.conceptExtraction,
           LlmPurpose.conceptRevision,
           LlmPurpose.questionGeneration,
@@ -260,7 +258,7 @@ void main() {
     expect(find.text('변경사항은 자동으로 저장됩니다.'), findsOneWidget);
   });
 
-  testWidgets('네 용도를 직접 설정하고 공유하던 프로필을 독립적으로 저장한다', (tester) async {
+  testWidgets('세 용도를 직접 설정하고 공유하던 프로필을 독립적으로 저장한다', (tester) async {
     final api = _FakeLlmProfileApi(openAi: true);
     await openLlmProfiles(tester, api);
     expect(find.text('용도별 AI 설정'), findsOneWidget);
@@ -281,11 +279,11 @@ void main() {
     expect(find.byKey(const Key('add-llm-profile-button')), findsNothing);
     expect(find.byTooltip('프로필 이름 변경'), findsNothing);
     expect(find.byTooltip('프로필 삭제'), findsNothing);
-    expect(find.byType(DropdownButtonFormField<String>), findsNWidgets(4));
+    expect(find.byType(DropdownButtonFormField<String>), findsNWidgets(3));
     await _setReasoningEffort(tester, 'high');
     await _waitForProfileAutosave(tester);
     expect(api.saveCalls, 1);
-    expect(api.savedSettings!.profiles, hasLength(4));
+    expect(api.savedSettings!.profiles, hasLength(3));
     expect(api.savedSettings!.profiles.first.reasoningEffort, 'high');
     for (final profile in api.savedSettings!.profiles.skip(1)) {
       expect(profile.model, 'gpt-5-mini');
@@ -548,7 +546,6 @@ void main() {
           LlmPurpose.questionGeneration: 'cloud',
           LlmPurpose.conceptExtraction: 'local',
           LlmPurpose.conceptRevision: 'cloud',
-          LlmPurpose.documentVision: 'local',
         },
         apiKeyConfigured: {LlmApiKeyProvider.claude: true},
       ),
@@ -566,12 +563,11 @@ void main() {
     await _setReasoningEffort(tester, 'high');
     await _waitForProfileAutosave(tester);
     final settings = api.savedSettings!;
-    expect(settings.profiles, hasLength(4));
+    expect(settings.profiles, hasLength(3));
     expect(settings.profiles[0].model, 'gpt-6-luna');
     expect(settings.profiles[0].reasoningEffort, 'high');
     expect(settings.profiles[1].contextWindowTokens, 16384);
     expect(settings.profiles[2].reasoningEffort, 'max');
-    expect(settings.profiles[3].contextWindowTokens, 16384);
     expect(settings.apiKeyConfigured[LlmApiKeyProvider.claude], isTrue);
     expect(tester.takeException(), isNull);
   });
@@ -598,7 +594,6 @@ void main() {
     expect(api.savedSettings!.profiles[0].reasoningEffort, 'high');
     expect(api.savedSettings!.profiles[1].reasoningEffort, 'low');
     expect(api.savedSettings!.profiles[2].reasoningEffort, isNull);
-    expect(api.savedSettings!.profiles[3].reasoningEffort, isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -610,7 +605,7 @@ void main() {
     await tester.enterText(keyField, 'pending-key');
     await _waitForProfileAutosave(tester);
     expect(api.saveCalls, 0);
-    expect(find.text('서버에서 사용할 수 있는 모델을 선택해 주세요.'), findsNWidgets(4));
+    expect(find.text('서버에서 사용할 수 있는 모델을 선택해 주세요.'), findsNWidgets(3));
     await tester.tap(find.byTooltip('뒤로가기'));
     await tester.pumpAndSettle();
     expect(find.text('저장하지 않고 나갈까요?'), findsOneWidget);
@@ -651,7 +646,7 @@ void main() {
       expect(profile.provider, LlmProviderKind.ollama);
       expect(profile.model, 'qwen3-vl:8b-instruct');
     }
-    expect(api.savedSettings!.assignments.values.toSet(), hasLength(4));
+    expect(api.savedSettings!.assignments.values.toSet(), hasLength(3));
     expect(tester.takeException(), isNull);
   });
 
@@ -1121,7 +1116,7 @@ void main() {
     await tester.tap(find.byKey(const Key('llm-profiles-settings-tile')));
     await tester.pumpAndSettle();
     expect(find.text('o3-pro · 지원 정보 미등록'), findsNothing);
-    expect(find.textContaining('추론 모델이며 자동 모드로 사용할 수 있습니다.'), findsNWidgets(4));
+    expect(find.textContaining('추론 모델이며 자동 모드로 사용할 수 있습니다.'), findsNWidgets(3));
     final reasoning = tester.widget<Slider>(
       find.byKey(const Key('llm-reasoning-slider-purpose-questionGeneration')),
     );
@@ -2173,13 +2168,6 @@ class _FakeRemoteDocumentApi implements RemoteDocumentApi {
     required SyncConfiguration configuration,
     required String sourceId,
   }) async {}
-
-  @override
-  Future<DocumentImportResult> importPdf({
-    required SyncConfiguration configuration,
-    required String fileName,
-    required Uint8List bytes,
-  }) => throw UnimplementedError();
 
   @override
   Future<List<ConceptRevision>> reviseConcepts({

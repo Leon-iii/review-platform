@@ -38,33 +38,7 @@ public sealed class LlmProfileService(
             database.LlmProfiles.Add(profile);
         }
 
-        var isLegacyProfileState = assignments.All(assignment =>
-            assignment.Purpose != LlmPurposes.DocumentVision);
-        var defaultProfile = profiles.FirstOrDefault(profile =>
-            profile.Id == "default");
-        var assignedVisionProfileId = assignments.FirstOrDefault(assignment =>
-            assignment.Purpose == LlmPurposes.DocumentVision)?.ProfileId;
-        var managedVisionProfiles = profiles.Where(profile =>
-            profile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase) &&
-            profile.Model.Equals("qwen3-vl:8b", StringComparison.OrdinalIgnoreCase) &&
-            ((profile.Id == "default" && profile.Id == assignedVisionProfileId) ||
-             profile.Id.StartsWith("document-vision", StringComparison.Ordinal)))
-            .ToList();
-        foreach (var profile in managedVisionProfiles)
-        {
-            profile.Model = "qwen3-vl:8b-instruct";
-            profile.UpdatedAt = DateTimeOffset.UtcNow;
-        }
-        if (isLegacyProfileState &&
-            defaultProfile is not null &&
-            defaultProfile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase) &&
-            defaultProfile.Model.Equals("qwen3:8b", StringComparison.OrdinalIgnoreCase))
-        {
-            defaultProfile.Model = "qwen3-vl:8b-instruct";
-            defaultProfile.UpdatedAt = DateTimeOffset.UtcNow;
-        }
-
-        var fallbackProfile = defaultProfile ?? profiles[0];
+        var fallbackProfile = profiles.FirstOrDefault(profile => profile.Id == "default") ?? profiles[0];
         EnsureAssignment(
             assignments,
             LlmPurposes.QuestionGeneration,
@@ -79,35 +53,6 @@ public sealed class LlmProfileService(
             assignments.FirstOrDefault(assignment =>
                 assignment.Purpose == LlmPurposes.QuestionGeneration)?.ProfileId ??
             fallbackProfile.Id);
-
-        var visionProfile = profiles.FirstOrDefault(profile =>
-            profile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase) &&
-            profile.Model.Equals(
-                "qwen3-vl:8b-instruct",
-                StringComparison.OrdinalIgnoreCase)) ??
-            profiles.FirstOrDefault(profile =>
-                profile.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase) &&
-                profile.Model.Contains("vl", StringComparison.OrdinalIgnoreCase));
-        // An existing OCR assignment (including OpenAI) needs no spare Ollama profile.
-        if (assignedVisionProfileId is null && visionProfile is null)
-        {
-            visionProfile = new LlmProfileRecord
-            {
-                Id = NextProfileId(profiles, "document-vision"),
-                Name = "PDF 이미지 OCR",
-                Provider = "ollama",
-                Model = "qwen3-vl:8b-instruct",
-                BaseUrl = LlmOptions.LocalOllamaBaseUrl,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
-            profiles.Add(visionProfile);
-            database.LlmProfiles.Add(visionProfile);
-        }
-        if (assignedVisionProfileId is null)
-            EnsureAssignment(
-                assignments,
-                LlmPurposes.DocumentVision,
-                visionProfile!.Id);
 
         await database.SaveChangesAsync(cancellationToken);
     }
@@ -125,20 +70,6 @@ public sealed class LlmProfileService(
         };
         assignments.Add(assignment);
         database.LlmPurposeAssignments.Add(assignment);
-    }
-
-    private static string NextProfileId(
-        IReadOnlyCollection<LlmProfileRecord> profiles,
-        string preferred)
-    {
-        var ids = profiles.Select(profile => profile.Id)
-            .ToHashSet(StringComparer.Ordinal);
-        if (!ids.Contains(preferred)) return preferred;
-        for (var suffix = 2; ; suffix++)
-        {
-            var candidate = $"{preferred}-{suffix}";
-            if (!ids.Contains(candidate)) return candidate;
-        }
     }
 
     private static string NormalizeBootstrapModel(string provider, string? model)
@@ -174,6 +105,8 @@ public sealed class LlmProfileService(
             .ToListAsync(cancellationToken);
         var assignments = await database.LlmPurposeAssignments
             .AsNoTracking()
+            .Where(assignment => assignment.Purpose == LlmPurposes.QuestionGeneration ||
+                assignment.Purpose == LlmPurposes.ConceptExtraction || assignment.Purpose == LlmPurposes.ConceptRevision)
             .ToDictionaryAsync(
                 assignment => assignment.Purpose,
                 assignment => assignment.ProfileId,
@@ -370,18 +303,6 @@ public sealed class LlmProfileService(
                 throw new LlmProfileValidationException(
                     $"'{pair.Key}'에 존재하지 않는 프로필이 할당되었습니다.");
             }
-        }
-        var documentVisionProfileId = requested[LlmPurposes.DocumentVision];
-        var documentVisionProfile = profiles.Single(profile =>
-            profile.Id == documentVisionProfileId);
-        if (documentVisionProfile.Provider == "ollama" &&
-            documentVisionProfile.Model.Equals(
-                "qwen3-vl:8b",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            throw new LlmProfileValidationException(
-                "PDF 이미지 OCR에는 'qwen3-vl:8b-instruct'를 사용해 주세요. " +
-                "'qwen3-vl:8b'는 OCR 결과를 thinking 필드에만 반환할 수 있습니다.");
         }
         return new Dictionary<string, string>(requested, StringComparer.Ordinal);
     }

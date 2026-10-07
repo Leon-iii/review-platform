@@ -3,545 +3,85 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
-using ReviewPlatform.Server.AI;
-using ReviewPlatform.Server.Contracts;
 using ReviewPlatform.Server.Services;
+using UglyToad.PdfPig.Writer;
 using Xunit;
 
 namespace ReviewPlatform.Server.Tests;
 
 public sealed class DocumentProcessingServiceTests : IAsyncLifetime
 {
-    private readonly string temporaryDirectory = Path.Combine(
-        Path.GetTempPath(),
-        $"review-platform-document-{Guid.NewGuid()}");
+    private readonly string root = Path.Combine(Path.GetTempPath(), $"review-pdf-original-{Guid.NewGuid()}");
+    public ValueTask InitializeAsync() { Directory.CreateDirectory(root); return ValueTask.CompletedTask; }
+    public ValueTask DisposeAsync() { Directory.Delete(root, true); return ValueTask.CompletedTask; }
+    private DocumentProcessingService Service() => new(new Renderer(), new Environment(root),
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["Documents:StoragePath"] = "sources", ["Documents:MinimumFreeDiskSpaceMb"] = "0"
+        }).Build(), NullLogger<DocumentProcessingService>.Instance);
 
-    public ValueTask InitializeAsync()
+    [Fact]
+    public async Task Upload_PreservesExactBytes_Idempotently_AndRejectsReplacement()
     {
-        Directory.CreateDirectory(temporaryDirectory);
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        if (Directory.Exists(temporaryDirectory))
-        {
-            Directory.Delete(temporaryDirectory, recursive: true);
-        }
-        return ValueTask.CompletedTask;
+        var id = Guid.NewGuid().ToString();
+        var builder = new PdfDocumentBuilder();
+        builder.AddPage(600, 400);
+        var bytes = builder.Build();
+        var service = Service();
+        using var first = new MemoryStream(bytes);
+        await service.StoreUploadAsync(id, first, "강의.pdf", bytes.Length, TestContext.Current.CancellationToken);
+        using var duplicate = new MemoryStream(bytes);
+        await service.StoreUploadAsync(id, duplicate, "강의.pdf", bytes.Length, TestContext.Current.CancellationToken);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(root, "sources", $"{id}.pdf"), TestContext.Current.CancellationToken));
+        Assert.Equal(1, service.InspectStoredPdf(id).PageCount);
+        using var different = new MemoryStream(Encoding.ASCII.GetBytes("%PDF-1.7 different"));
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.StoreUploadAsync(id, different, "강의.pdf", different.Length, TestContext.Current.CancellationToken));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(root, "sources", $"{id}.pdf"), TestContext.Current.CancellationToken));
+        Assert.Single(Directory.GetFiles(Path.Combine(root, "sources")));
     }
 
     [Theory]
-    [InlineData("veryLow", "veryLow")]
-    [InlineData("low", "low")]
-    [InlineData("medium", "medium")]
-    [InlineData("high", "high")]
-    [InlineData("veryHigh", "veryHigh")]
-    [InlineData(" VERYLOW ", "veryLow")]
-    [InlineData(" VERYHIGH ", "veryHigh")]
-    public async Task TextPdf_IsStoredAndConceptPagesArePreserved(string importance, string canonical)
+    [InlineData("not a PDF", 9)]
+    [InlineData("%PDF-test", 99)]
+    [InlineData("%PDF-test", 4)]
+    public async Task InvalidOrIncompleteUpload_LeavesNoFiles(string body, int length)
     {
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            2,
-            [
-                new ExtractedDocumentPage(1, "가우스 법칙은 폐곡면의 전기선속을 설명한다."),
-                new ExtractedDocumentPage(2, "내부 전하와 전기선속은 서로 비례한다.")
-            ]));
-        var provider = new FakeConceptProvider(
-        [
-            new GeneratedConceptDraft(
-                "가우스 법칙",
-                "전기선속과 전하의 관계를 폐곡면을 기준으로 설명한다.",
-                [2, 1], importance)
-        ]);
-        var service = CreateService(extractor, provider);
-        await using var content = PdfLikeStream();
-
-        var response = await service.ImportPdfAsync(
-            content,
-            "전자기학.pdf",
-            content.Length,
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(2, response.Source.PageCount);
-        Assert.Equal("textLayer", response.Source.ExtractionMethod);
-        Assert.All(response.Pages, page =>
-            Assert.Equal("textLayer", page.ExtractionMethod));
-        Assert.Equal(64, response.Source.ContentHash.Length);
-        var concept = Assert.Single(response.Concepts);
-        Assert.Equal([1, 2], concept.PageNumbers);
-        Assert.Equal("held", concept.Status);
-        Assert.Equal(canonical, concept.Importance);
-        Assert.True(File.Exists(Path.Combine(
-            temporaryDirectory,
-            "sources",
-            $"{response.Source.Id}.pdf")));
-    }
-
-    [Fact]
-    public async Task DeletePdf_RemovesStoredSourceFile()
-    {
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            1,
-            [new ExtractedDocumentPage(
-                1,
-                "삭제할 수 있는 충분한 길이의 학습 자료 내용을 포함하고 있습니다.")]));
-        var provider = new FakeConceptProvider(
-        [
-            new GeneratedConceptDraft(
-                "삭제 테스트",
-                "저장된 PDF 원본 파일을 삭제한다.",
-                [1])
-        ]);
-        var service = CreateService(extractor, provider);
-        await using var content = PdfLikeStream();
-        var response = await service.ImportPdfAsync(
-            content,
-            "삭제.pdf",
-            content.Length,
-            TestContext.Current.CancellationToken);
-        var path = Path.Combine(
-            temporaryDirectory,
-            "sources",
-            $"{response.Source.Id}.pdf");
-        Assert.True(File.Exists(path));
-
-        service.DeletePdf(response.Source.Id);
-
-        Assert.False(File.Exists(path));
-    }
-
-    [Fact]
-    public async Task PdfWithoutTextLayer_UsesVisionOcrAndStoresResult()
-    {
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            1,
-            [new ExtractedDocumentPage(1, "  ")]));
-        var provider = new FakeConceptProvider(
-            [
-                new GeneratedConceptDraft(
-                    "사칙연산",
-                    "이미지에서 추출한 사칙연산 설명",
-                    [1])
-            ],
-            new DocumentVisionResult(
-                "사칙연산은 덧셈, 뺄셈, 곱셈, 나눗셈으로 구성된다."));
-        var renderer = new FakePdfPageRenderer();
-        var service = CreateService(extractor, provider, renderer);
-        await using var content = PdfLikeStream();
-
-        var response = await service.ImportPdfAsync(
-            content,
-            "스캔.pdf",
-            content.Length,
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal("visionOcr", response.Source.ExtractionMethod);
-        Assert.Equal("visionOcr", Assert.Single(response.Pages).ExtractionMethod);
-        Assert.Equal(1, provider.VisionCallCount);
-        Assert.Equal(1, provider.ConceptCallCount);
-        Assert.Equal(1, renderer.CallCount);
-    }
-
-    [Fact]
-    public async Task MixedPdf_ReportsHybridExtraction()
-    {
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            2,
-            [
-                new ExtractedDocumentPage(
-                    1,
-                    "텍스트 레이어에서 읽은 충분한 길이의 학습 내용입니다."),
-                new ExtractedDocumentPage(2, string.Empty)
-            ]));
-        var provider = new FakeConceptProvider(
-            [
-                new GeneratedConceptDraft(
-                    "혼합 문서",
-                    "텍스트와 이미지 페이지를 모두 근거로 삼는다.",
-                    [1, 2])
-            ],
-            new DocumentVisionResult(
-                "이미지 페이지에서 추출한 충분한 길이의 학습 내용입니다."));
-        var service = CreateService(extractor, provider);
-        await using var content = PdfLikeStream();
-
-        var response = await service.ImportPdfAsync(
-            content,
-            "혼합.pdf",
-            content.Length,
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal("hybrid", response.Source.ExtractionMethod);
-        Assert.Equal(
-            ["textLayer", "visionOcr"],
-            response.Pages.Select(page => page.ExtractionMethod));
-    }
-
-    [Fact]
-    public async Task LargePdf_ExtractsConceptsInPageBoundedChunks()
-    {
-        var pages = Enumerable.Range(1, 18)
-            .Select(page => new ExtractedDocumentPage(
-                page,
-                $"{page}페이지의 충분한 학습 개념 설명 내용입니다."))
-            .ToList();
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            pages.Count,
-            pages));
-        var provider = new ChunkRecordingProvider();
-        var service = CreateService(extractor, provider);
-        await using var content = PdfLikeStream();
-
-        var response = await service.ImportPdfAsync(
-            content,
-            "긴 자료.pdf",
-            content.Length,
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(3, provider.Inputs.Count);
-        Assert.All(provider.Inputs, input =>
-            Assert.InRange(input.Pages.Count, 1, 8));
-        Assert.Equal(18, provider.Inputs.Sum(input => input.Pages.Count));
-        Assert.Equal(3, response.Concepts.Count);
-    }
-
-    [Fact]
-    public async Task RepeatedVisionPage_ReusesCachedOcrText()
-    {
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            1,
-            [new ExtractedDocumentPage(1, string.Empty)]));
-        var provider = new FakeConceptProvider(
-            [
-                new GeneratedConceptDraft(
-                    "캐시",
-                    "같은 이미지의 OCR 결과를 재사용한다.",
-                    [1])
-            ],
-            new DocumentVisionResult(
-                "캐시에 저장할 충분한 길이의 OCR 학습 내용입니다."));
-        var cache = new MemoryPageTextCache();
-        var service = CreateService(
-            extractor,
-            provider,
-            cache: cache);
-
-        await using (var first = PdfLikeStream())
-        {
-            await service.ImportPdfAsync(
-                first,
-                "첫번째.pdf",
-                first.Length,
-                TestContext.Current.CancellationToken);
-        }
-        await using (var second = PdfLikeStream())
-        {
-            await service.ImportPdfAsync(
-                second,
-                "두번째.pdf",
-                second.Length,
-                TestContext.Current.CancellationToken);
-        }
-
-        Assert.Equal(1, provider.VisionCallCount);
-        Assert.Equal(2, provider.ConceptCallCount);
-    }
-
-    [Fact]
-    public async Task VisualPageWithTextLayer_CombinesTextAndVisionContent()
-    {
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(
-            1,
-            [
-                new ExtractedDocumentPage(
-                    1,
-                    "텍스트 레이어에 포함된 충분한 길이의 설명입니다.",
-                    RequiresVision: true)
-            ]));
-        var provider = new FakeConceptProvider(
-            [
-                new GeneratedConceptDraft(
-                    "도표",
-                    "두 추출 결과를 함께 사용한다.",
-                    [1])
-            ],
-            new DocumentVisionResult("도표의 화살표는 증가 관계를 나타낸다."));
-        var service = CreateService(extractor, provider);
-        await using var content = PdfLikeStream();
-
-        var response = await service.ImportPdfAsync(
-            content,
-            "도표.pdf",
-            content.Length,
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal("hybrid", response.Source.ExtractionMethod);
-        Assert.Equal("hybrid", Assert.Single(response.Pages).ExtractionMethod);
-        Assert.Equal(1, provider.VisionCallCount);
-    }
-
-    [Fact]
-    public async Task CalloutBoundaries_ReachConceptExtractionAndSamePageConceptsStayIndependent()
-    {
-        const string visualText = """
-            인터넷 발전 연표
-            초기 네트워크의 역사적 연도와 인물
-            [VISUAL_REGION_START]
-            상호연결 원칙
-            각 네트워크는 독립적으로 운영할 수 있다.
-            [VISUAL_REGION_END]
-            이후 네트워크 발전 기록
-            """;
-        var provider = new FakeConceptProvider([
-            new GeneratedConceptDraft("인터넷 발전 연표", "역사적 배경에 대한 참고용 연도 목록", [1], "veryLow"),
-            new GeneratedConceptDraft("상호연결 원칙", "네트워크 사이의 연결 원리를 설명하는 내용", [1], "high")
-        ], new DocumentVisionResult(visualText));
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(1, [
-            new ExtractedDocumentPage(1, "인터넷 발전 연표와 박스 속 상호연결 원칙의 충분한 길이의 텍스트", RequiresVision: true)
-        ]));
-        await using var content = PdfLikeStream();
-        var response = await CreateService(extractor, provider).ImportPdfAsync(content, "연표.pdf",
-            content.Length, TestContext.Current.CancellationToken);
-        var input = Assert.IsType<ConceptExtractionInput>(provider.LastConceptInput);
-        Assert.Contains(visualText, Assert.Single(input.Pages).Text);
-        Assert.Contains("[VISUAL_REGION_START]", ConceptExtractionPrompt.BuildUserPrompt(input));
-        Assert.Contains("[VISUAL_REGION_END]", ConceptExtractionPrompt.BuildUserPrompt(input));
-        Assert.Equal("hybrid", response.Source.ExtractionMethod);
-        Assert.Equal(2, response.Concepts.Count);
-        Assert.Equal("veryLow", response.Concepts.Single(concept => concept.Title == "인터넷 발전 연표").Importance);
-        Assert.Equal("high", response.Concepts.Single(concept => concept.Title == "상호연결 원칙").Importance);
-        Assert.All(response.Concepts, concept => Assert.Equal([1], concept.PageNumbers));
-        Assert.Equal(1, provider.VisionCallCount);
-    }
-
-    [Fact]
-    public async Task RegionAwareVision_DoesNotReuseOldUnsegmentedOcrCache()
-    {
-        var cache = new MemoryPageTextCache();
-        await cache.SetAsync(new string('a', 64), "fake", "fake-model", "document-vision-v1",
-            "이전 버전의 영역 경계 없는 OCR 결과입니다.", TestContext.Current.CancellationToken);
-        var provider = new FakeConceptProvider([
-            new GeneratedConceptDraft("독립 영역", "새 영역 경계를 사용한 학습 내용입니다.", [1])
-        ], new DocumentVisionResult("[VISUAL_REGION_START]\n새 영역 경계가 있는 충분한 학습 내용입니다.\n[VISUAL_REGION_END]"));
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(1, [new ExtractedDocumentPage(1, "")]));
-        await using var content = PdfLikeStream();
-        await CreateService(extractor, provider, cache: cache).ImportPdfAsync(content, "박스.pdf",
-            content.Length, TestContext.Current.CancellationToken);
-        Assert.Equal(1, provider.VisionCallCount);
-        var text = Assert.Single(provider.LastConceptInput!.Pages).Text;
-        Assert.Contains("[VISUAL_REGION_START]", text);
-        Assert.DoesNotContain("이전 버전", text);
-    }
-
-    [Fact]
-    public async Task TypedVision_CacheReusePreservesKindsInAutomaticConceptExtraction()
-    {
-        var provider = new FakeConceptProvider([new("연결 관계", "도식에 보이는 연결 정보를 설명한다.", [1])],
-            new DocumentVisionResult("", [new("text", "충분한 길이의 일반 본문 설명입니다."), new("diagram", "A에서 B로 화살표가 연결된다."), new("table", "|열1|열2|"), new("uncertain", "가려진 라벨은 읽기 어려움")]));
-        var extractor = new FakePdfTextExtractor(new PdfTextExtractionResult(1, [new(1, "")]));
-        var service = CreateService(extractor, provider, cache: new MemoryPageTextCache());
-        for (var index = 0; index < 2; index++)
-        {
-            await using var content = PdfLikeStream();
-            await service.ImportPdfAsync(content, "종류.pdf", content.Length, TestContext.Current.CancellationToken);
-            var text = Assert.Single(provider.LastConceptInput!.Pages).Text;
-            Assert.Contains("[CONTENT_KIND:diagram]", text);
-            Assert.Contains("[CONTENT_KIND:table]", text);
-            Assert.Contains("[CONTENT_KIND:uncertain]", text);
-        }
-        Assert.Equal(1, provider.VisionCallCount);
-        Assert.Equal(2, provider.ConceptCallCount);
-    }
-
-    private DocumentProcessingService CreateService(
-        IPdfTextExtractor extractor,
-        ILLMProvider provider,
-        IPdfPageRenderer? renderer = null,
-        IDocumentPageTextCache? cache = null)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Documents:StoragePath"] = "sources"
-            })
-            .Build();
-        return new DocumentProcessingService(
-            extractor,
-            renderer ?? new FakePdfPageRenderer(),
-            cache ?? new NullDocumentPageTextCache(),
-            provider,
-            new FakeEnvironment(temporaryDirectory),
-            configuration,
-            NullLogger<DocumentProcessingService>.Instance);
-    }
-
-    private static MemoryStream PdfLikeStream() =>
-        new(Encoding.ASCII.GetBytes("%PDF-1.7 test content"));
-
-    private sealed class FakePdfTextExtractor(PdfTextExtractionResult result)
-        : IPdfTextExtractor
-    {
-        public PdfTextExtractionResult Extract(string path) => result;
-    }
-
-    private sealed class FakeConceptProvider(
-        IReadOnlyList<GeneratedConceptDraft> concepts,
-        DocumentVisionResult? visionResult = null) : ILLMProvider
-    {
-        public string ProviderName => "fake";
-
-        public string ModelName => "fake-model";
-
-        public int ConceptCallCount { get; private set; }
-
-        public int VisionCallCount { get; private set; }
-
-        public ConceptExtractionInput? LastConceptInput { get; private set; }
-
-        public Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
-            QuestionGenerationInput input,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<GeneratedQuestionDraft>>([]);
-
-        public Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
-            ConceptExtractionInput input,
-            CancellationToken cancellationToken = default)
-        {
-            ConceptCallCount++;
-            LastConceptInput = input;
-            return Task.FromResult(concepts);
-        }
-
-        public Task<DocumentVisionResult> ExtractPageContentAsync(
-            DocumentVisionInput input,
-            CancellationToken cancellationToken = default)
-        {
-            VisionCallCount++;
-            return Task.FromResult(visionResult ??
-                throw new InvalidOperationException("Vision was not expected."));
-        }
+        using var stream = new MemoryStream(Encoding.ASCII.GetBytes(body));
+        await Assert.ThrowsAsync<DocumentImportException>(() => Service().StoreUploadAsync(
+            Guid.NewGuid().ToString(), stream, "강의.pdf", length, TestContext.Current.CancellationToken));
+        Assert.Empty(Directory.GetFiles(Path.Combine(root, "sources")));
     }
 
     [Theory]
-    [InlineData("openai", null)]
-    [InlineData("gemini", null)]
-    [InlineData("claude", null)]
-    [InlineData("ollama", 32_768)]
-    public async Task LargeContextProfiles_DoNotUseSmallLocalPageBatches(
-        string providerName, int? tokens)
+    [InlineData("../other")]
+    [InlineData("invalid")]
+    public void Delete_RejectsUnsafeSourceIds(string id) =>
+        Assert.Throws<DocumentImportException>(() => Service().DeletePdf(id));
+
+    [Fact]
+    public async Task Original_IsOnlyDeletedByExplicitDeletion()
     {
-        var pages = Enumerable.Range(1, 18).Select(page =>
-            new ExtractedDocumentPage(page, new string('가', 1_000))).ToList();
-        var provider = new ChunkRecordingProvider(providerName, tokens);
-        var service = CreateService(
-            new FakePdfTextExtractor(new PdfTextExtractionResult(18, pages)), provider);
-        await using var content = PdfLikeStream();
-        await service.ImportPdfAsync(content, "자료.pdf", content.Length,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(18, Assert.Single(provider.Inputs).Pages.Count);
+        var id = Guid.NewGuid().ToString();
+        using var stream = new MemoryStream(Encoding.ASCII.GetBytes("%PDF-1.7 retained"));
+        var service = Service();
+        await service.StoreUploadAsync(id, stream, "강의.pdf", stream.Length, TestContext.Current.CancellationToken);
+        Assert.True(File.Exists(Path.Combine(root, "sources", $"{id}.pdf")));
+        service.DeletePdf(id);
+        service.DeletePdf(id);
+        Assert.False(File.Exists(Path.Combine(root, "sources", $"{id}.pdf")));
     }
 
-    private sealed class ChunkRecordingProvider(
-        string providerName = "ollama", int? contextWindowTokens = null) : ILLMProvider
+    private sealed class Renderer : IPdfPageRenderer
     {
-        public string ProviderName => providerName;
-
-        public int? ContextWindowTokens => contextWindowTokens;
-
-        public string ModelName => "fake-model";
-
-        public List<ConceptExtractionInput> Inputs { get; } = [];
-
-        public Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
-            QuestionGenerationInput input,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<GeneratedQuestionDraft>>([]);
-
-        public Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
-            ConceptExtractionInput input,
-            CancellationToken cancellationToken = default)
-        {
-            Inputs.Add(input);
-            var page = input.Pages[0].PageNumber;
-            return Task.FromResult<IReadOnlyList<GeneratedConceptDraft>>(
-            [
-                new GeneratedConceptDraft(
-                    $"개념 {page}",
-                    "청크별 개념 추출을 검증하는 세부 설명",
-                    [page])
-            ]);
-        }
-
-        public Task<DocumentVisionResult> ExtractPageContentAsync(
-            DocumentVisionInput input,
-            CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Vision was not expected.");
+        public Task<RenderedDocumentPage> RenderAsync(string path, int pageNumber, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
-
-    private sealed class FakePdfPageRenderer : IPdfPageRenderer
+    private sealed class Environment(string path) : IWebHostEnvironment
     {
-        public int CallCount { get; private set; }
-
-        public Task<RenderedDocumentPage> RenderAsync(
-            string path,
-            int pageNumber,
-            CancellationToken cancellationToken = default)
-        {
-            CallCount++;
-            return Task.FromResult(new RenderedDocumentPage(
-                pageNumber,
-                "image/jpeg",
-                [1, 2, 3],
-                new string('a', 64)));
-        }
-    }
-
-    private sealed class MemoryPageTextCache : IDocumentPageTextCache
-    {
-        private readonly Dictionary<string, string> entries = [];
-
-        public Task<string?> GetAsync(
-            string imageHash,
-            string provider,
-            string model,
-            string promptVersion,
-            CancellationToken cancellationToken = default)
-        {
-            entries.TryGetValue(Key(imageHash, provider, model, promptVersion),
-                out var text);
-            return Task.FromResult(text);
-        }
-
-        public Task SetAsync(
-            string imageHash,
-            string provider,
-            string model,
-            string promptVersion,
-            string text,
-            CancellationToken cancellationToken = default)
-        {
-            entries[Key(imageHash, provider, model, promptVersion)] = text;
-            return Task.CompletedTask;
-        }
-
-        private static string Key(
-            string imageHash,
-            string provider,
-            string model,
-            string promptVersion) =>
-            $"{imageHash}|{provider}|{model}|{promptVersion}";
-    }
-
-    private sealed class FakeEnvironment(string contentRootPath)
-        : IWebHostEnvironment
-    {
-        public string ApplicationName { get; set; } = "ReviewPlatform.Server.Tests";
-        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
-        public string WebRootPath { get; set; } = contentRootPath;
+        public string ApplicationName { get; set; } = "Tests";
         public string EnvironmentName { get; set; } = "Testing";
-        public string ContentRootPath { get; set; } = contentRootPath;
-        public IFileProvider ContentRootFileProvider { get; set; } =
-            new NullFileProvider();
+        public string ContentRootPath { get; set; } = path;
+        public string WebRootPath { get; set; } = path;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

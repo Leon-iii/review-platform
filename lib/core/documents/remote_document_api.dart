@@ -6,19 +6,12 @@ import 'package:review_platform/domain/models/document_extraction.dart';
 import 'package:http/http.dart' as http;
 import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/domain/models/pdf_import_job.dart';
-import 'package:review_platform/domain/models/document_ocr_review.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/concept_importance.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 
 abstract interface class RemoteDocumentApi {
-  Future<DocumentImportResult> importPdf({
-    required SyncConfiguration configuration,
-    required String fileName,
-    required Uint8List bytes,
-  });
-
   Future<void> deletePdf({
     required SyncConfiguration configuration,
     required String sourceId,
@@ -40,9 +33,8 @@ abstract interface class RemoteDocumentJobApi {
   Future<PdfImportJob> uploadJob(
     SyncConfiguration configuration,
     String id,
-    PickedPdfDocument document, {
-    bool reviewBeforeConcepts = false,
-  });
+    PickedPdfDocument document,
+  );
   Future<PdfImportJob?> getJob(SyncConfiguration configuration, String id);
   Future<void> deleteJob(SyncConfiguration configuration, String id);
   Future<PdfImportJob> changeJob(
@@ -83,31 +75,6 @@ abstract interface class RemoteDocumentExtractionApi {
   );
 }
 
-abstract interface class RemoteDocumentReviewApi {
-  Future<OcrReviewPage> reviewPage(
-    SyncConfiguration configuration,
-    String id,
-    int page,
-  );
-  Future<OcrReviewPage> saveReviewPage(
-    SyncConfiguration configuration,
-    String id,
-    int page,
-    int revision,
-    List<OcrReviewBlock> blocks,
-  );
-  Future<Uint8List> reviewImage(
-    SyncConfiguration configuration,
-    String id,
-    int page,
-  );
-  Future<PdfImportJob> confirmReview(
-    SyncConfiguration configuration,
-    String id,
-    int revision,
-  );
-}
-
 class _PdfUploadRequest extends http.BaseRequest {
   _PdfUploadRequest(Uri url, this.document) : super('POST', url) {
     contentLength = document.length;
@@ -125,41 +92,10 @@ class HttpRemoteDocumentApi
     implements
         RemoteDocumentApi,
         RemoteDocumentJobApi,
-        RemoteDocumentExtractionApi,
-        RemoteDocumentReviewApi {
+        RemoteDocumentExtractionApi {
   HttpRemoteDocumentApi(this._client);
 
   final http.Client _client;
-
-  @override
-  Future<DocumentImportResult> importPdf({
-    required SyncConfiguration configuration,
-    required String fileName,
-    required Uint8List bytes,
-  }) async {
-    http.StreamedResponse streamedResponse;
-    try {
-      final request = http.MultipartRequest(
-        'POST',
-        _endpoint(configuration.serverUrl),
-      )..headers['x-sync-token'] = configuration.accessToken;
-      request.files.add(
-        http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-      );
-      streamedResponse = await _client
-          .send(request)
-          .timeout(const Duration(minutes: 10));
-    } catch (error, stackTrace) {
-      Error.throwWithStackTrace(
-        NetworkFailure('PDF 처리 서버에 연결할 수 없어요.', cause: error),
-        stackTrace,
-      );
-    }
-
-    final response = await http.Response.fromStream(streamedResponse);
-    final body = _decode(response);
-    return _importResult(body);
-  }
 
   DocumentImportResult _importResult(Map<String, Object?> body) {
     try {
@@ -190,6 +126,11 @@ class HttpRemoteDocumentApi
   @override
   Future<int> maximumUploadBytes(SyncConfiguration configuration) async {
     final body = _decode(await _jobRequest(configuration, 'GET', 'limits'));
+    if (body['supportsDirectPdfOnly'] != true) {
+      throw const ValidationFailure(
+        '서버를 업데이트하고 다시 시작해 주세요. PDF 직접 추출 전용 서버가 필요해요.',
+      );
+    }
     return (body['maximumFileSize']! as num).toInt();
   }
 
@@ -197,18 +138,13 @@ class HttpRemoteDocumentApi
   Future<PdfImportJob> uploadJob(
     SyncConfiguration configuration,
     String id,
-    PickedPdfDocument document, {
-    bool reviewBeforeConcepts = false,
-    bool prepareOnly = false,
-  }) async {
+    PickedPdfDocument document,
+  ) async {
     final request = _PdfUploadRequest(
-      _jobUri(configuration, 'jobs/$id').replace(
-        queryParameters: {
-          'fileName': document.fileName,
-          'reviewBeforeConcepts': '$reviewBeforeConcepts',
-          'prepareOnly': '$prepareOnly',
-        },
-      ),
+      _jobUri(
+        configuration,
+        'jobs/$id',
+      ).replace(queryParameters: {'fileName': document.fileName}),
       document,
     )..headers['x-sync-token'] = configuration.accessToken;
     try {
@@ -237,13 +173,8 @@ class HttpRemoteDocumentApi
     String id,
     PickedPdfDocument document,
   ) async {
-    final limits = _decode(await _jobRequest(configuration, 'GET', 'limits'));
-    if (limits['supportsExtractionSelection'] != true) {
-      throw const ValidationFailure(
-        '서버를 업데이트하고 다시 시작해 주세요. 이전 서버에서는 업로드 즉시 OCR이 시작되어 추출 방식을 선택할 수 없어요.',
-      );
-    }
-    return uploadJob(configuration, id, document, prepareOnly: true);
+    await maximumUploadBytes(configuration);
+    return uploadJob(configuration, id, document);
   }
 
   @override
@@ -405,87 +336,6 @@ class HttpRemoteDocumentApi
         stackTrace,
       );
     }
-  }
-
-  OcrReviewPage _reviewPage(Map<String, Object?> body) {
-    try {
-      final page = OcrReviewPage.fromJson(body);
-      if (page.pageNumber < 1 ||
-          page.pageNumber > page.totalPages ||
-          page.revision < 0 ||
-          page.blocks.isEmpty) {
-        throw const FormatException('Invalid review page');
-      }
-      return page;
-    } catch (error) {
-      throw NetworkFailure('OCR 검토 응답 형식이 올바르지 않아요.', cause: error);
-    }
-  }
-
-  @override
-  Future<OcrReviewPage> reviewPage(
-    SyncConfiguration configuration,
-    String id,
-    int page,
-  ) async => _reviewPage(
-    _decode(
-      await _jobRequest(configuration, 'GET', 'jobs/$id/review/pages/$page'),
-    ),
-  );
-  @override
-  Future<OcrReviewPage> saveReviewPage(
-    SyncConfiguration configuration,
-    String id,
-    int page,
-    int revision,
-    List<OcrReviewBlock> blocks,
-  ) async => _reviewPage(
-    _decode(
-      await _jobRequest(
-        configuration,
-        'PUT',
-        'jobs/$id/review/pages/$page',
-        body: {
-          'revision': revision,
-          'blocks': [for (final block in blocks) block.toJson()],
-        },
-      ),
-    ),
-  );
-  @override
-  Future<PdfImportJob> confirmReview(
-    SyncConfiguration configuration,
-    String id,
-    int revision,
-  ) async => _job(
-    _decode(
-      await _jobRequest(
-        configuration,
-        'POST',
-        'jobs/$id/review/confirm',
-        body: {'revision': revision},
-      ),
-    ),
-  );
-  @override
-  Future<Uint8List> reviewImage(
-    SyncConfiguration configuration,
-    String id,
-    int page,
-  ) async {
-    final response = await _jobRequest(
-      configuration,
-      'GET',
-      'jobs/$id/review/pages/$page/image',
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _decode(response);
-    }
-    if (!(response.headers['content-type'] ?? '').startsWith('image/') ||
-        response.bodyBytes.length > 12 * 1024 * 1024) {
-      throw const NetworkFailure('PDF 페이지 이미지 응답이 올바르지 않아요.');
-    }
-    return response.bodyBytes;
   }
 
   @override
@@ -662,13 +512,6 @@ class HttpRemoteDocumentApi
       );
     }
     return body!;
-  }
-
-  Uri _endpoint(String serverUrl) {
-    final normalized = serverUrl.endsWith('/')
-        ? serverUrl.substring(0, serverUrl.length - 1)
-        : serverUrl;
-    return Uri.parse('$normalized/api/documents/import');
   }
 
   Uri _sourceEndpoint(String serverUrl, String sourceId) {

@@ -68,7 +68,7 @@ public sealed class PdfiumPageRenderer : IPdfPageRenderer
             catch (Exception exception)
             {
                 throw new DocumentImportException(
-                    $"PDF {pageNumber}페이지를 OCR 이미지로 변환하지 못했습니다.",
+                    $"PDF {pageNumber}페이지를 미리보기 이미지로 변환하지 못했습니다.",
                     exception);
             }
         }, cancellationToken);

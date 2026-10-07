@@ -97,7 +97,7 @@ class SettingsView extends ConsumerWidget {
                       leading: const Icon(Icons.psychology_alt_rounded),
                       title: const Text('용도별 AI 설정'),
                       subtitle: const Text(
-                        '문제 생성·개념 추출·개념 수정·OCR의 모델과 옵션을 각각 설정합니다.',
+                        '문제 생성·PDF 개념 추출·개념 수정의 모델과 옵션을 각각 설정합니다.',
                       ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => context.push(AppRoutes.llmProfiles),

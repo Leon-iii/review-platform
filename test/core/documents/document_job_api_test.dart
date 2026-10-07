@@ -7,7 +7,6 @@ import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
-import 'package:review_platform/domain/models/document_ocr_review.dart';
 
 import '../../support/fake_pdf_jobs.dart';
 
@@ -34,7 +33,10 @@ void main() {
     final api = HttpRemoteDocumentApi(
       MockClient((request) async {
         if (request.url.path.endsWith('/limits')) {
-          return http.Response('{"supportsExtractionSelection":true}', 200);
+          return http.Response(
+            '{"supportsDirectPdfOnly":true,"maximumFileSize":209715200}',
+            200,
+          );
         }
         if (request.url.path.endsWith('/extraction/start')) {
           starts++;
@@ -47,7 +49,7 @@ void main() {
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
         }
-        expect(request.url.queryParameters['prepareOnly'], 'true');
+        expect(request.url.queryParameters.keys, ['fileName']);
         expect(request.headers['x-sync-token'], 'token');
         return http.Response(
           jsonEncode(pdfJob('job', status: 'awaiting_selection').data),
@@ -158,7 +160,10 @@ void main() {
     final api = HttpRemoteDocumentApi(
       MockClient(
         (request) async => request.url.path.endsWith('limits')
-            ? http.Response('{"maximumFileSize":209715200}', 200)
+            ? http.Response(
+                '{"maximumFileSize":209715200,"supportsDirectPdfOnly":true}',
+                200,
+              )
             : http.Response('{}', 404),
       ),
     );
@@ -176,153 +181,5 @@ void main() {
         throwsA(isA<NetworkFailure>()),
       );
     }
-  });
-
-  test('OCR 검토 옵션은 기본 자동이고 선택한 경우에만 업로드 쿼리에 전달한다', () async {
-    final flags = <String?>[];
-    final api = HttpRemoteDocumentApi(
-      MockClient.streaming((request, stream) async {
-        flags.add(request.url.queryParameters['reviewBeforeConcepts']);
-        await stream.toBytes();
-        return http.StreamedResponse(
-          Stream.value(
-            utf8.encode(jsonEncode(pdfJob('job', status: 'queued').data)),
-          ),
-          202,
-        );
-      }),
-    );
-    final document = PickedPdfDocument.stream(
-      fileName: '자료.pdf',
-      length: 5,
-      openRead: () => Stream.value([37, 80, 68, 70, 45]),
-    );
-    await api.uploadJob(configuration, 'job', document);
-    await api.uploadJob(
-      configuration,
-      'job',
-      document,
-      reviewBeforeConcepts: true,
-    );
-    expect(flags, ['false', 'true']);
-  });
-
-  Map<String, Object?> reviewJson() => {
-    'pageNumber': 1,
-    'totalPages': 2,
-    'originalText': '원문',
-    'revision': 3,
-    'edited': true,
-    'blocks': [const OcrReviewBlock(text: '수정 내용', independent: true).toJson()],
-    'originalBlocks': [const OcrReviewBlock(text: '원문').toJson()],
-  };
-  test('OCR 검토 API는 페이지·버전·영역 플래그와 토큰을 보내고 원문을 보존한다', () async {
-    final requests = <http.Request>[];
-    final api = HttpRemoteDocumentApi(
-      MockClient((request) async {
-        requests.add(request);
-        expect(request.headers['x-sync-token'], 'token');
-        return request.url.path.endsWith('confirm')
-            ? http.Response.bytes(
-                utf8.encode(jsonEncode(pdfJob('job', status: 'queued').data)),
-                200,
-                headers: {'content-type': 'application/json; charset=utf-8'},
-              )
-            : http.Response(
-                jsonEncode(reviewJson()),
-                200,
-                headers: {'content-type': 'application/json; charset=utf-8'},
-              );
-      }),
-    );
-    final page = await api.reviewPage(configuration, 'job', 1);
-    expect(page.blocks.first.independent, isTrue);
-    expect(page.originalBlocks.first.text, '원문');
-    await api.saveReviewPage(configuration, 'job', 1, 3, [
-      const OcrReviewBlock(text: '수정 내용', independent: true),
-      const OcrReviewBlock(text: '제외 내용', excluded: true),
-    ]);
-    expect(requests[1].method, 'PUT');
-    final body = jsonDecode(requests[1].body) as Map;
-    expect(body['revision'], 3);
-    expect((body['blocks'] as List)[0]['independent'], isTrue);
-    expect((body['blocks'] as List)[1]['excluded'], isTrue);
-    final confirmed = await api.confirmReview(configuration, 'job', 3);
-    expect(requests[2].url.path, '/api/documents/jobs/job/review/confirm');
-    expect(jsonDecode(requests[2].body), {'revision': 3});
-    expect(confirmed.isActive, isTrue);
-  });
-  test('완료 자료의 읽기 전용 플래그와 이전 응답의 기본값을 해석한다', () async {
-    for (final readOnly in [null, true]) {
-      final body = reviewJson();
-      if (readOnly != null) body['readOnly'] = readOnly;
-      final api = HttpRemoteDocumentApi(
-        MockClient(
-          (_) async => http.Response.bytes(
-            utf8.encode(jsonEncode(body)),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          ),
-        ),
-      );
-      expect(
-        (await api.reviewPage(configuration, 'job', 1)).readOnly,
-        readOnly ?? false,
-      );
-    }
-  });
-
-  test('검토 대기 상태를 읽고 이미지 인증 및 오류 응답을 구분한다', () async {
-    final api = HttpRemoteDocumentApi(
-      MockClient((request) async {
-        expect(request.headers['x-sync-token'], 'token');
-        if (request.url.path.endsWith('image')) {
-          return http.Response.bytes(
-            [1, 2, 3],
-            200,
-            headers: {'content-type': 'image/jpeg'},
-          );
-        }
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode(pdfJob('job', status: 'awaiting_review').data),
-          ),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        );
-      }),
-    );
-    expect((await api.getJob(configuration, 'job'))!.isAwaitingReview, isTrue);
-    expect(await api.reviewImage(configuration, 'job', 1), [1, 2, 3]);
-    final failed = HttpRemoteDocumentApi(
-      MockClient(
-        (_) async => http.Response.bytes(
-          utf8.encode(jsonEncode({'error': '검토 버전이 변경되었습니다.'})),
-          400,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        ),
-      ),
-    );
-    await expectLater(
-      failed.confirmReview(configuration, 'job', 0),
-      throwsA(
-        isA<NetworkFailure>().having(
-          (error) => error.message,
-          'message',
-          '검토 버전이 변경되었습니다.',
-        ),
-      ),
-    );
-    final broken = HttpRemoteDocumentApi(
-      MockClient((_) async => http.Response('{}', 200)),
-    );
-    await expectLater(
-      broken.reviewPage(configuration, 'job', 1),
-      throwsA(isA<NetworkFailure>()),
-    );
-    await expectLater(
-      broken.reviewImage(configuration, 'job', 1),
-      throwsA(isA<NetworkFailure>()),
-    );
   });
 }

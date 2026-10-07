@@ -88,8 +88,6 @@ void main() {
     expect(find.text('PDF 추출 설정'), findsOneWidget);
     expect(api.starts, 0);
     expect(api.checks, 0);
-    await tester.tap(find.byKey(const Key('pdf-route-direct')));
-    await tester.pumpAndSettle();
     await reveal(tester, find.byKey(const Key('pdf-split-boundary')));
     await tester.tap(find.byKey(const Key('pdf-split-boundary')));
     await tester.pumpAndSettle();
@@ -125,9 +123,6 @@ void main() {
       (tester) async {
         final api = FakePdfExtractionApi()..status = 'blocked';
         await mount(tester, api, width: 360, scale: 2, dark: dark);
-        await reveal(tester, find.byKey(const Key('pdf-route-direct')));
-        await tester.tap(find.byKey(const Key('pdf-route-direct')));
-        await tester.pumpAndSettle();
         await reveal(tester, find.byKey(const Key('pdf-preflight')));
         await tester.tap(find.byKey(const Key('pdf-preflight')));
         await tester.pumpAndSettle();
@@ -146,24 +141,20 @@ void main() {
     );
   }
 
-  testWidgets('Ollama는 기존 경로 유지, OCR 검토 옵션을 시작 요청에 전달', (tester) async {
+  testWidgets('PDF 입력을 지원하지 않는 모델은 설정 변경을 안내하고 시작을 차단한다', (tester) async {
     final api = FakePdfExtractionApi()..provider = 'ollama';
     await mount(tester, api);
+    expect(find.byType(RadioListTile<String>), findsNothing);
+    expect(find.byType(SwitchListTile), findsNothing);
+    await reveal(tester, find.byKey(const Key('pdf-start-extraction')));
     expect(
       tester
-          .widget<RadioListTile<String>>(
-            find.byKey(const Key('pdf-route-direct')),
-          )
-          .enabled,
-      false,
+          .widget<FilledButton>(find.byKey(const Key('pdf-start-extraction')))
+          .onPressed,
+      isNull,
     );
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.pumpAndSettle();
-    await reveal(tester, find.byKey(const Key('pdf-start-extraction')));
-    await tester.tap(find.byKey(const Key('pdf-start-extraction')));
-    await tester.pumpAndSettle();
-    expect(api.lastSelection!['mode'], 'ocr');
-    expect(api.lastSelection!['reviewBeforeConcepts'], true);
+    expect(api.starts, 0);
     expect(api.checks, 0);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -15,7 +15,6 @@ if (directLimits.MaximumOutputTokens is < 1 or > 64000 || directLimits.TokensPer
     throw new InvalidOperationException("Documents:DirectPdf safety limits are invalid.");
 if (documentLimits.MaximumFileSizeMb is < 1 or > 2048 ||
     documentLimits.MaximumPages is < 1 or > 10000 ||
-    documentLimits.MaximumExtractedCharacters is < 20 or > 10000000 ||
     documentLimits.MinimumFreeDiskSpaceMb < 0 || documentLimits.MaximumPendingJobs is < 1 or > 100)
     throw new InvalidOperationException("Documents safety limits are invalid.");
 
@@ -62,9 +61,7 @@ builder.Services.AddScoped<ILlmApiKeyStore, LlmApiKeyStore>();
 builder.Services.AddScoped<LlmModelCatalogService>();
 builder.Services.AddScoped<OllamaModelMetadataService>();
 builder.Services.AddScoped<ILlmProviderResolver, RuntimeLlmProviderResolver>();
-builder.Services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
 builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
-builder.Services.AddSingleton<IDocumentPageTextCache, FileDocumentPageTextCache>();
 builder.Services.AddHttpClient("openai", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
@@ -100,12 +97,8 @@ app.MapPost("/api/documents/jobs/{id}", async (string id, string fileName,
     {
         var bodyLimit = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = documentLimits.MaximumFileSize;
-        if (!bool.TryParse(request.Query["reviewBeforeConcepts"].FirstOrDefault() ?? "false", out var reviewBeforeConcepts))
-            return Results.BadRequest(new { error = "OCR 검토 설정이 올바르지 않습니다." });
-        if (!bool.TryParse(request.Query["prepareOnly"].FirstOrDefault() ?? "false", out var prepareOnly))
-            return Results.BadRequest(new { error = "PDF 업로드 설정이 올바르지 않습니다." });
         return Results.Json(await service.UploadAsync(id, fileName, request.Body,
-            request.ContentLength ?? 0, cancellationToken, reviewBeforeConcepts, prepareOnly), statusCode: StatusCodes.Status202Accepted);
+            request.ContentLength ?? 0, cancellationToken), statusCode: StatusCodes.Status202Accepted);
     }
     catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
     catch (LlmProviderUnavailableException exception)
@@ -168,35 +161,6 @@ app.MapPost("/api/documents/jobs/{id}/retry", async (string id, DocumentJobServi
     {
         return await service.RetryAsync(id, cancellationToken) is { } result ? Results.Ok(result) : Results.NotFound();
     }
-    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
-});
-
-app.MapGet("/api/documents/jobs/{id}/review/pages/{pageNumber:int}", async (string id, int pageNumber,
-    DocumentJobService service, CancellationToken cancellationToken) =>
-{
-    try { return Results.Ok(await service.GetReviewPageAsync(id, pageNumber, cancellationToken)); }
-    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
-});
-app.MapPut("/api/documents/jobs/{id}/review/pages/{pageNumber:int}", async (string id, int pageNumber,
-    SaveDocumentReviewRequest request, DocumentJobService service, CancellationToken cancellationToken) =>
-{
-    try { return Results.Ok(await service.SaveReviewPageAsync(id, pageNumber, request, cancellationToken)); }
-    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
-});
-app.MapGet("/api/documents/jobs/{id}/review/pages/{pageNumber:int}/image", async (string id, int pageNumber,
-    DocumentJobService service, CancellationToken cancellationToken) =>
-{
-    try
-    {
-        var image = await service.GetReviewImageAsync(id, pageNumber, cancellationToken);
-        return Results.File(image.ImageBytes, image.MimeType);
-    }
-    catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
-});
-app.MapPost("/api/documents/jobs/{id}/review/confirm", async (string id, ConfirmDocumentReviewRequest request,
-    DocumentJobService service, CancellationToken cancellationToken) =>
-{
-    try { return Results.Ok(await service.ConfirmReviewAsync(id, request, cancellationToken)); }
     catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
 });
 
@@ -362,49 +326,6 @@ app.MapPost("/api/ai/questions/generate/stream", async (
             LlmOutputValidationException or LlmProviderRequestException
             ? exception.Message : "AI 문제 생성 중 서버 오류가 발생했습니다.";
         await Send(new { type = "error", error = message });
-    }
-});
-
-app.MapPost("/api/documents/import", async (
-    HttpRequest request,
-    DocumentProcessingService processingService,
-    CancellationToken cancellationToken) =>
-{
-    try
-    {
-        if (!request.HasFormContentType)
-        {
-            return Results.BadRequest(new { error = "PDF 파일을 첨부해 주세요." });
-        }
-        var form = await request.ReadFormAsync(cancellationToken);
-        var file = form.Files.GetFile("file");
-        if (file is null)
-        {
-            return Results.BadRequest(new { error = "PDF 파일을 첨부해 주세요." });
-        }
-        await using var stream = file.OpenReadStream();
-        var response = await processingService.ImportPdfAsync(
-            stream,
-            file.FileName,
-            file.Length,
-            cancellationToken);
-        return Results.Ok(response);
-    }
-    catch (DocumentImportException exception)
-    {
-        return Results.BadRequest(new { error = exception.Message });
-    }
-    catch (LlmProviderUnavailableException exception)
-    {
-        return Results.Json(
-            new { error = exception.Message },
-            statusCode: StatusCodes.Status503ServiceUnavailable);
-    }
-    catch (LlmProviderRequestException exception)
-    {
-        return Results.Json(
-            new { error = exception.Message },
-            statusCode: StatusCodes.Status502BadGateway);
     }
 });
 

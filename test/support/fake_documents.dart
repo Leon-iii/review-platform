@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
@@ -11,15 +9,6 @@ class FakeConceptRevisionApi implements RemoteDocumentApi {
   bool lastAllowAdditions = false;
   bool lastAllowDeletions = false;
   List<ConceptRevision>? changes;
-
-  @override
-  Future<DocumentImportResult> importPdf({
-    required SyncConfiguration configuration,
-    required String fileName,
-    required Uint8List bytes,
-  }) => throw UnimplementedError(
-    'This fake only supports revision and deletion.',
-  );
 
   @override
   Future<void> deletePdf({

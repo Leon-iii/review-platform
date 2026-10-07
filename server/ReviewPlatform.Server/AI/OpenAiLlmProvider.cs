@@ -91,50 +91,6 @@ public sealed partial class OpenAiLlmProvider(
         catch (JsonException) { /* The response parser below reports malformed output. */ }
     }
 
-    public async Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(
-        ConceptExtractionInput input,
-        CancellationToken cancellationToken = default)
-    {
-        ValidateConfiguration();
-        using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue(
-            "Bearer",
-            settings.ApiKey);
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(BuildConceptRequest(input), JsonOptions),
-            Encoding.UTF8,
-            "application/json");
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await httpClient.SendAsync(request, cancellationToken);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new LlmProviderRequestException(
-                "OpenAI 개념 추출 요청 시간이 초과되었습니다.");
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new LlmProviderRequestException(
-                "OpenAI API에 연결하지 못했습니다.",
-                exception);
-        }
-
-        using (response)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync(
-                cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new LlmProviderRequestException(
-                    ToSafeApiError(response.StatusCode, responseBody, "개념 추출"));
-            }
-            return ParseConceptResponse(responseBody);
-        }
-    }
-
     public async Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
         ConceptRevisionInput input,
         CancellationToken cancellationToken = default)
@@ -178,82 +134,6 @@ public sealed partial class OpenAiLlmProvider(
             return ParseConceptRevisionResponse(responseBody);
         }
     }
-
-    public async Task<DocumentVisionResult> ExtractPageContentAsync(
-        DocumentVisionInput input,
-        CancellationToken cancellationToken = default)
-    {
-        ValidateConfiguration();
-        if (input.ImageBytes.Length is < 1 or > 12 * 1024 * 1024 ||
-            input.MimeType is not ("image/png" or "image/jpeg" or "image/webp"))
-            throw new LlmProviderRequestException(
-                "문서 OCR 이미지의 크기 또는 형식이 올바르지 않습니다.");
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, ResponsesEndpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(BuildVisionRequest(input), JsonOptions),
-            Encoding.UTF8, "application/json");
-        try
-        {
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-                throw new LlmProviderRequestException(ToSafeApiError(response.StatusCode, body, "문서 이미지 분석"));
-            var outputText = ExtractOutputText(body, "문서 이미지 분석");
-            return DocumentVisionOutput.Parse(outputText);
-        }
-        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new LlmProviderRequestException(
-                $"OpenAI 문서 이미지 분석 요청 시간이 초과되었습니다. (p.{input.PageNumber})", exception);
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new LlmProviderRequestException("OpenAI API에 연결하지 못했습니다.", exception);
-        }
-        catch (JsonException exception)
-        {
-            throw new LlmProviderRequestException(
-                "OpenAI의 문서 이미지 응답을 해석하지 못했습니다.", exception);
-        }
-    }
-
-    private object BuildVisionRequest(DocumentVisionInput input) =>
-        ApplyReasoning(new Dictionary<string, object?>
-        {
-            ["model"] = settings.Model,
-            ["store"] = false,
-            ["max_output_tokens"] = 8_000,
-            ["input"] = new object[]
-            {
-                new { role = "system", content = DocumentVisionPrompt.StructuredSystemPrompt },
-                new
-                {
-                    role = "user",
-                    content = new object[]
-                    {
-                        new { type = "input_text", text = DocumentVisionPrompt.BuildUserPrompt(input) },
-                        new
-                        {
-                            type = "input_image",
-                            image_url = $"data:{input.MimeType};base64,{Convert.ToBase64String(input.ImageBytes)}",
-                            detail = "high"
-                        }
-                    }
-                }
-            },
-            ["text"] = new
-            {
-                format = new
-                {
-                    type = "json_schema",
-                    name = "review_document_vision",
-                    strict = true,
-                    schema = OpenAiStructuredOutputSchema.Build(DocumentVisionPrompt.BuildSchema())
-                }
-            }
-        });
 
     private void ValidateConfiguration()
     {
@@ -352,40 +232,6 @@ public sealed partial class OpenAiLlmProvider(
             }
         }
         return request;
-    }
-
-    private object BuildConceptRequest(ConceptExtractionInput input)
-    {
-        return ApplyReasoning(new Dictionary<string, object?>
-        {
-            ["model"] = settings.Model,
-            ["store"] = false,
-            ["max_output_tokens"] = 8_000,
-            ["input"] = new object[]
-            {
-                new
-                {
-                    role = "system",
-                    content = ConceptExtractionPrompt.SystemPrompt
-                },
-                new
-                {
-                    role = "user",
-                    content = ConceptExtractionPrompt.BuildUserPrompt(input)
-                }
-            },
-            ["text"] = new
-            {
-                format = new Dictionary<string, object?>
-                {
-                    ["type"] = "json_schema",
-                    ["name"] = "review_concept_extraction",
-                    ["description"] = "Held study concepts grounded in PDF pages",
-                    ["strict"] = true,
-                    ["schema"] = OpenAiStructuredOutputSchema.Build(ConceptExtractionPrompt.BuildSchema(input))
-                }
-            }
-        });
     }
 
     private object BuildConceptRevisionRequest(ConceptRevisionInput input)

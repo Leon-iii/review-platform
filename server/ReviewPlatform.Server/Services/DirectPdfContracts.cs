@@ -2,7 +2,6 @@ namespace ReviewPlatform.Server.Services;
 public static class PdfExtractionModes
 {
     public const string Unselected = "unselected";
-    public const string Ocr = "ocr";
     public const string Direct = "direct";
 }
 public sealed class DirectPdfLimits
@@ -18,7 +17,7 @@ public sealed record PdfPageRange(int FirstPage, int LastPage)
     public int PageCount => LastPage - FirstPage + 1;
 }
 public sealed record PdfExtractionSelection(string Mode, IReadOnlyList<int>? SplitAfterPages = null,
-    bool ReviewBeforeConcepts = false, bool AcknowledgeWarnings = false, int Revision = 0);
+    bool AcknowledgeWarnings = false, int Revision = 0);
 public sealed record PdfPreflightPart(PdfPageRange Range, long FileSize, long? InputTokens,
     int OutputBudget, long EstimatedOutputTokens, string Status, IReadOnlyList<string> Messages);
 public sealed record PdfExtractionPreflight(string Model, string Provider, int Revision,

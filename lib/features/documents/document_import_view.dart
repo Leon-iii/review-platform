@@ -18,13 +18,10 @@ import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/features/documents/concept_importance_dialog.dart';
 import 'package:review_platform/features/documents/document_job_panel.dart';
-import 'package:review_platform/features/documents/document_extraction_panel.dart';
-import 'package:review_platform/features/documents/document_ocr_review_view.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
 import 'package:review_platform/shared/widgets/concept_status_badge.dart';
 import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
-import 'package:review_platform/shared/widgets/pdf_review_option.dart';
 import 'package:review_platform/shared/widgets/unsaved_changes_guard.dart';
 
 class DocumentImportView extends ConsumerStatefulWidget {
@@ -193,7 +190,6 @@ class _ImportPrompt extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                         ],
-                        const PdfReviewOption(),
                         const SizedBox(height: 12),
                         FilledButton.icon(
                           key: const Key('pick-pdf-button'),
@@ -262,35 +258,6 @@ class _ConceptReview extends ConsumerWidget {
                           Text(
                             '${review.source.isManual ? '사용자 생성 자료' : '${review.source.pageCount}페이지'} · 개념 ${review.concepts.length}개',
                           ),
-                          if (!review.source.isManual) ...[
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              key: const Key('open-ocr-archive'),
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      review.source.extractionMethod ==
-                                          'directPdf'
-                                      ? DocumentOriginalPdfView(
-                                          jobId: review.source.id,
-                                          fileName: review.source.fileName,
-                                          pageCount: review.source.pageCount,
-                                        )
-                                      : DocumentOcrReviewView(
-                                          jobId: review.source.id,
-                                          fileName: review.source.fileName,
-                                          readOnly: true,
-                                        ),
-                                ),
-                              ),
-                              icon: const Icon(Icons.compare_outlined),
-                              label: Text(
-                                review.source.extractionMethod == 'directPdf'
-                                    ? 'PDF 원본 보기'
-                                    : 'OCR 원문 대조',
-                              ),
-                            ),
-                          ],
                           const SizedBox(height: 16),
                           LayoutBuilder(
                             key: const Key('source-actions'),

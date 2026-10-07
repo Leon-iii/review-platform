@@ -14,21 +14,19 @@ public sealed class OpenAiStructuredOutputSchemaTests
     [Fact]
     public void Build_PreservesInputSchemaAndSupportedConstraints()
     {
-        var original = ConceptExtractionPrompt.BuildOllamaSchema(new ConceptExtractionInput("source", "자료.pdf",
-            [new ExtractedDocumentPage(3, "내용"), new ExtractedDocumentPage(5, "내용")],
-            ConceptExtractionPrompt.Version));
+        var original = DirectPdfConceptPrompt.Schema(new DirectPdfInput("source", "자료.pdf", [], 5, 64000));
         var snapshot = original.ToJsonString();
         var result = OpenAiStructuredOutputSchema.Build(original);
         Assert.Equal(snapshot, original.ToJsonString());
         var concepts = result["properties"]!["concepts"]!;
         Assert.Equal(1, concepts["minItems"]!.GetValue<int>());
-        Assert.Equal(8, concepts["maxItems"]!.GetValue<int>());
+        Assert.Null(concepts["maxItems"]);
         var properties = concepts["items"]!["properties"]!;
         Assert.Null(properties["title"]!["maxLength"]);
         Assert.Contains("200", properties["title"]!["description"]!.GetValue<string>());
         Assert.Contains("8000", properties["content"]!["description"]!.GetValue<string>());
         Assert.Null(properties["pageNumbers"]!["uniqueItems"]);
-        Assert.Equal("[3,5]", properties["pageNumbers"]!["items"]!["enum"]!.ToJsonString());
+        Assert.Equal(5, properties["pageNumbers"]!["items"]!["maximum"]!.GetValue<int>());
         Assert.Equal(original["properties"]!["concepts"]!["items"]!["properties"]!["importance"]!.ToJsonString(),
             properties["importance"]!.ToJsonString());
         using var document = JsonDocument.Parse(result.ToJsonString());
@@ -66,7 +64,6 @@ public sealed class OpenAiStructuredOutputSchemaTests
     [InlineData("questions")]
     [InlineData("concepts")]
     [InlineData("revision")]
-    [InlineData("vision")]
     public async Task Requests_OnlySendSupportedStrictSchemas(string operation)
     {
         var handler = new SchemaValidationHandler(operation);
@@ -82,17 +79,12 @@ public sealed class OpenAiStructuredOutputSchemaTests
                     "학습 내용", 1, ["shortAnswer"], "source", "question-generation-test"), cancellation);
                 break;
             case "concepts":
-                await provider.ExtractConceptsAsync(new ConceptExtractionInput("source", "자료.pdf",
-                    [new ExtractedDocumentPage(1, "학습 내용")], ConceptExtractionPrompt.Version), cancellation);
+                await provider.ExtractPdfConceptsAsync(new DirectPdfInput("source", "자료.pdf", [], 1, 64000), cancellation);
                 break;
             case "revision":
                 await provider.ReviseConceptsAsync(new ConceptRevisionInput("source", "자료", 1, "수정 요청",
                     [new ConceptRevisionContext("c1", "제목", "본문", [1], "held")],
                     ["c1"], ConceptRevisionPrompt.Version, true, true), cancellation);
-                break;
-            case "vision":
-                await provider.ExtractPageContentAsync(new DocumentVisionInput("자료.pdf", 1,
-                    "image/png", [1], "hash", DocumentVisionPrompt.Version), cancellation);
                 break;
         }
         Assert.Equal(1, handler.CallCount);

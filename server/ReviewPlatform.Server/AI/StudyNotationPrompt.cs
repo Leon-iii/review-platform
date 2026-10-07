@@ -1,6 +1,6 @@
 namespace ReviewPlatform.Server.AI;
 
-/// <summary>Lossless notation rules shared by OCR, extraction, revision and generation.</summary>
+/// <summary>Lossless notation rules shared by PDF extraction, revision and generation.</summary>
 public static class StudyNotationPrompt
 {
     public const string Instructions = """

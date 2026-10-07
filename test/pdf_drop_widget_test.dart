@@ -16,13 +16,15 @@ import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/core/documents/document_providers.dart';
 import 'package:review_platform/core/server/local_server_providers.dart';
 import 'package:review_platform/core/sync/sync_providers.dart';
-import 'package:review_platform/domain/enums/concept_status.dart';
-import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/source_repository.dart';
 
-import 'support/fake_documents.dart';
+import 'support/fake_pdf_extraction.dart';
+import 'support/fake_pdf_jobs.dart';
+
+import 'package:review_platform/domain/models/pdf_import_job.dart';
+
 import 'support/fake_ai.dart';
 import 'support/fake_sync.dart';
 
@@ -121,7 +123,7 @@ void main() {
         );
         await tester.pump();
         expect(find.byKey(const Key('pdf-drop-highlight')), findsOneWidget);
-        final pending = Completer<DocumentImportResult>();
+        final pending = Completer<PdfImportJob>();
         api.pending = pending;
         final drop = details(tester, finder);
         widget.onDragDone!(drop);
@@ -146,21 +148,10 @@ void main() {
         );
         await tester.pump();
         expect(api.calls, 1);
-        pending.complete(api.result);
-        await tester.pumpAndSettle();
-        final saved = (await DriftSourceRepository(
-          database,
-        ).getSources(folderId)).single;
-        final review = await DriftSourceRepository(database)
-            .getSourceWithConcepts(saved.id);
-        expect(saved.folderId, folderId);
-        expect(review.concepts.single.status, ConceptStatus.held);
-        expect(find.text('1. 드롭 개념'), findsOneWidget);
-        final pendingChanges = await database.syncDao.getPending();
-        expect(
-          pendingChanges.map((change) => change.entityId),
-          containsAll([saved.id, review.concepts.single.id]),
+        pending.complete(
+          pdfJob('dropped-source', status: 'awaiting_selection'),
         );
+        await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
@@ -225,7 +216,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(picker.calls, 1);
     expect(api.calls, 1);
-    expect(find.text('1. 드롭 개념'), findsOneWidget);
+    expect(find.text('PDF 추출 설정'), findsOneWidget);
   }, variant: TargetPlatformVariant({TargetPlatform.android}));
 }
 
@@ -240,37 +231,28 @@ class _Picker implements DocumentPicker {
   }
 }
 
-class _ImportApi extends FakeConceptRevisionApi {
+class _ImportApi extends FakePdfExtractionApi {
   int calls = 0;
   String? fileName;
   Uint8List? bytes;
-  Completer<DocumentImportResult>? pending;
-  DocumentImportResult get result => DocumentImportResult(
-    source: ImportedSource(
-      id: 'dropped-source',
-      fileName: fileName ?? '강의.PDF',
-      contentHash: List.filled(64, 'b').join(),
-      pageCount: 1,
-      extractionMethod: 'textLayer',
-      importedAt: DateTime.utc(2026),
-    ),
-    concepts: const [
-      ImportedConcept(
-        title: '드롭 개념',
-        content: '드롭 파일의 개념 내용',
-        pageNumbers: [1],
-      ),
-    ],
-  );
+  Completer<PdfImportJob>? pending;
   @override
-  Future<DocumentImportResult> importPdf({
-    required SyncConfiguration configuration,
-    required String fileName,
-    required Uint8List bytes,
-  }) async {
+  Future<PdfImportJob> uploadJob(
+    SyncConfiguration configuration,
+    String id,
+    PickedPdfDocument document,
+  ) async {
     calls++;
-    this.fileName = fileName;
-    this.bytes = bytes;
-    return pending == null ? result : pending!.future;
+    fileName = document.fileName;
+    final buffer = <int>[];
+    await for (final chunk in document.openRead()) {
+      buffer.addAll(chunk);
+    }
+    bytes = Uint8List.fromList(buffer);
+    return jobs[id] = pending == null
+        ? pdfJob(id, status: 'awaiting_selection')
+        : await pending!.future.then(
+            (job) => PdfImportJob({...job.data, 'id': id}),
+          );
   }
 }

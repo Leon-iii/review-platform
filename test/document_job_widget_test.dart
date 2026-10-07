@@ -22,6 +22,7 @@ import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/source_repository.dart';
 
 import 'support/fake_pdf_jobs.dart';
+import 'support/fake_pdf_extraction.dart';
 import 'support/fake_sync.dart';
 
 void main() {
@@ -39,7 +40,7 @@ void main() {
       );
       final jobs = DocumentJobRepository(database);
       const id = 'moving-job';
-      final api = FakePdfJobsApi()
+      final api = FakePdfExtractionApi()
         ..jobs[id] = pdfJob(id, status: 'awaiting_review', completedPages: 80);
       await jobs.add(
         folderId: originId,
@@ -97,6 +98,11 @@ void main() {
         '보관함',
       );
       await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.byKey(Key('folder-picker-item-$targetId'))),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(Key('folder-picker-item-$targetId')));
       await tester.pumpAndSettle();
       expect((await jobs.get(id))!.folderId, targetId);
@@ -108,7 +114,7 @@ void main() {
       expect(find.byKey(const Key('pdf-job-moving-job')), findsOneWidget);
       await tester.tap(find.byKey(const Key('pdf-job-moving-job')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('open-ocr-review')), findsOneWidget);
+      expect(find.byKey(const Key('pdf-start-extraction')), findsOneWidget);
       router.go(AppRoutes.folder(targetId));
       await tester.pumpAndSettle();
       api.offline = false;
@@ -147,7 +153,7 @@ void main() {
             .createFolder(name: '자료');
         final jobs = DocumentJobRepository(database);
         const id = 'obsolete-job';
-        final api = FakePdfJobsApi()
+        final api = FakePdfExtractionApi()
           ..jobs[id] = pdfJob(
             id,
             status: 'failed',
@@ -205,7 +211,11 @@ void main() {
                 ? const Key('delete-pdf-job')
                 : const Key('pdf-job-menu-obsolete-job'),
           );
-          await tester.ensureVisible(button);
+          await Scrollable.ensureVisible(
+            tester.element(button),
+            alignment: 0.5,
+          );
+          await tester.pumpAndSettle();
           if (!detail) {
             expect(
               find.descendant(
@@ -260,7 +270,7 @@ void main() {
     addTearDown(database.close);
     final folderId = await DriftFolderRepository(database)
         .createFolder(name: '자료');
-    final api = FakePdfJobsApi()..jobs['startup'] = pdfJob('startup');
+    final api = FakePdfExtractionApi()..jobs['startup'] = pdfJob('startup');
     final syncApi = FakeRemoteSyncApi();
     await DocumentJobRepository(database).add(
       folderId: folderId,
@@ -336,14 +346,14 @@ void main() {
   });
 
   testWidgets(
-    'OCR 검토 대기의 연결 실패는 시작·재조회 시 오류 창과 오류 박스를 표시하지 않는다',
+    '이전 작업의 연결 실패는 시작·재조회 시 오류 창과 오류 박스를 표시하지 않는다',
     (tester) async {
       final database = AppDatabase(NativeDatabase.memory());
       addTearDown(database.close);
       final folderId = await DriftFolderRepository(database)
           .createFolder(name: '자료');
       final jobs = DocumentJobRepository(database);
-      final api = FakePdfJobsApi()..offline = true;
+      final api = FakePdfExtractionApi()..offline = true;
       await jobs.add(
         folderId: folderId,
         serverUrl: 'http://server:5080',
@@ -386,8 +396,8 @@ void main() {
           .read(routerProvider)
           .go(AppRoutes.documentsForJob(folderId, 'waiting'));
       await tester.pumpAndSettle();
-      expect(find.text('OCR 검토 대기'), findsOneWidget);
-      expect(find.byKey(const Key('open-ocr-review')), findsOneWidget);
+      expect(find.text('PDF 추출 설정'), findsOneWidget);
+      expect(find.byKey(const Key('pdf-start-extraction')), findsOneWidget);
       expect(find.byKey(const Key('app-error-dialog')), findsNothing);
       expect(find.text('PDF 처리 서버에 연결할 수 없어요.'), findsNothing);
       expect(find.text('오류가 발생했어요'), findsNothing);
@@ -412,7 +422,7 @@ void main() {
         .createFolder(name: '자료 폴더');
     final jobs = DocumentJobRepository(database);
     const id = 'pending-job';
-    final api = FakePdfJobsApi()..jobs[id] = pdfJob(id);
+    final api = FakePdfExtractionApi()..jobs[id] = pdfJob(id);
     await jobs.add(
       folderId: folderId,
       serverUrl: 'http://server:5080',
@@ -472,7 +482,7 @@ void main() {
     // Acknowledging the alert does not remove the persistent job error.
     expect(find.text('OpenAI API 요청이 실패했습니다: 400'), findsOneWidget);
     expect(find.text('오류가 발생했어요'), findsOneWidget);
-    expect(find.byKey(const Key('retry-pdf-job')), findsOneWidget);
+    expect(find.byKey(const Key('pdf-preflight')), findsOneWidget);
     await container.read(documentJobCoordinatorProvider)!.change(id, 'retry');
     api.jobs[id] = pdfJob(id);
     await container.read(documentJobCoordinatorProvider)!.poll();
@@ -482,7 +492,7 @@ void main() {
     expect(find.byKey(const Key('pdf-job-pending-job')), findsOneWidget);
     await tester.tap(find.byKey(const Key('pdf-job-pending-job')));
     await settle();
-    expect(find.text('페이지 분석 12 / 80 페이지'), findsOneWidget);
+    expect(find.text('개념 추출 1 / 4 묶음'), findsOneWidget);
     expect(
       tester
           .widget<LinearProgressIndicator>(
@@ -493,8 +503,27 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('cancel-pdf-job')));
     await settle();
-    expect(find.text('취소됨'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('retry-pdf-job')));
+    expect(find.text('PDF 추출 설정'), findsOneWidget);
+    await Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('pdf-preflight'))),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pdf-preflight')));
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('pdf-risk-acknowledgement'))),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pdf-risk-acknowledgement')));
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('pdf-start-extraction'))),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pdf-start-extraction')));
     await settle();
     expect(find.text('분석 대기 중'), findsOneWidget);
     api.jobs[id] = pdfJob(id, status: 'completed');

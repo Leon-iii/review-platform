@@ -49,7 +49,6 @@ void main() {
         fileName: '강의.pdf',
         bytes: Uint8List.fromList([37, 80, 68, 70, 45]),
       ),
-      prepareOnly: true,
     );
     await coordinator.poll();
     expect(
@@ -73,7 +72,7 @@ void main() {
     expect(errors, isEmpty);
     expect(DocumentJobRepository.job((await jobs.get(id))!).error, isNull);
     extractionApi.offline = false;
-    await coordinator.startExtraction(id, {'mode': 'ocr', 'revision': 0});
+    await coordinator.startExtraction(id, {'mode': 'direct', 'revision': 0});
     await coordinator.poll();
     expect(extractionApi.starts, 1);
     expect(DocumentJobRepository.job((await jobs.get(id))!).status, 'queued');
@@ -425,7 +424,10 @@ void main() {
     final id = await coordinator.upload(folderId, pdf());
     await coordinator.poll();
     expect((await sources.getSources(folderId)), isEmpty);
-    expect(DocumentJobRepository.job((await jobs.get(id))!).status, 'queued');
+    expect(
+      DocumentJobRepository.job((await jobs.get(id))!).status,
+      'awaiting_selection',
+    );
     api.jobs[id] = pdfJob(id, status: 'completed');
     await coordinator.poll();
     expect((await jobs.get(id))!.applied, isTrue);
@@ -441,36 +443,10 @@ void main() {
     api.loseReceipt = true;
     final id = await coordinator.upload(folderId, pdf());
     await coordinator.poll();
-    expect(DocumentJobRepository.job((await jobs.get(id))!).status, 'queued');
-    coordinator.dispose();
-    coordinator = DocumentJobCoordinator(
-      api,
-      jobs,
-      sources,
-      credentials,
-      savedFolders.add,
-    );
-    api.jobs[id] = pdfJob(id, status: 'completed');
-    await coordinator.poll();
-    expect((await sources.getSources(folderId)).single.id, id);
-    expect((await jobs.get(id))!.applied, isTrue);
-  });
-
-  test('OCR 검토 옵션을 전달하며 재시작 후 다른 기기의 확정도 다시 조회한다', () async {
-    final id = await coordinator.upload(
-      folderId,
-      pdf(),
-      reviewBeforeConcepts: true,
-    );
-    expect(api.reviewBeforeConcepts, isTrue);
-    await coordinator.poll();
-    api.jobs[id] = pdfJob(id, status: 'awaiting_review');
-    await coordinator.poll();
     expect(
-      DocumentJobRepository.job((await jobs.get(id))!).isAwaitingReview,
-      isTrue,
+      DocumentJobRepository.job((await jobs.get(id))!).status,
+      'awaiting_selection',
     );
-    expect(await sources.getSources(folderId), isEmpty);
     coordinator.dispose();
     coordinator = DocumentJobCoordinator(
       api,
@@ -481,79 +457,13 @@ void main() {
     );
     api.jobs[id] = pdfJob(id, status: 'completed');
     await coordinator.poll();
-    expect((await jobs.get(id))!.applied, isTrue);
     expect((await sources.getSources(folderId)).single.id, id);
-  });
-
-  test('다른 서버에서는 검토 조회·수정·확정을 실행하지 않는다', () async {
-    final id = await coordinator.upload(
-      folderId,
-      pdf(),
-      reviewBeforeConcepts: true,
-    );
-    await coordinator.poll();
-    credentials.configuration = const SyncConfiguration(
-      serverUrl: 'http://other:5080',
-      accessToken: 'other',
-    );
-    await expectLater(
-      coordinator.reviewPage(id, 1),
-      throwsA(isA<ValidationFailure>()),
-    );
-    await expectLater(
-      coordinator.reviewImage(id, 1),
-      throwsA(isA<ValidationFailure>()),
-    );
-    await expectLater(
-      coordinator.saveReviewPage(id, 1, 0, api.originalReviewBlocks),
-      throwsA(isA<ValidationFailure>()),
-    );
-    await expectLater(
-      coordinator.confirmReview(id, 0),
-      throwsA(isA<ValidationFailure>()),
-    );
-    expect(api.reviewSaves, 0);
-    expect(api.previewReads, isEmpty);
-    expect(api.actions, isEmpty);
-  });
-
-  test('동기화 자료는 작업 행 없이 원문 조회만 허용하며 수정·확정은 막는다', () async {
-    api.jobs['synced'] = pdfJob('synced', status: 'completed');
-    expect((await coordinator.reviewPage('synced', 1)).readOnly, isTrue);
-    expect(await coordinator.reviewImage('synced', 1), isNotEmpty);
-    await expectLater(
-      coordinator.saveReviewPage('synced', 1, 0, api.originalReviewBlocks),
-      throwsA(isA<ValidationFailure>()),
-    );
-    await expectLater(
-      coordinator.confirmReview('synced', 0),
-      throwsA(isA<ValidationFailure>()),
-    );
-    expect(api.actions, isEmpty);
-    expect(api.reviewSaves, 0);
-  });
-
-  test('늦은 검토 대기 응답은 개념 추출 재개 상태를 덮어쓰지 않는다', () async {
-    final id = await coordinator.upload(
-      folderId,
-      pdf(),
-      reviewBeforeConcepts: true,
-    );
-    await coordinator.poll();
-    api.jobs[id] = pdfJob(id, status: 'awaiting_review');
-    await coordinator.poll();
-    api.getGate = Completer();
-    final polling = coordinator.poll();
-    await Future<void>.delayed(Duration.zero);
-    await coordinator.confirmReview(id, 0);
-    api.getGate!.complete(pdfJob(id, status: 'awaiting_review'));
-    await polling;
-    expect(DocumentJobRepository.job((await jobs.get(id))!).status, 'queued');
-    api.getGate = null;
+    expect((await jobs.get(id))!.applied, isTrue);
   });
 
   test('서버 연결이 끊겨도 진행 상태를 보존하고 복구 후 계속 확인한다', () async {
     final id = await coordinator.upload(folderId, pdf());
+    api.jobs[id] = pdfJob(id, status: 'queued');
     await coordinator.poll();
     api.offline = true;
     await coordinator.poll();
@@ -637,7 +547,7 @@ void main() {
     expect(api.results, 1);
   });
 
-  test('OCR 검토 대기는 연결이 끊겨도 조용히 유지하며 복구 후 다른 기기 확정을 감지한다', () async {
+  test('이전 추출 대기는 연결이 끊겨도 조용히 유지하며 복구 후 다른 기기 확정을 감지한다', () async {
     const id = 'waiting-review-job';
     final original = pdfJob(id, status: 'awaiting_review', completedPages: 80);
     await jobs.add(
@@ -649,7 +559,7 @@ void main() {
     await coordinator.poll();
     await coordinator.poll();
     final waiting = DocumentJobRepository.job((await jobs.get(id))!);
-    expect(waiting.isAwaitingReview, isTrue);
+    expect(waiting.isAwaitingSelection, isTrue);
     expect(waiting.completedPages, 80);
     expect(waiting.error, isNull);
     expect(waiting.data, original.data);
@@ -697,7 +607,7 @@ void main() {
     await coordinator.poll();
     expect(errors, isEmpty);
     expect(
-      DocumentJobRepository.job((await jobs.get(id))!).isAwaitingReview,
+      DocumentJobRepository.job((await jobs.get(id))!).isAwaitingSelection,
       isTrue,
     );
   });
@@ -705,12 +615,12 @@ void main() {
   test('백그라운드 분석 실패를 한 번 알리고 재시도 후 새 실패는 다시 알린다', () async {
     final id = await coordinator.upload(folderId, pdf());
     await coordinator.poll();
-    api.jobs[id] = pdfJob(id, status: 'failed', error: 'OCR 실패');
+    api.jobs[id] = pdfJob(id, status: 'failed', error: 'PDF 추출 실패');
     await coordinator.poll();
     await coordinator.poll();
     expect(errors.length, 1);
     await coordinator.change(id, 'retry');
-    api.jobs[id] = pdfJob(id, status: 'failed', error: 'OCR 실패');
+    api.jobs[id] = pdfJob(id, status: 'failed', error: 'PDF 추출 실패');
     await coordinator.poll();
     expect(errors.length, 2);
   });

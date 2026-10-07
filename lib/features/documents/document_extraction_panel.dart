@@ -5,15 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/app/design_tokens.dart';
 import 'package:review_platform/core/documents/document_job_coordinator.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
-import 'package:review_platform/core/documents/pdf_review_preference.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/models/document_extraction.dart';
 import 'package:review_platform/shared/widgets/app_action_group.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
-import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/features/documents/document_job_delete_button.dart';
 
-/// Upload is durable and idle until the user explicitly starts a chosen route.
+/// Upload is durable and idle until the user explicitly starts direct extraction.
 class DocumentExtractionPanel extends ConsumerStatefulWidget {
   const DocumentExtractionPanel({
     required this.jobId,
@@ -34,8 +32,7 @@ class _DocumentExtractionPanelState
   PdfExtractionOverview? _overview;
   PdfExtractionPreflight? _check;
   Object? _error;
-  bool _busy = false, _acknowledged = false, _review = false;
-  String _mode = 'ocr';
+  bool _busy = false, _acknowledged = false;
   int _revision = 0;
   final Set<int> _boundaries = {};
   DocumentJobCoordinator get _coordinator =>
@@ -46,7 +43,6 @@ class _DocumentExtractionPanelState
   void initState() {
     super.initState();
     _error = widget.initialError;
-    _review = ref.read(pdfReviewPreferenceProvider);
     _load();
   }
 
@@ -59,7 +55,6 @@ class _DocumentExtractionPanelState
         // Refresh keeps user's in-progress choices. Persisted checks initialize
         // a newly opened screen; a refresh invalidates them if the model changed.
         if (_overview == null) {
-          _mode = overview.data['mode'] == 'direct' ? 'direct' : 'ocr';
           _boundaries.addAll(overview.boundaries);
           _check = overview.preflight;
         } else if (_overview!.model != overview.model ||
@@ -79,9 +74,8 @@ class _DocumentExtractionPanelState
   }
 
   Map<String, Object?> get _selection => {
-    'mode': _mode,
+    'mode': 'direct',
     'splitAfterPages': _boundaries.toList()..sort(),
-    'reviewBeforeConcepts': _review,
     'acknowledgeWarnings': _acknowledged,
     'revision': _revision,
   };
@@ -146,10 +140,10 @@ class _DocumentExtractionPanelState
     final allowDirect = overview.provider == 'openai';
     final canStart =
         !_busy &&
-        (_mode == 'ocr' ||
-            (_check != null &&
-                _check!.canStart &&
-                (_check!.status == 'ready' || _acknowledged)));
+        allowDirect &&
+        _check != null &&
+        _check!.canStart &&
+        (_check!.status == 'ready' || _acknowledged);
     return ListView(
       key: const Key('pdf-extraction-scroll'),
       padding: AppLayout.pagePadding(context),
@@ -186,58 +180,12 @@ class _DocumentExtractionPanelState
                           '파일은 보관되며, 업로드만으로 개념 추출을 시작하지 않습니다. 사전 점검 시에는 토큰 계산 API를 호출합니다.',
                         ),
                         const Divider(),
-                        Text(
-                          '추출 방식',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        RadioGroup<String>(
-                          groupValue: _mode,
-                          onChanged: (value) {
-                            if (!_busy && value != null) {
-                              _changed(() => _mode = value);
-                            }
-                          },
-                          child: Column(
-                            children: [
-                              RadioListTile<String>(
-                                key: const Key('pdf-route-ocr'),
-                                value: 'ocr',
-                                enabled: !_busy,
-                                title: const Text('기존 · OCR 후 개념 추출'),
-                                subtitle: const Text(
-                                  '텍스트·이미지를 분석하고, 필요하면 OCR 내용을 검토한 뒤 개념을 추출합니다.',
-                                ),
-                              ),
-                              RadioListTile<String>(
-                                key: const Key('pdf-route-direct'),
-                                value: 'direct',
-                                enabled: !_busy && allowDirect,
-                                title: const Text('신규 · PDF 직접 개념 추출'),
-                                subtitle: Text(
-                                  allowDirect
-                                      ? 'PDF를 OpenAI 모델에 직접 전달합니다. 별도 OCR 검토 단계 없이 개념 검토로 이어집니다.'
-                                      : '설정 > LLM에서 PDF 개념 추출에 OpenAI PDF 입력 지원 모델을 지정해 주세요.',
-                                ),
-                              ),
-                            ],
+                        const Text('PDF를 모델에 직접 전달해 개념을 추출합니다.'),
+                        if (!allowDirect)
+                          const AppErrorNotice(
+                            error: '설정 > LLM에서 PDF 개념 추출에 OpenAI PDF 입력 지원 모델을 지정해 주세요.',
                           ),
-                        ),
-                        if (_mode == 'ocr')
-                          SwitchListTile(
-                            title: const Text('개념 추출 전 OCR 검토'),
-                            value: _review,
-                            onChanged: _busy
-                                ? null
-                                : (value) {
-                                    ref
-                                        .read(
-                                          pdfReviewPreferenceProvider.notifier,
-                                        )
-                                        .setEnabled(value);
-                                    setState(() => _review = value);
-                                  },
-                          ),
-                        if (_mode == 'direct') ...[
+                        ...[
                           const Divider(),
                           Text(
                             '분할 지점 선택',
@@ -303,15 +251,16 @@ class _DocumentExtractionPanelState
                         const SizedBox(height: AppSpacing.md),
                         AppActionGroup(
                           children: [
-                            if (_mode == 'direct')
-                              OutlinedButton.icon(
-                                key: const Key('pdf-preflight'),
-                                onPressed: _busy ? null : _checkInput,
-                                icon: const Icon(Icons.fact_check_outlined),
-                                label: Text(
-                                  _check == null ? '입력 사전 점검' : '다시 점검',
-                                ),
+                            OutlinedButton.icon(
+                              key: const Key('pdf-preflight'),
+                              onPressed: _busy || !allowDirect
+                                  ? null
+                                  : _checkInput,
+                              icon: const Icon(Icons.fact_check_outlined),
+                              label: Text(
+                                _check == null ? '입력 사전 점검' : '다시 점검',
                               ),
+                            ),
                             FilledButton.icon(
                               key: const Key('pdf-start-extraction'),
                               onPressed: canStart ? _start : null,
@@ -538,31 +487,5 @@ class _PdfOriginalPreviewState extends ConsumerState<PdfOriginalPreview> {
               : null,
         ),
     ],
-  );
-}
-
-class DocumentOriginalPdfView extends StatelessWidget {
-  const DocumentOriginalPdfView({
-    required this.jobId,
-    required this.fileName,
-    required this.pageCount,
-    super.key,
-  });
-  final String jobId, fileName;
-  final int pageCount;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppPageBar(title: Text(fileName)),
-    body: ListView(
-      padding: AppLayout.pagePadding(context),
-      children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AppLayout.readingWidth),
-            child: PdfOriginalPreview(jobId: jobId, pageCount: pageCount),
-          ),
-        ),
-      ],
-    ),
   );
 }

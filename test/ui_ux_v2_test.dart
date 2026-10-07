@@ -7,7 +7,6 @@ import 'package:review_platform/app/app.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/app/theme.dart';
 import 'package:review_platform/domain/models/quiz_filter.dart';
-import 'package:review_platform/features/documents/document_ocr_review_view.dart';
 import 'package:review_platform/repositories/question_repository.dart';
 import 'package:review_platform/repositories/quiz_repository.dart';
 import 'package:review_platform/repositories/source_repository.dart';
@@ -156,28 +155,6 @@ void main() {
                     reason: '$route scroll',
                   );
                 }
-              }
-              // OCR comparison is a Navigator route, not a GoRouter destination.
-              router.go(AppRoutes.home);
-              await tester.pumpAndSettle();
-              for (final readOnly in [true, false]) {
-                router.routerDelegate.navigatorKey.currentState!.push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => DocumentOcrReviewView(
-                      jobId: readOnly ? fixture.pdfId : 'preview-review',
-                      fileName: '긴 강의.pdf',
-                      readOnly: readOnly,
-                    ),
-                  ),
-                );
-                await tester.pumpAndSettle();
-                expect(
-                  tester.takeException(),
-                  isNull,
-                  reason: 'OCR comparison',
-                );
-                router.routerDelegate.navigatorKey.currentState!.pop();
-                await tester.pumpAndSettle();
               }
             } finally {
               await tester.pumpWidget(const SizedBox());

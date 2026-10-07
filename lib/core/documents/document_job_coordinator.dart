@@ -8,7 +8,6 @@ import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/core/sync/sync_credentials_store.dart';
 import 'package:review_platform/domain/models/pdf_import_job.dart';
-import 'package:review_platform/domain/models/document_ocr_review.dart';
 import 'package:review_platform/domain/models/sync_contract.dart';
 import 'package:review_platform/repositories/document_job_repository.dart';
 import 'package:review_platform/repositories/source_repository.dart';
@@ -67,12 +66,7 @@ class DocumentJobCoordinator {
     _timer?.cancel();
   }
 
-  Future<String> upload(
-    String folderId,
-    PickedPdfDocument document, {
-    bool reviewBeforeConcepts = false,
-    bool prepareOnly = false,
-  }) async {
+  Future<String> upload(String folderId, PickedPdfDocument document) async {
     final configuration = await credentials.readConfiguration();
     if (configuration == null) {
       throw const ValidationFailure('설정에서 개인 서버 주소와 접근 토큰을 먼저 저장해 주세요.');
@@ -90,7 +84,7 @@ class DocumentJobCoordinator {
       'id': id,
       'fileName': document.fileName,
       'status': 'uploading',
-      'reviewBeforeConcepts': reviewBeforeConcepts,
+      'extractionMode': 'unselected',
     });
     try {
       await jobs.add(
@@ -99,18 +93,7 @@ class DocumentJobCoordinator {
         job: initial,
       );
       try {
-        final job = prepareOnly && api is RemoteDocumentExtractionApi
-            ? await (api as RemoteDocumentExtractionApi).prepareJob(
-                configuration,
-                id,
-                document,
-              )
-            : await api.uploadJob(
-                configuration,
-                id,
-                document,
-                reviewBeforeConcepts: reviewBeforeConcepts,
-              );
+        final job = await api.uploadJob(configuration, id, document);
         if (!_disposed) await jobs.update(job);
       } catch (error) {
         if (!_disposed) {
@@ -155,7 +138,6 @@ class DocumentJobCoordinator {
           continue;
         }
         if (!(previous.isActive ||
-            previous.isAwaitingReview ||
             previous.isAwaitingSelection ||
             previous.status == 'uploading' ||
             previous.status == 'completed')) {
@@ -180,6 +162,8 @@ class DocumentJobCoordinator {
             continue;
           }
           if (job == null) {
+            // A setup screen has no running model call to fail.
+            if (latest.isAwaitingSelection) continue;
             final failed = PdfImportJob({
               ...previous.data,
               'status': 'uploadFailed',
@@ -214,13 +198,10 @@ class DocumentJobCoordinator {
           }
           _reportError(job);
         } catch (error) {
+          if (latest.isAwaitingSelection) continue;
           if (!_disposed &&
               !_changing.contains(row.id) &&
               mutationVersion == (_mutationVersions[row.id] ?? 0)) {
-            // OCR is already complete. A background status read cannot make
-            // the review draft fail; explicit review actions still show errors.
-            // Keep polling quietly to notice confirmation on another device.
-            if (latest.isAwaitingReview || latest.isAwaitingSelection) continue;
             final failed = PdfImportJob({
               ...latest.data,
               'error': error is AppFailure
@@ -307,74 +288,6 @@ class DocumentJobCoordinator {
     }
   }
 
-  Future<SyncConfiguration> _reviewConfiguration(
-    String id, {
-    bool allowUntracked = false,
-  }) async {
-    final row = await jobs.get(id);
-    final configuration = await credentials.readConfiguration();
-    if (configuration == null ||
-        (row == null && !allowUntracked) ||
-        (row != null &&
-            _normalize(row.serverUrl) != _normalize(configuration.serverUrl))) {
-      throw const ValidationFailure('작업을 등록한 서버에 연결해 주세요.');
-    }
-    if (api is! RemoteDocumentReviewApi) {
-      throw const ValidationFailure('이 서버 연결은 OCR 중간 검토를 지원하지 않아요.');
-    }
-    return configuration;
-  }
-
-  Future<OcrReviewPage> reviewPage(String id, int page) async {
-    final configuration = await _reviewConfiguration(id, allowUntracked: true);
-    return (api as RemoteDocumentReviewApi).reviewPage(configuration, id, page);
-  }
-
-  Future<Uint8List> reviewImage(String id, int page) async {
-    final configuration = await _reviewConfiguration(id, allowUntracked: true);
-    return (api as RemoteDocumentReviewApi).reviewImage(
-      configuration,
-      id,
-      page,
-    );
-  }
-
-  Future<OcrReviewPage> saveReviewPage(
-    String id,
-    int page,
-    int revision,
-    List<OcrReviewBlock> blocks,
-  ) async {
-    final configuration = await _reviewConfiguration(id);
-    return (api as RemoteDocumentReviewApi).saveReviewPage(
-      configuration,
-      id,
-      page,
-      revision,
-      blocks,
-    );
-  }
-
-  Future<void> confirmReview(String id, int revision) async {
-    if (!_changing.add(id)) throw const ValidationFailure('작업 요청을 처리 중이에요.');
-    _mutationVersions[id] = (_mutationVersions[id] ?? 0) + 1;
-    try {
-      final configuration = await _reviewConfiguration(id);
-      final job = await (api as RemoteDocumentReviewApi).confirmReview(
-        configuration,
-        id,
-        revision,
-      );
-      if (!_disposed) {
-        await jobs.update(job);
-        _reportError(job);
-      }
-    } finally {
-      _changing.remove(id);
-    }
-    if (!_disposed) unawaited(poll());
-  }
-
   String _normalize(String url) => url.replaceFirst(RegExp(r'/+$'), '');
 
   Future<SyncConfiguration> _extractionConfiguration(
@@ -390,7 +303,7 @@ class DocumentJobCoordinator {
       throw const ValidationFailure('작업을 등록한 서버에 연결해 주세요.');
     }
     if (api is! RemoteDocumentExtractionApi) {
-      throw const ValidationFailure('서버를 업데이트하면 PDF 추출 방식 선택을 사용할 수 있어요.');
+      throw const ValidationFailure('서버를 업데이트하면 PDF 직접 추출을 사용할 수 있어요.');
     }
     return config;
   }

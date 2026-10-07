@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -138,7 +137,7 @@ void main() {
       expect(result.single.content, '직접 쓴 내용 수정');
     });
 
-    test('PDF multipart 응답의 중요도 ${importance.label}와 Source를 파싱한다', () async {
+    test('PDF 작업 결과의 중요도 ${importance.label}와 Source를 파싱한다', () async {
       late http.Request captured;
       final api = HttpRemoteDocumentApi(
         MockClient((request) async {
@@ -169,19 +168,9 @@ void main() {
         }),
       );
 
-      final result = await api.importPdf(
-        configuration: configuration,
-        fileName: '전자기학.pdf',
-        bytes: Uint8List.fromList(utf8.encode('%PDF-test')),
-      );
-
-      expect(captured.url.path, '/api/documents/import');
+      final result = await api.jobResult(configuration, 'source-1');
+      expect(captured.url.path, '/api/documents/jobs/source-1/result');
       expect(captured.headers['x-sync-token'], 'private-token');
-      expect(
-        captured.headers['content-type'],
-        startsWith('multipart/form-data'),
-      );
-      expect(captured.body, contains('전자기학.pdf'));
       expect(result.source.pageCount, 12);
       expect(result.concepts.single.content, contains('폐곡면'));
       expect(result.concepts.single.pageNumbers, [3, 4]);
@@ -193,7 +182,7 @@ void main() {
     final api = HttpRemoteDocumentApi(
       MockClient(
         (request) async => http.Response(
-          jsonEncode({'error': 'PDF에서 텍스트 레이어를 찾지 못했습니다.'}),
+          jsonEncode({'error': 'PDF 개념 추출이 실패했습니다.'}),
           400,
           headers: {'content-type': 'application/json; charset=utf-8'},
         ),
@@ -201,16 +190,12 @@ void main() {
     );
 
     await expectLater(
-      api.importPdf(
-        configuration: configuration,
-        fileName: '스캔.pdf',
-        bytes: Uint8List.fromList(utf8.encode('%PDF-test')),
-      ),
+      api.jobResult(configuration, 'source-1'),
       throwsA(
         isA<NetworkFailure>().having(
           (error) => error.message,
           'message',
-          contains('텍스트 레이어'),
+          contains('개념 추출'),
         ),
       ),
     );
