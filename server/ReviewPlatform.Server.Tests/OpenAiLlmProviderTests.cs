@@ -11,6 +11,38 @@ namespace ReviewPlatform.Server.Tests;
 public sealed class OpenAiLlmProviderTests
 {
     [Fact]
+    public async Task ExtractConcepts_HasNoCountCapAndAcceptsMoreThanEightConcepts()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            concepts = Enumerable.Range(1, 12).Select(index => new
+            {
+                title = $"개념 {index}", content = $"설명 {index}",
+                pageNumbers = new[] { 1 }, importance = "medium"
+            }).ToArray()
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, new
+        {
+            status = "completed", output = new[] { new { type = "message",
+                content = new[] { new { type = "output_text", text = output } } } }
+        }));
+        var concepts = await CreateProvider(handler).ExtractConceptsAsync(new ConceptExtractionInput(
+            "source", "자료.pdf", [new ExtractedDocumentPage(1, "학습 내용")], ConceptExtractionPrompt.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(12, concepts.Count);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        var root = request.RootElement;
+        var prompt = root.GetProperty("input")[0].GetProperty("content").GetString();
+        Assert.Equal(ConceptExtractionPrompt.SystemPrompt, prompt);
+        Assert.Contains("Extract ALL study-worthy concepts", prompt);
+        Assert.DoesNotContain("at most 8", prompt);
+        var schema = root.GetProperty("text").GetProperty("format").GetProperty("schema");
+        Assert.False(schema.GetProperty("properties").GetProperty("concepts").TryGetProperty("maxItems", out _));
+        Assert.Equal(8_000, root.GetProperty("max_output_tokens").GetInt32());
+    }
+
+    [Fact]
     public async Task GenerateQuestions_UsesResponsesStructuredOutputs()
     {
         var outputText = JsonSerializer.Serialize(new

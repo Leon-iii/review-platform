@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -527,8 +528,8 @@ void main() {
           tester.getCenter(checkbox).dx,
           lessThan(tester.getTopLeft(title).dx),
         );
-        expect(tester.widget<Text>(title).maxLines, 1);
-        expect(tester.widget<Text>(title).overflow, TextOverflow.ellipsis);
+        expect(tester.widget<StudyText>(title).maxLines, 1);
+        expect(tester.widget<StudyText>(title).overflow, TextOverflow.ellipsis);
         expect(paragraphFor(tester, title).didExceedMaxLines, true);
         expect(find.text(first.content), findsNothing);
         final importance = chipIn(
@@ -1197,7 +1198,7 @@ void main() {
           await tester.ensureVisible(text);
           await tester.pumpAndSettle();
           final paragraph = paragraphFor(tester, text);
-          final value = tester.widget<Text>(text).data!;
+          final value = tester.widget<StudyText>(text).data;
           final start =
               paragraph.localToGlobal(
                 paragraph.getOffsetForCaret(
@@ -1579,8 +1580,8 @@ void main() {
           find.descendant(of: importance, matching: find.text('매우 낮음')),
           findsOneWidget,
         );
-        expect(tester.widget<Text>(title).maxLines, 1);
-        expect(tester.widget<Text>(title).overflow, TextOverflow.ellipsis);
+        expect(tester.widget<StudyText>(title).maxLines, 1);
+        expect(tester.widget<StudyText>(title).overflow, TextOverflow.ellipsis);
         expect(paragraphFor(tester, title).didExceedMaxLines, isTrue);
         final shortTitle = find.byKey(Key('concept-title-${second.id}'));
         final shortParagraph = paragraphFor(tester, shortTitle);

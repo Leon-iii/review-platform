@@ -1,4 +1,5 @@
 import 'package:review_platform/shared/widgets/app_dialog.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/app_action_group.dart';
@@ -17,6 +18,7 @@ import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/features/documents/concept_importance_dialog.dart';
 import 'package:review_platform/features/documents/document_job_panel.dart';
+import 'package:review_platform/features/documents/document_extraction_panel.dart';
 import 'package:review_platform/features/documents/document_ocr_review_view.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
@@ -198,7 +200,7 @@ class _ImportPrompt extends ConsumerWidget {
                           onPressed: () =>
                               ref.read(provider.notifier).pickAndImport(),
                           icon: const Icon(Icons.picture_as_pdf_rounded),
-                          label: const Text('PDF 선택 및 분석'),
+                          label: const Text('PDF 업로드'),
                         ),
                       ],
                     ),
@@ -266,15 +268,27 @@ class _ConceptReview extends ConsumerWidget {
                               key: const Key('open-ocr-archive'),
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
-                                  builder: (_) => DocumentOcrReviewView(
-                                    jobId: review.source.id,
-                                    fileName: review.source.fileName,
-                                    readOnly: true,
-                                  ),
+                                  builder: (_) =>
+                                      review.source.extractionMethod ==
+                                          'directPdf'
+                                      ? DocumentOriginalPdfView(
+                                          jobId: review.source.id,
+                                          fileName: review.source.fileName,
+                                          pageCount: review.source.pageCount,
+                                        )
+                                      : DocumentOcrReviewView(
+                                          jobId: review.source.id,
+                                          fileName: review.source.fileName,
+                                          readOnly: true,
+                                        ),
                                 ),
                               ),
                               icon: const Icon(Icons.compare_outlined),
-                              label: const Text('OCR 원문 대조'),
+                              label: Text(
+                                review.source.extractionMethod == 'directPdf'
+                                    ? 'PDF 원본 보기'
+                                    : 'OCR 원문 대조',
+                              ),
                             ),
                           ],
                           const SizedBox(height: 16),
@@ -565,7 +579,7 @@ class _ConceptReview extends ConsumerWidget {
                           ),
                           dense: true,
                           controlAffinity: ListTileControlAffinity.leading,
-                          title: Text('${index + 1}. ${concept.title}'),
+                          title: StudyText('${index + 1}. ${concept.title}'),
                           subtitle: Text(
                             '${concept.status.label}'
                             ' · 중요도 ${concept.importance.label}'
@@ -773,7 +787,7 @@ class _ConceptReview extends ConsumerWidget {
                                 controlAffinity:
                                     ListTileControlAffinity.leading,
                                 value: selected.contains(index),
-                                title: Text(
+                                title: StudyText(
                                   '${label(revision.kind)} · ${original?.title ?? revision.title}',
                                 ),
                                 subtitle: revision.groupId.isEmpty
@@ -815,11 +829,12 @@ class _ConceptReview extends ConsumerWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
-                                      SelectableText(
+                                      StudyText(
                                         revision.kind ==
                                                 ConceptChangeKind.delete
                                             ? original?.content ?? ''
                                             : revision.content,
+                                        selectable: true,
                                       ),
                                       const SizedBox(height: 8),
                                       if (revision.kind ==
@@ -1016,7 +1031,7 @@ class _RevisionValue extends StatelessWidget {
           children: [
             Text(label, style: Theme.of(context).textTheme.labelMedium),
             const SizedBox(height: 4),
-            SelectableText(value),
+            StudyText(value, selectable: true),
           ],
         ),
       ),
@@ -1104,7 +1119,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                         constraints: const BoxConstraints(
                           maxWidth: AppLayout.readingWidth,
                         ),
-                        child: Text(
+                        child: StudyText(
                           concept.content,
                           key: ValueKey('concept-content-${concept.id}'),
                         ),
@@ -1296,7 +1311,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
                                 const SizedBox(width: 4),
                                 Flexible(
                                   fit: expanded ? FlexFit.tight : FlexFit.loose,
-                                  child: Text(
+                                  child: StudyText(
                                     '$number. ${concept.title}',
                                     key: ValueKey(
                                       'concept-title-${concept.id}',
@@ -1624,7 +1639,11 @@ Future<void> _showConceptEditor(
                         minLines: 4,
                         maxLines: 10,
                         maxLength: 8000,
-                        decoration: const InputDecoration(labelText: '내용'),
+                        decoration: const InputDecoration(
+                          labelText: '내용',
+                          helperText: studyNotationInputHint,
+                          helperMaxLines: 3,
+                        ),
                         validator: (value) =>
                             value == null || value.trim().isEmpty
                             ? '내용을 입력해 주세요.'

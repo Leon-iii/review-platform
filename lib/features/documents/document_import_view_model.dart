@@ -68,6 +68,7 @@ class DocumentImportController extends _$DocumentImportController {
         folderId,
         picked,
         reviewBeforeConcepts: ref.read(pdfReviewPreferenceProvider),
+        prepareOnly: true,
       );
       if (!ref.mounted) return true;
       activeJobId = jobId;

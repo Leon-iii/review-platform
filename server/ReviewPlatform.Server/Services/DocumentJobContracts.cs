@@ -5,6 +5,7 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class DocumentLimits
 {
+    public bool SupportsExtractionSelection => true;
     public int MaximumFileSizeMb { get; set; } = 200;
     public int MaximumPages { get; set; } = 1000;
     public int MaximumExtractedCharacters { get; set; } = 3_000_000;
@@ -28,6 +29,11 @@ public sealed class DocumentCheckpoint
     public bool ReviewConfirmed { get; set; }
     public int ReviewRevision { get; set; }
     public Dictionary<int, List<DocumentReviewBlock>> ReviewPages { get; set; } = [];
+    public string ExtractionMode { get; set; } = PdfExtractionModes.Ocr;
+    public string DirectPromptVersion { get; set; } = DirectPdfConceptPrompt.Version;
+    public List<int> SplitAfterPages { get; set; } = [];
+    public int ExtractionRevision { get; set; }
+    public PdfExtractionPreflight? Preflight { get; set; }
 }
 
 public sealed record DocumentReviewBlock(string Text, bool Independent = false,
@@ -44,4 +50,5 @@ public sealed record DocumentJobResponse(
     int CompletedPages, int TotalPages, int CompletedChunks, int TotalChunks,
     string? Error, DateTimeOffset UpdatedAt,
     string VisionModel, string ConceptModel,
-    bool ReviewBeforeConcepts = false, bool ReviewConfirmed = false);
+    bool ReviewBeforeConcepts = false, bool ReviewConfirmed = false,
+    string ExtractionMode = PdfExtractionModes.Ocr);

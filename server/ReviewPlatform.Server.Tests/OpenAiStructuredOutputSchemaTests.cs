@@ -12,9 +12,9 @@ namespace ReviewPlatform.Server.Tests;
 public sealed class OpenAiStructuredOutputSchemaTests
 {
     [Fact]
-    public void Build_PreservesSharedSchemaAndSupportedConstraints()
+    public void Build_PreservesInputSchemaAndSupportedConstraints()
     {
-        var original = ConceptExtractionPrompt.BuildSchema(new ConceptExtractionInput("source", "자료.pdf",
+        var original = ConceptExtractionPrompt.BuildOllamaSchema(new ConceptExtractionInput("source", "자료.pdf",
             [new ExtractedDocumentPage(3, "내용"), new ExtractedDocumentPage(5, "내용")],
             ConceptExtractionPrompt.Version));
         var snapshot = original.ToJsonString();

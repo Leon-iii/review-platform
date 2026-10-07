@@ -290,7 +290,7 @@ public sealed class OllamaLlmProvider(
         ConceptExtractionInput input,
         CancellationToken cancellationToken)
     {
-        var schema = ConceptExtractionPrompt.BuildSchema(input);
+        var schema = ConceptExtractionPrompt.BuildOllamaSchema(input);
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             BuildEndpoint("api/chat"));
@@ -303,7 +303,7 @@ public sealed class OllamaLlmProvider(
                     new
                     {
                         role = "system",
-                        content = ConceptExtractionPrompt.SystemPrompt
+                        content = ConceptExtractionPrompt.OllamaSystemPrompt
                     },
                     new
                     {

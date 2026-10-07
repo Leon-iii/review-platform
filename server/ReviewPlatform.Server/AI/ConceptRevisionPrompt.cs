@@ -51,7 +51,10 @@ public static class ConceptRevisionPrompt
         and symbols. Importance, when explicitly changed, must be veryLow, low, medium, high,
         or veryHigh. Apply the following criteria only to new concepts or importance fields the
         user explicitly asked to change; keep all other existing importance values unchanged.
-        """ + "\n" + ConceptImportancePrompt.Instructions + "\nOutput only the requested JSON.";
+        """ + "\n" + ConceptImportancePrompt.Instructions + "\n"
+        + "Preserve existing original terminology. Apply the language rules only to passages being revised or added; do not rewrite untouched passages merely to add bilingual terms.\n"
+        + ConceptLanguagePrompt.Instructions + "\n" + StudyNotationPrompt.Instructions
+        + "\nOutput only the requested JSON.";
 
     public static string BuildUserPrompt(ConceptRevisionInput input)
     {

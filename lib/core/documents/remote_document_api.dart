@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:review_platform/domain/models/document_extraction.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/domain/models/pdf_import_job.dart';
@@ -54,6 +56,33 @@ abstract interface class RemoteDocumentJobApi {
   );
 }
 
+abstract interface class RemoteDocumentExtractionApi {
+  Future<PdfImportJob> prepareJob(
+    SyncConfiguration configuration,
+    String id,
+    PickedPdfDocument document,
+  );
+  Future<PdfExtractionOverview> extractionOverview(
+    SyncConfiguration configuration,
+    String id,
+  );
+  Future<PdfExtractionPreflight> preflight(
+    SyncConfiguration configuration,
+    String id,
+    Map<String, Object?> selection,
+  );
+  Future<PdfImportJob> startExtraction(
+    SyncConfiguration configuration,
+    String id,
+    Map<String, Object?> selection,
+  );
+  Future<Uint8List> extractionImage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+  );
+}
+
 abstract interface class RemoteDocumentReviewApi {
   Future<OcrReviewPage> reviewPage(
     SyncConfiguration configuration,
@@ -96,6 +125,7 @@ class HttpRemoteDocumentApi
     implements
         RemoteDocumentApi,
         RemoteDocumentJobApi,
+        RemoteDocumentExtractionApi,
         RemoteDocumentReviewApi {
   HttpRemoteDocumentApi(this._client);
 
@@ -169,12 +199,14 @@ class HttpRemoteDocumentApi
     String id,
     PickedPdfDocument document, {
     bool reviewBeforeConcepts = false,
+    bool prepareOnly = false,
   }) async {
     final request = _PdfUploadRequest(
       _jobUri(configuration, 'jobs/$id').replace(
         queryParameters: {
           'fileName': document.fileName,
           'reviewBeforeConcepts': '$reviewBeforeConcepts',
+          'prepareOnly': '$prepareOnly',
         },
       ),
       document,
@@ -197,6 +229,96 @@ class HttpRemoteDocumentApi
         stackTrace,
       );
     }
+  }
+
+  @override
+  Future<PdfImportJob> prepareJob(
+    SyncConfiguration configuration,
+    String id,
+    PickedPdfDocument document,
+  ) async {
+    final limits = _decode(await _jobRequest(configuration, 'GET', 'limits'));
+    if (limits['supportsExtractionSelection'] != true) {
+      throw const ValidationFailure(
+        '서버를 업데이트하고 다시 시작해 주세요. 이전 서버에서는 업로드 즉시 OCR이 시작되어 추출 방식을 선택할 수 없어요.',
+      );
+    }
+    return uploadJob(configuration, id, document, prepareOnly: true);
+  }
+
+  @override
+  Future<PdfExtractionOverview> extractionOverview(
+    SyncConfiguration configuration,
+    String id,
+  ) async => _extractionResponse(
+    _decode(await _jobRequest(configuration, 'GET', 'jobs/$id/extraction')),
+    PdfExtractionOverview.new,
+  );
+
+  @override
+  Future<PdfExtractionPreflight> preflight(
+    SyncConfiguration configuration,
+    String id,
+    Map<String, Object?> selection,
+  ) async => _extractionResponse(
+    _decode(
+      await _jobRequest(
+        configuration,
+        'POST',
+        'jobs/$id/extraction/preflight',
+        body: selection,
+        timeout: const Duration(minutes: 20),
+      ),
+    ),
+    PdfExtractionPreflight.new,
+  );
+
+  T _extractionResponse<T>(
+    Map<String, Object?> data,
+    T Function(Map<String, Object?>) parse,
+  ) {
+    try {
+      return parse(data);
+    } catch (error) {
+      throw NetworkFailure('PDF 추출 설정 응답 형식이 올바르지 않아요.', cause: error);
+    }
+  }
+
+  @override
+  Future<PdfImportJob> startExtraction(
+    SyncConfiguration configuration,
+    String id,
+    Map<String, Object?> selection,
+  ) async => _job(
+    _decode(
+      await _jobRequest(
+        configuration,
+        'POST',
+        'jobs/$id/extraction/start',
+        body: selection,
+      ),
+    ),
+  );
+
+  @override
+  Future<Uint8List> extractionImage(
+    SyncConfiguration configuration,
+    String id,
+    int page,
+  ) async {
+    final response = await _jobRequest(
+      configuration,
+      'GET',
+      'jobs/$id/extraction/pages/$page/image',
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _decode(response);
+    }
+    if (!(response.headers['content-type'] ?? '').startsWith('image/') ||
+        response.bodyBytes.length > 12 * 1024 * 1024) {
+      throw const NetworkFailure('PDF 원본 이미지 응답이 올바르지 않아요.');
+    }
+    return response.bodyBytes;
   }
 
   @override
@@ -249,6 +371,7 @@ class HttpRemoteDocumentApi
           'cancelled',
           'completed',
           'awaiting_review',
+          'awaiting_selection',
         }.contains(data['status'])) {
       throw const NetworkFailure('PDF 작업 응답 형식이 올바르지 않아요.');
     }
@@ -264,6 +387,7 @@ class HttpRemoteDocumentApi
     String method,
     String path, {
     Map<String, Object?>? body,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     try {
       final request = http.Request(method, _jobUri(configuration, path))
@@ -273,8 +397,8 @@ class HttpRemoteDocumentApi
         request.body = jsonEncode(body);
       }
       return await http.Response.fromStream(
-        await _client.send(request).timeout(const Duration(seconds: 30)),
-      ).timeout(const Duration(seconds: 30));
+        await _client.send(request).timeout(timeout),
+      ).timeout(timeout);
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
         NetworkFailure('PDF 처리 서버에 연결할 수 없어요.', cause: error),

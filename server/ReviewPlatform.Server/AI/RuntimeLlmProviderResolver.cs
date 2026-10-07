@@ -77,7 +77,8 @@ public sealed class RuntimeLlmProviderResolver(
             "openai" => new OpenAiLlmProvider(
                 httpClientFactory.CreateClient("openai"),
                 options,
-                loggerFactory.CreateLogger<OpenAiLlmProvider>()),
+                loggerFactory.CreateLogger<OpenAiLlmProvider>(),
+                httpClientFactory.CreateClient("openai-direct-pdf")),
             _ => throw new LlmProviderUnavailableException(
                 $"지원하지 않는 LLM Provider입니다: '{profile.Provider}'.")
         };

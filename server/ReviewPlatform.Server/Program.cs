@@ -9,6 +9,10 @@ using ReviewPlatform.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var documentLimits = builder.Configuration.GetSection("Documents").Get<DocumentLimits>() ?? new();
+var directLimits = builder.Configuration.GetSection("Documents:DirectPdf").Get<DirectPdfLimits>() ?? new();
+if (directLimits.MaximumOutputTokens is < 1 or > 64000 || directLimits.TokensPerMinute < 1 ||
+    directLimits.InputSafetyLimit < 1 || directLimits.ContextMarginTokens < 0 || directLimits.EstimatedOutputTokensPerPage < 1)
+    throw new InvalidOperationException("Documents:DirectPdf safety limits are invalid.");
 if (documentLimits.MaximumFileSizeMb is < 1 or > 2048 ||
     documentLimits.MaximumPages is < 1 or > 10000 ||
     documentLimits.MaximumExtractedCharacters is < 20 or > 10000000 ||
@@ -65,6 +69,10 @@ builder.Services.AddHttpClient("openai", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
+builder.Services.AddHttpClient("openai-direct-pdf", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(20);
+});
 builder.Services.AddHttpClient("ollama", client =>
 {
     client.Timeout = TimeSpan.FromMinutes(10);
@@ -94,8 +102,10 @@ app.MapPost("/api/documents/jobs/{id}", async (string id, string fileName,
         if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = documentLimits.MaximumFileSize;
         if (!bool.TryParse(request.Query["reviewBeforeConcepts"].FirstOrDefault() ?? "false", out var reviewBeforeConcepts))
             return Results.BadRequest(new { error = "OCR 검토 설정이 올바르지 않습니다." });
+        if (!bool.TryParse(request.Query["prepareOnly"].FirstOrDefault() ?? "false", out var prepareOnly))
+            return Results.BadRequest(new { error = "PDF 업로드 설정이 올바르지 않습니다." });
         return Results.Json(await service.UploadAsync(id, fileName, request.Body,
-            request.ContentLength ?? 0, cancellationToken, reviewBeforeConcepts), statusCode: StatusCodes.Status202Accepted);
+            request.ContentLength ?? 0, cancellationToken, reviewBeforeConcepts, prepareOnly), statusCode: StatusCodes.Status202Accepted);
     }
     catch (DocumentImportException exception) { return Results.BadRequest(new { error = exception.Message }); }
     catch (LlmProviderUnavailableException exception)
@@ -111,6 +121,32 @@ app.MapGet("/api/documents/jobs/{id}/result", async (string id, DocumentJobServi
     CancellationToken cancellationToken) => await service.GetResultAsync(id, cancellationToken) is { } json
         ? Results.Content(json, "application/json")
         : Results.NotFound(new { error = "PDF 분석 결과가 아직 준비되지 않았습니다." }));
+app.MapGet("/api/documents/jobs/{id}/extraction", async (string id, DocumentJobService service, CancellationToken token) =>
+{
+    try { return Results.Ok(await service.ExtractionOverviewAsync(id, token)); }
+    catch (DocumentImportException e) { return Results.BadRequest(new { error = e.Message }); }
+    catch (LlmProviderUnavailableException e) { return Results.Json(new { error = e.Message }, statusCode: 503); }
+});
+app.MapPost("/api/documents/jobs/{id}/extraction/preflight", async (string id, PdfExtractionSelection selection,
+    DocumentJobService service, CancellationToken token) =>
+{
+    try { return Results.Ok(await service.PreflightAsync(id, selection, token)); }
+    catch (DocumentImportException e) { return Results.BadRequest(new { error = e.Message }); }
+    catch (LlmProviderUnavailableException e) { return Results.Json(new { error = e.Message }, statusCode: 503); }
+});
+app.MapPost("/api/documents/jobs/{id}/extraction/start", async (string id, PdfExtractionSelection selection,
+    DocumentJobService service, CancellationToken token) =>
+{
+    try { return Results.Ok(await service.StartExtractionAsync(id, selection, token)); }
+    catch (DocumentImportException e) { return Results.BadRequest(new { error = e.Message }); }
+    catch (LlmProviderUnavailableException e) { return Results.Json(new { error = e.Message }, statusCode: 503); }
+});
+app.MapGet("/api/documents/jobs/{id}/extraction/pages/{page:int}/image", async (string id, int page,
+    DocumentJobService service, CancellationToken token) =>
+{
+    try { var image = await service.ExtractionImageAsync(id, page, token); return Results.File(image.ImageBytes, image.MimeType); }
+    catch (DocumentImportException e) { return Results.BadRequest(new { error = e.Message }); }
+});
 app.MapDelete("/api/documents/jobs/{id}", async (string id, DocumentJobService service,
     CancellationToken cancellationToken) =>
 {

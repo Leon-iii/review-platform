@@ -1,4 +1,5 @@
 import 'package:review_platform/app/design_tokens.dart';
+import 'package:review_platform/features/documents/document_extraction_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:review_platform/core/documents/document_job_providers.dart';
@@ -67,6 +68,14 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
           });
         }
         final job = row.job;
+        if (job.isAwaitingSelection || (job.isDirect && job.canRetry)) {
+          return DocumentExtractionPanel(
+            key: ValueKey('extraction-${job.id}'),
+            jobId: job.id,
+            initialError: job.error,
+            onDeleted: widget.onDeleted,
+          );
+        }
         return ListView(
           padding: AppLayout.pagePadding(context),
           children: [
@@ -108,7 +117,9 @@ class _DocumentJobPanelState extends ConsumerState<DocumentJobPanel> {
                         if (job.data['visionModel'] is String) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'OCR: ${job.data['visionModel']} · 개념 추출: ${job.data['conceptModel']}',
+                            job.isDirect
+                                ? 'PDF 직접 추출: ${job.data['conceptModel']}'
+                                : 'OCR: ${job.data['visionModel']} · 개념 추출: ${job.data['conceptModel']}',
                           ),
                         ],
                         if (job.error != null) ...[

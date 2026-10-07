@@ -6,16 +6,15 @@ namespace ReviewPlatform.Server.AI;
 public static class ConceptExtractionPrompt
 {
     public const string Version = "concept-extraction-v10-typed-regions";
-    public const int MaximumConceptsPerRequest = 8;
+    public const int OllamaMaximumConceptsPerRequest = 8;
 
-    public const string SystemPrompt = """
+    private const string CommonSystemPrompt = """
         Extract distinct, study-worthy concepts using only the supplied PDF page text.
         Do not add facts that are absent from the source. Each concept needs a concise title,
         self-contained study content, and every page number that directly
         supports it. Merge repeated explanations of the same concept, but keep unrelated
         concepts separate. Ignore headers, footers, page numbers, and table-of-contents noise.
-        Return at most 8 of the most study-worthy concepts for this page batch. Keep each
-        content concise and focused on the supplied pages.
+        Keep each content concise and focused on the supplied pages.
         Split by semantic independence, not by page or visual container. One page can support
         multiple concepts, and different concepts can share the same source page number.
         Before rating importance, separate material with a different learning purpose that can
@@ -45,13 +44,25 @@ public static class ConceptExtractionPrompt
         Visual transcription and the text layer may repeat the same content; reconcile them
         without duplicating facts or concepts. Never copy extraction boundary markers into the
         final title or content. Only reference pages that directly support each concept.
-        """ + "\n" + ConceptImportancePrompt.Instructions + "\n" + """
-        Write every title and content field in natural Korean regardless of the
-        source language. For an important technical term, use "한국어 (original term)" on
-        its first occurrence. Preserve proper nouns, standard acronyms, code, identifiers,
-        formulas, and symbols in their original form. Do not guess or freely paraphrase an
-        uncertain technical translation. Output only the requested JSON.
+        """ + "\n" + ConceptImportancePrompt.Instructions + "\n"
+        + ConceptLanguagePrompt.Instructions + "\n" + StudyNotationPrompt.Instructions
+        + "\nOutput only the requested JSON.";
+
+    // The shared/cloud default must not inherit local-model output limits.
+    public const string SystemPrompt = CommonSystemPrompt + "\n" + """
+        Extract ALL study-worthy concepts in the supplied pages; do not silently omit later pages.
         """;
+
+    public const string OllamaSystemPrompt = CommonSystemPrompt + "\n" + """
+        Return at most 8 of the most study-worthy concepts for this page batch.
+        """;
+
+    public static JsonObject BuildOllamaSchema(ConceptExtractionInput input)
+    {
+        var schema = BuildSchema(input);
+        schema["properties"]!["concepts"]!["maxItems"] = OllamaMaximumConceptsPerRequest;
+        return schema;
+    }
 
     public static string BuildUserPrompt(ConceptExtractionInput input)
     {
@@ -65,8 +76,9 @@ public static class ConceptExtractionPrompt
 
             OUTPUT LANGUAGE:
             - Write title and content in Korean.
-            - Preserve important original technical terms in parentheses on first use.
+            - Preserve original technical terms in English in the title and independently on first use in each concept's content.
             - Keep proper nouns, acronyms, code, identifiers, formulas, and symbols unchanged.
+            - Preserve math scripts using delimited LaTeX, never flattened baseline text.
 
             PDF PAGE TEXT:
             {pages}
@@ -90,7 +102,6 @@ public static class ConceptExtractionPrompt
                 {
                     ["type"] = "array",
                     ["minItems"] = 1,
-                    ["maxItems"] = MaximumConceptsPerRequest,
                     ["items"] = new JsonObject
                     {
                         ["type"] = "object",

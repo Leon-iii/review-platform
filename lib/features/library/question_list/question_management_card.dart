@@ -1,4 +1,5 @@
 import 'package:review_platform/shared/widgets/app_dialog.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -119,7 +120,7 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(
+                            child: StudyText(
                               question.prompt,
                               key: ValueKey('question-prompt-${question.id}'),
                               maxLines: expanded ? null : 2,
@@ -219,7 +220,7 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                                     : null,
                               ),
                               Expanded(
-                                child: Text(
+                                child: StudyText(
                                   '${question.type == QuestionType.trueFalse ? '' : '${choice.position + 1}. '}${choice.text}',
                                 ),
                               ),
@@ -227,7 +228,7 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                           ),
                         )
                     else if (question.acceptableAnswers.isNotEmpty)
-                      Text(
+                      StudyText(
                         question.acceptableAnswers
                             .map((answer) => answer.text)
                             .join('\n'),
@@ -242,7 +243,7 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                     ),
                     Text('해설', style: Theme.of(context).textTheme.labelLarge),
                     const SizedBox(height: 8),
-                    Text(
+                    StudyText(
                       question.explanation?.trim().isNotEmpty == true
                           ? question.explanation!
                           : '등록된 해설이 없어요.',
@@ -259,7 +260,7 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                       ),
                     for (final reference in question.sourceReferences) ...[
                       const SizedBox(height: 8),
-                      Text(questionSourceLabel(reference)),
+                      StudyText(questionSourceLabel(reference)),
                       if (reference.conceptId != null)
                         Align(
                           alignment: Alignment.centerLeft,
@@ -333,14 +334,14 @@ Future<void> showQuestionConcept(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  StudyText(
                     concept.title,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
                   ConceptImportanceBadge(importance: concept.importance),
                   const Divider(),
-                  Text(concept.content),
+                  StudyText(concept.content),
                   const Divider(),
                   Text(data.source.fileName),
                   TextButton.icon(

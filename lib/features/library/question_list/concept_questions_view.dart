@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -47,7 +48,7 @@ class ConceptQuestionsView extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
+                    StudyText(
                       conceptTitle,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),

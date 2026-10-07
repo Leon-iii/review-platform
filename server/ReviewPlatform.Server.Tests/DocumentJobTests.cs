@@ -1,4 +1,7 @@
 using System.Text;
+using System.Text.Json;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Writer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -24,7 +27,7 @@ public sealed class DocumentJobTests : IAsyncLifetime
         if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 
-    private async Task<ServiceProvider> CreateAsync(FakeProvider fake, int pages = 61,
+    private async Task<ServiceProvider> CreateAsync(ILLMProvider fake, int pages = 61,
         int maximumCharacters = 3_000_000, bool vision = true)
     {
         var services = new ServiceCollection();
@@ -61,6 +64,148 @@ public sealed class DocumentJobTests : IAsyncLifetime
         provider.GetRequiredService<IServiceScopeFactory>(), provider.GetRequiredService<DocumentJobSignals>(),
         NullLogger<DocumentJobWorker>.Instance);
     private static MemoryStream Pdf() => new(Encoding.ASCII.GetBytes("%PDF-1.7 test content"));
+    private static MemoryStream RealPdf(int pages)
+    {
+        var builder = new PdfDocumentBuilder();
+        for (var i = 0; i < pages; i++) builder.AddPage(600 + i, 400);
+        return new(builder.Build());
+    }
+
+    [Fact]
+    public async Task PrepareUpload_IsDurableIdle_ThenExistingOcrRouteStillWorks()
+    {
+        var fake = new FakeProvider();
+        var provider = await CreateAsync(fake, 2);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(2);
+        var uploaded = await service.UploadAsync(id, "강의.pdf", pdf, pdf.Length,
+            TestContext.Current.CancellationToken, prepareOnly: true);
+        Assert.Equal("awaiting_selection", uploaded.Status);
+        Assert.Equal(2, uploaded.TotalPages);
+        Assert.False(await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(fake.VisionCalls);
+        Assert.Equal(0, fake.ConceptCalls);
+        var overview = await service.ExtractionOverviewAsync(id, TestContext.Current.CancellationToken);
+        Assert.Equal(2, overview.PageCount);
+        await service.StartExtractionAsync(id, new("ocr", ReviewBeforeConcepts: true), TestContext.Current.CancellationToken);
+        await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("awaiting_review", (await Get(provider, id)).Status);
+    }
+
+    [Fact]
+    public async Task DirectRoute_UsesRealSubsets_RestoresGlobalPages_AndNeverCallsOcr()
+    {
+        var fake = new DirectProvider();
+        var provider = await CreateAsync(fake, 3);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "강의.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken, prepareOnly: true);
+        var selection = new PdfExtractionSelection("direct", [2]);
+        var check = await service.PreflightAsync(id, selection, TestContext.Current.CancellationToken);
+        Assert.Equal("warning", check.Status); // Account TPM is explicitly an assumption.
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.StartExtractionAsync(id,
+            selection with { Revision = check.Revision }, TestContext.Current.CancellationToken));
+        var start = selection with { Revision = check.Revision, AcknowledgeWarnings = true };
+        await service.StartExtractionAsync(id, start, TestContext.Current.CancellationToken);
+        await service.StartExtractionAsync(id, start, TestContext.Current.CancellationToken); // Lost receipt is idempotent.
+        await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("completed", (await Get(provider, id)).Status);
+        Assert.Equal(new[] { 2, 1 }, fake.PdfCalls);
+        Assert.Equal(new[] { 600d, 602d }, fake.FirstPageWidths);
+        var result = JsonSerializer.Deserialize<ImportDocumentResponse>((await Result(provider, id))!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal("directPdf", result.Source.ExtractionMethod);
+        Assert.Equal(new[] { 1, 2 }, result.Concepts[0].PageNumbers);
+        Assert.Equal(new[] { 3 }, result.Concepts[1].PageNumbers);
+    }
+
+    [Fact]
+    public async Task DirectPreflight_BlocksOversizedInput_UntilUserSplits_RejectsStaleRevision()
+    {
+        var fake = new DirectProvider { InputTokens = 600_000 };
+        var provider = await CreateAsync(fake, 3);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "강의.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken, prepareOnly: true);
+        var check = await service.PreflightAsync(id, new("direct"), TestContext.Current.CancellationToken);
+        Assert.Equal("blocked", check.Status);
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.StartExtractionAsync(id,
+            new("direct", AcknowledgeWarnings: true, Revision: check.Revision), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.PreflightAsync(id,
+            new("direct", [1]), TestContext.Current.CancellationToken));
+        Assert.Equal("awaiting_selection", (await Get(provider, id)).Status);
+        Assert.Empty(fake.PdfCalls);
+    }
+
+    [Theory]
+    [InlineData(new[] { 2, 1 })]
+    [InlineData(new[] { 1, 1 })]
+    [InlineData(new[] { 3 })]
+    [InlineData(new[] { 0 })]
+    public void DirectSplit_RejectsInvalidBoundaries(int[] boundaries) =>
+        Assert.Throws<DocumentImportException>(() => DocumentProcessingService.SelectedRanges(3, boundaries));
+
+    [Fact]
+    public async Task DirectFailure_PreservesCompletedChunk_AndOnlyResumesIncompletePart()
+    {
+        var fake = new DirectProvider { FailPdfCall = 2 };
+        var provider = await CreateAsync(fake, 3);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "강의.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken, prepareOnly: true);
+        var selection = new PdfExtractionSelection("direct", [2], AcknowledgeWarnings: true);
+        var check = await service.PreflightAsync(id, selection, TestContext.Current.CancellationToken);
+        await service.StartExtractionAsync(id, selection with { Revision = check.Revision }, TestContext.Current.CancellationToken);
+        await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken);
+        var failed = await Get(provider, id);
+        Assert.Equal("failed", failed.Status);
+        Assert.Equal(1, failed.CompletedChunks);
+        var overview = await service.ExtractionOverviewAsync(id, TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.PreflightAsync(id,
+            selection with { SplitAfterPages = [1], Revision = overview.Revision }, TestContext.Current.CancellationToken));
+        check = await service.PreflightAsync(id, selection with { Revision = overview.Revision }, TestContext.Current.CancellationToken);
+        await service.StartExtractionAsync(id, selection with { Revision = check.Revision }, TestContext.Current.CancellationToken);
+        await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("completed", (await Get(provider, id)).Status);
+        Assert.Equal(new[] { 2, 1, 1 }, fake.PdfCalls);
+    }
+
+    private sealed class DirectProvider : ILLMProvider, IDirectPdfConceptProvider
+    {
+        public string ProviderName => "openai";
+        public string ModelName => "test-pdf";
+        public int MaximumPdfOutputTokens => 64_000;
+        public int? PdfContextTokens => 1_050_000;
+        public string RateLimitKey { get; } = Guid.NewGuid().ToString();
+        public long InputTokens { get; set; } = 100;
+        public int FailPdfCall { get; set; }
+        public List<int> PdfCalls { get; } = [];
+        public List<double> FirstPageWidths { get; } = [];
+        public Task<PdfTokenCount> CountPdfTokensAsync(DirectPdfInput input, CancellationToken cancellationToken)
+        {
+            using var pdf = PdfDocument.Open(input.PdfBytes);
+            Assert.Equal(input.PageCount, pdf.NumberOfPages);
+            return Task.FromResult(new PdfTokenCount(InputTokens));
+        }
+        public Task<IReadOnlyList<GeneratedConceptDraft>> ExtractPdfConceptsAsync(DirectPdfInput input, CancellationToken cancellationToken)
+        {
+            using var pdf = PdfDocument.Open(input.PdfBytes);
+            PdfCalls.Add(pdf.NumberOfPages);
+            if (PdfCalls.Count == FailPdfCall) throw new LlmProviderRequestException("테스트 일시 실패");
+            FirstPageWidths.Add(pdf.GetPage(1).Width);
+            return Task.FromResult<IReadOnlyList<GeneratedConceptDraft>>([
+                new($"개념 {PdfCalls.Count}", "원본에 근거한 내용", Enumerable.Range(1, input.PageCount).ToList())]);
+        }
+        public Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(QuestionGenerationInput input, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Must not generate questions");
+        public Task<IReadOnlyList<GeneratedConceptDraft>> ExtractConceptsAsync(ConceptExtractionInput input, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Must not call OCR path");
+    }
     private static async Task<string> Upload(ServiceProvider provider, bool review = false)
     {
         using var scope = provider.CreateScope();

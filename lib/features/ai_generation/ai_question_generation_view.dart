@@ -1,5 +1,6 @@
 import 'package:review_platform/shared/widgets/question_type_options.dart';
 import 'package:review_platform/shared/widgets/app_dialog.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/app_action_group.dart';
 import 'package:review_platform/shared/widgets/app_option_selector.dart';
@@ -527,7 +528,7 @@ class _AiQuestionGenerationViewState
                         Flexible(
                           child: Tooltip(
                             message: '${index + 1}. ${concept.title}',
-                            child: Text(
+                            child: StudyText(
                               '${index + 1}. ${concept.title}',
                               key: ValueKey('ai-concept-title-${concept.id}'),
                               maxLines: 1,
@@ -927,7 +928,7 @@ class _ReviewCard extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Text(
+            StudyText(
               question.prompt,
               style: Theme.of(context).textTheme.titleMedium,
             ),
@@ -937,17 +938,17 @@ class _ReviewCard extends ConsumerWidget {
               for (final choice in question.choices)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
+                  child: StudyText(
                     choice.isCorrect ? '✓ ${choice.text}' : choice.text,
                   ),
                 ),
             ] else ...[
               const SizedBox(height: 12),
-              Text('허용 정답: ${question.acceptableAnswers.join(' / ')}'),
+              StudyText('허용 정답: ${question.acceptableAnswers.join(' / ')}'),
             ],
             if (question.explanation case final explanation?) ...[
               const SizedBox(height: 10),
-              Text('해설: $explanation'),
+              StudyText('해설: $explanation'),
             ],
             if (item.status == AiReviewStatus.pending) ...[
               const SizedBox(height: 16),

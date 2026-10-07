@@ -43,14 +43,14 @@ public sealed class DocumentJobSignals
     }
 }
 
-public sealed class DocumentJobService(
+public sealed partial class DocumentJobService(
     SyncDbContext database, DocumentProcessingService processing,
     ILlmProviderResolver resolver, DocumentJobSignals signals, IConfiguration configuration)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public async Task<DocumentJobResponse> UploadAsync(string id, string fileName,
-        Stream content, long length, CancellationToken cancellationToken, bool reviewBeforeConcepts = false)
+        Stream content, long length, CancellationToken cancellationToken, bool reviewBeforeConcepts = false, bool prepareOnly = false)
     {
         if (!Guid.TryParseExact(id, "D", out _))
             throw new DocumentImportException("올바르지 않은 PDF 작업 ID입니다.");
@@ -65,19 +65,29 @@ public sealed class DocumentJobService(
                 job => job.Status == "queued" || job.Status == "running", cancellationToken);
             if (pending >= limits.MaximumPendingJobs)
                 throw new DocumentImportException("PDF 분석 대기열이 가득 찼습니다. 진행 중인 작업이 끝난 뒤 다시 시도해 주세요.");
-            var vision = await resolver.CaptureAsync(LlmPurposes.DocumentVision, cancellationToken);
-            var concepts = await resolver.CaptureAsync(LlmPurposes.ConceptExtraction, cancellationToken);
+            var empty = new LlmProfileDto("", "", "", "", DateTimeOffset.UtcNow);
+            var vision = prepareOnly ? empty : await resolver.CaptureAsync(LlmPurposes.DocumentVision, cancellationToken);
+            var concepts = prepareOnly ? empty : await resolver.CaptureAsync(LlmPurposes.ConceptExtraction, cancellationToken);
             await processing.StoreUploadAsync(id, content, fileName, length, cancellationToken);
+            var checkpoint = new DocumentCheckpoint { ReviewBeforeConcepts = reviewBeforeConcepts };
+            if (prepareOnly)
+            {
+                checkpoint.ExtractionMode = PdfExtractionModes.Unselected;
+                checkpoint.Stage = "selection";
+                try { checkpoint.TotalPages = processing.InspectStoredPdf(id).PageCount; }
+                catch { processing.DeletePdf(id); throw; }
+            }
             var record = new DocumentJobRecord
             {
                 Id = id, FileName = Path.GetFileName(fileName),
-                CheckpointJson = JsonSerializer.Serialize(new DocumentCheckpoint { ReviewBeforeConcepts = reviewBeforeConcepts }, Json),
+                Status = prepareOnly ? "awaiting_selection" : "queued",
+                CheckpointJson = JsonSerializer.Serialize(checkpoint, Json),
                 VisionProfileJson = JsonSerializer.Serialize(vision, Json),
                 ConceptProfileJson = JsonSerializer.Serialize(concepts, Json)
             };
             database.DocumentJobs.Add(record);
             await database.SaveChangesAsync(cancellationToken);
-            signals.NotifyQueued();
+            if (!prepareOnly) signals.NotifyQueued();
             return Response(record);
         }
         finally { signals.UploadGate.Release(); }
@@ -136,6 +146,12 @@ public sealed class DocumentJobService(
             var record = await database.DocumentJobs.AsNoTracking().SingleOrDefaultAsync(job => job.Id == id, cancellationToken);
             if (record is null) return null;
             if (record.Status is not ("failed" or "cancelled")) return Response(record);
+            var checkpoint = JsonSerializer.Deserialize<DocumentCheckpoint>(record.CheckpointJson, Json)!;
+            if (checkpoint.ExtractionMode == PdfExtractionModes.Unselected)
+            {
+                await database.DocumentJobs.Where(job => job.Id == id).ExecuteUpdateAsync(setters => setters.SetProperty(job => job.Status, "awaiting_selection"), cancellationToken);
+                return await GetAsync(id, cancellationToken);
+            }
             var limits = configuration.GetSection("Documents").Get<DocumentLimits>() ?? new();
             if (await database.DocumentJobs.CountAsync(job => job.Status == "queued" || job.Status == "running", cancellationToken)
                 >= limits.MaximumPendingJobs)
@@ -279,7 +295,7 @@ public sealed class DocumentJobService(
             record.Error, record.UpdatedAt,
             JsonSerializer.Deserialize<LlmProfileDto>(record.VisionProfileJson, Json)!.Model,
             JsonSerializer.Deserialize<LlmProfileDto>(record.ConceptProfileJson, Json)!.Model,
-            checkpoint.ReviewBeforeConcepts, checkpoint.ReviewConfirmed);
+            checkpoint.ReviewBeforeConcepts, checkpoint.ReviewConfirmed, checkpoint.ExtractionMode);
     }
 }
 
@@ -335,10 +351,7 @@ public sealed class DocumentJobWorker(
             var visionProfile = JsonSerializer.Deserialize<LlmProfileDto>(job.VisionProfileJson, DocumentJobService.Json)!;
             var concepts = await resolver.ResolveSnapshotAsync(conceptProfile, cancellation.Token);
             var checkpoint = JsonSerializer.Deserialize<DocumentCheckpoint>(job.CheckpointJson, DocumentJobService.Json)!;
-            var result = await services.GetRequiredService<DocumentProcessingService>().ProcessStoredPdfAsync(
-                job.Id, job.FileName, concepts,
-                () => resolver.ResolveSnapshotAsync(visionProfile, cancellation.Token), checkpoint,
-                async state =>
+            async Task Save(DocumentCheckpoint state)
                 {
                     cancellation.Token.ThrowIfCancellationRequested();
                     var updated = await database.DocumentJobs.Where(item => item.Id == job.Id && item.Status == "running")
@@ -346,7 +359,12 @@ public sealed class DocumentJobWorker(
                             .SetProperty(item => item.CheckpointJson, JsonSerializer.Serialize(state, DocumentJobService.Json))
                             .SetProperty(item => item.UpdatedAt, DateTimeOffset.UtcNow), cancellation.Token);
                     if (updated == 0) throw new OperationCanceledException("PDF job was cancelled.");
-                }, cancellation.Token);
+                }
+            var processing = services.GetRequiredService<DocumentProcessingService>();
+            var result = checkpoint.ExtractionMode == PdfExtractionModes.Direct
+                ? await processing.ProcessDirectPdfAsync(job.Id, job.FileName, concepts, checkpoint, Save, cancellation.Token)
+                : await processing.ProcessStoredPdfAsync(job.Id, job.FileName, concepts,
+                    () => resolver.ResolveSnapshotAsync(visionProfile, cancellation.Token), checkpoint, Save, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             await database.DocumentJobs.Where(item => item.Id == job.Id && item.Status == "running")
                 .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.Status, "completed")
@@ -354,6 +372,12 @@ public sealed class DocumentJobWorker(
                     .SetProperty(item => item.UpdatedAt, DateTimeOffset.UtcNow), cancellation.Token);
             logger.LogInformation("PDF job completed. JobId={JobId} Pages={Pages} Concepts={Concepts}",
                 job.Id, result.Source.PageCount, result.Concepts.Count);
+        }
+        catch (PdfSelectionRequiredException exception)
+        {
+            await database.DocumentJobs.Where(item => item.Id == job.Id && item.Status == "running")
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.Status, "awaiting_selection")
+                    .SetProperty(item => item.Error, exception.Message).SetProperty(item => item.UpdatedAt, DateTimeOffset.UtcNow));
         }
         catch (DocumentReviewRequiredException)
         {

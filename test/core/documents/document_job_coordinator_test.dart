@@ -14,6 +14,7 @@ import 'package:review_platform/repositories/folder_repository.dart';
 import 'package:review_platform/repositories/source_repository.dart';
 
 import '../../support/fake_pdf_jobs.dart';
+import '../../support/fake_pdf_extraction.dart';
 import '../../support/fake_sync.dart';
 
 void main() {
@@ -26,6 +27,57 @@ void main() {
   late DocumentJobCoordinator coordinator;
   final savedFolders = <String>[];
   final errors = <String>[];
+  test('선택 대기 업로드는 앱 재시작·오프라인 조회로 실패 처리하지 않고 시작을 따로 전달한다', () async {
+    coordinator.dispose();
+    final extractionApi = FakePdfExtractionApi();
+    coordinator = DocumentJobCoordinator(
+      extractionApi,
+      jobs,
+      DriftSourceRepository(database),
+      MemorySyncCredentialsStore(
+        configuration: const SyncConfiguration(
+          serverUrl: 'http://server:5080',
+          accessToken: 'token',
+        ),
+      ),
+      (_) {},
+      onError: (job) => errors.add(job.error!),
+    );
+    final id = await coordinator.upload(
+      folderId,
+      PickedPdfDocument(
+        fileName: '강의.pdf',
+        bytes: Uint8List.fromList([37, 80, 68, 70, 45]),
+      ),
+      prepareOnly: true,
+    );
+    await coordinator.poll();
+    expect(
+      DocumentJobRepository.job((await jobs.get(id))!).isAwaitingSelection,
+      true,
+    );
+    expect(extractionApi.starts, 0);
+    expect(extractionApi.results, 0);
+    coordinator.dispose();
+    await coordinator.poll();
+    coordinator = DocumentJobCoordinator(
+      extractionApi,
+      jobs,
+      sources,
+      credentials,
+      savedFolders.add,
+      onError: (job) => errors.add(job.error!),
+    );
+    extractionApi.offline = true;
+    await coordinator.poll();
+    expect(errors, isEmpty);
+    expect(DocumentJobRepository.job((await jobs.get(id))!).error, isNull);
+    extractionApi.offline = false;
+    await coordinator.startExtraction(id, {'mode': 'ocr', 'revision': 0});
+    await coordinator.poll();
+    expect(extractionApi.starts, 1);
+    expect(DocumentJobRepository.job((await jobs.get(id))!).status, 'queued');
+  });
   setUp(() async {
     database = AppDatabase(NativeDatabase.memory());
     folderId = await DriftFolderRepository(database).createFolder(name: '자료');

@@ -16,6 +16,85 @@ void main() {
     serverUrl: 'http://server:5080/',
     accessToken: 'token',
   );
+  test('깨진 개요·사전 점검 응답은 화면 예외 대신 공통 오류로 전달한다', () async {
+    final api = HttpRemoteDocumentApi(
+      MockClient((_) async => http.Response('{}', 200)),
+    );
+    await expectLater(
+      api.extractionOverview(configuration, 'job'),
+      throwsA(isA<NetworkFailure>()),
+    );
+    await expectLater(
+      api.preflight(configuration, 'job', {'mode': 'direct'}),
+      throwsA(isA<NetworkFailure>()),
+    );
+  });
+  test('업로드는 추출 방식 선택 대기로 등록하고 이후 명시적 시작만 전송한다', () async {
+    var starts = 0;
+    final api = HttpRemoteDocumentApi(
+      MockClient((request) async {
+        if (request.url.path.endsWith('/limits')) {
+          return http.Response('{"supportsExtractionSelection":true}', 200);
+        }
+        if (request.url.path.endsWith('/extraction/start')) {
+          starts++;
+          final selection = jsonDecode(request.body) as Map;
+          expect(selection['mode'], 'direct');
+          expect(selection['splitAfterPages'], [2]);
+          return http.Response(
+            jsonEncode(pdfJob('job', status: 'queued').data),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        expect(request.url.queryParameters['prepareOnly'], 'true');
+        expect(request.headers['x-sync-token'], 'token');
+        return http.Response(
+          jsonEncode(pdfJob('job', status: 'awaiting_selection').data),
+          202,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    final uploaded = await api.prepareJob(
+      configuration,
+      'job',
+      PickedPdfDocument.stream(
+        fileName: '강의.pdf',
+        length: 5,
+        openRead: () => Stream.value([37, 80, 68, 70, 45]),
+      ),
+    );
+    expect(uploaded.isAwaitingSelection, true);
+    expect(starts, 0);
+    await api.startExtraction(configuration, 'job', {
+      'mode': 'direct',
+      'splitAfterPages': [2],
+      'revision': 1,
+    });
+    expect(starts, 1);
+  });
+  test('구 서버에는 업로드하지 않아 자동 OCR 시작을 방지한다', () async {
+    final api = HttpRemoteDocumentApi(
+      MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path.endsWith('/limits'), true);
+        return http.Response('{"maximumFileSize":209715200}', 200);
+      }),
+    );
+    await expectLater(
+      api.prepareJob(
+        configuration,
+        'job',
+        PickedPdfDocument.stream(
+          fileName: '강의.pdf',
+          length: 5,
+          openRead: () => Stream.value([37, 80, 68, 70, 45]),
+        ),
+      ),
+      throwsA(isA<ValidationFailure>()),
+    );
+  });
   test('작업 삭제는 토큰을 전달하고 204·이미 삭제된 404를 처리한다', () async {
     for (final status in [204, 404]) {
       final api = HttpRemoteDocumentApi(

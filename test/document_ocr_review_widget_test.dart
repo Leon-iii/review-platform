@@ -4,6 +4,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/app/app.dart';
@@ -392,9 +393,7 @@ void main() {
     expect(scroll.offset, closeTo(offset, 0.01));
     expect(
       tester
-          .widget<SelectableText>(
-            find.byKey(const Key('ocr-archive-original-text')),
-          )
+          .widget<StudyText>(find.byKey(const Key('ocr-archive-original-text')))
           .data,
       '갱신한 OCR 원문',
     );
@@ -411,9 +410,7 @@ void main() {
     await tap(tester, find.text('OCR 원문'));
     expect(
       tester
-          .widget<SelectableText>(
-            find.byKey(const Key('ocr-archive-original-text')),
-          )
+          .widget<StudyText>(find.byKey(const Key('ocr-archive-original-text')))
           .data,
       '갱신한 OCR 원문',
     );
@@ -453,7 +450,7 @@ void main() {
       );
       expect(
         tester
-            .widget<SelectableText>(
+            .widget<StudyText>(
               find.byKey(const Key('ocr-archive-original-text')),
             )
             .data,
@@ -502,9 +499,7 @@ void main() {
     await open(tester, archive: true);
     expect(
       tester
-          .widget<SelectableText>(
-            find.byKey(const Key('ocr-archive-original-text')),
-          )
+          .widget<StudyText>(find.byKey(const Key('ocr-archive-original-text')))
           .data,
       '원래 추출 텍스트',
     );
@@ -531,9 +526,7 @@ void main() {
     await tap(tester, find.byKey(const Key('acknowledge-app-error')));
     expect(
       tester
-          .widget<SelectableText>(
-            find.byKey(const Key('ocr-archive-original-text')),
-          )
+          .widget<StudyText>(find.byKey(const Key('ocr-archive-original-text')))
           .data,
       '원래 추출 텍스트',
     );

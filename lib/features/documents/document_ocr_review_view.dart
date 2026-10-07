@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/gestures.dart' show kDefaultMouseScrollToScaleFactor;
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:review_platform/shared/widgets/app_option_selector.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -734,9 +735,10 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                         key: Key('ocr-archive-original-kinds$keySuffix'),
                       ),
                       const SizedBox(height: 8),
-                      SelectableText(
+                      StudyText(
                         displayedPage.originalText,
                         key: Key('ocr-archive-original-text$keySuffix'),
+                        selectable: true,
                       ),
                     ],
                   ),
@@ -755,9 +757,10 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                           '영역 ${index + 1} · ${block.kind.label}${block.independent ? ' · 독립 영역' : ''}${block.visualRegion ? ' · 자동 감지 박스' : ''}${block.excluded ? ' · 추출에서 제외됨' : ''}',
                         ),
                         const SizedBox(height: 8),
-                        SelectableText(
+                        StudyText(
                           block.text,
                           key: Key('ocr-archive-final-text-$index$keySuffix'),
+                          selectable: true,
                           style: block.excluded
                               ? TextStyle(
                                   color: Theme.of(context)
@@ -800,7 +803,7 @@ class _DocumentOcrReviewViewState extends ConsumerState<DocumentOcrReviewView> {
                 content: SizedBox(
                   width: 700,
                   child: SingleChildScrollView(
-                    child: SelectableText(_page!.originalText),
+                    child: StudyText(_page!.originalText, selectable: true),
                   ),
                 ),
                 actions: [

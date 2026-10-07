@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:review_platform/domain/models/document_extraction.dart';
+
 import 'package:review_platform/core/documents/document_picker.dart';
 import 'package:review_platform/core/documents/remote_document_api.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
@@ -69,6 +71,7 @@ class DocumentJobCoordinator {
     String folderId,
     PickedPdfDocument document, {
     bool reviewBeforeConcepts = false,
+    bool prepareOnly = false,
   }) async {
     final configuration = await credentials.readConfiguration();
     if (configuration == null) {
@@ -96,12 +99,18 @@ class DocumentJobCoordinator {
         job: initial,
       );
       try {
-        final job = await api.uploadJob(
-          configuration,
-          id,
-          document,
-          reviewBeforeConcepts: reviewBeforeConcepts,
-        );
+        final job = prepareOnly && api is RemoteDocumentExtractionApi
+            ? await (api as RemoteDocumentExtractionApi).prepareJob(
+                configuration,
+                id,
+                document,
+              )
+            : await api.uploadJob(
+                configuration,
+                id,
+                document,
+                reviewBeforeConcepts: reviewBeforeConcepts,
+              );
         if (!_disposed) await jobs.update(job);
       } catch (error) {
         if (!_disposed) {
@@ -147,6 +156,7 @@ class DocumentJobCoordinator {
         }
         if (!(previous.isActive ||
             previous.isAwaitingReview ||
+            previous.isAwaitingSelection ||
             previous.status == 'uploading' ||
             previous.status == 'completed')) {
           // Real, persisted server failures still alert.
@@ -210,7 +220,7 @@ class DocumentJobCoordinator {
             // OCR is already complete. A background status read cannot make
             // the review draft fail; explicit review actions still show errors.
             // Keep polling quietly to notice confirmation on another device.
-            if (latest.isAwaitingReview) continue;
+            if (latest.isAwaitingReview || latest.isAwaitingSelection) continue;
             final failed = PdfImportJob({
               ...latest.data,
               'error': error is AppFailure
@@ -366,4 +376,69 @@ class DocumentJobCoordinator {
   }
 
   String _normalize(String url) => url.replaceFirst(RegExp(r'/+$'), '');
+
+  Future<SyncConfiguration> _extractionConfiguration(
+    String id, {
+    bool allowUntracked = false,
+  }) async {
+    final row = await jobs.get(id);
+    final config = await credentials.readConfiguration();
+    if (config == null ||
+        (row == null && !allowUntracked) ||
+        (row != null &&
+            _normalize(row.serverUrl) != _normalize(config.serverUrl))) {
+      throw const ValidationFailure('작업을 등록한 서버에 연결해 주세요.');
+    }
+    if (api is! RemoteDocumentExtractionApi) {
+      throw const ValidationFailure('서버를 업데이트하면 PDF 추출 방식 선택을 사용할 수 있어요.');
+    }
+    return config;
+  }
+
+  Future<PdfExtractionOverview> extractionOverview(String id) async =>
+      (api as RemoteDocumentExtractionApi).extractionOverview(
+        await _extractionConfiguration(id),
+        id,
+      );
+
+  Future<PdfExtractionPreflight> preflight(
+    String id,
+    Map<String, Object?> selection,
+  ) async => (api as RemoteDocumentExtractionApi).preflight(
+    await _extractionConfiguration(id),
+    id,
+    selection,
+  );
+
+  Future<Uint8List> extractionImage(String id, int page) async {
+    final config = await _extractionConfiguration(id, allowUntracked: true);
+    return (api as RemoteDocumentExtractionApi).extractionImage(
+      config,
+      id,
+      page,
+    );
+  }
+
+  Future<void> startExtraction(
+    String id,
+    Map<String, Object?> selection,
+  ) async {
+    if (!_changing.add(id)) throw const ValidationFailure('작업 요청을 처리 중이에요.');
+    _mutationVersions[id] = (_mutationVersions[id] ?? 0) + 1;
+    try {
+      final config = await _extractionConfiguration(id);
+      final job = await (api as RemoteDocumentExtractionApi).startExtraction(
+        config,
+        id,
+        selection,
+      );
+      if (!_disposed) {
+        await jobs.update(job);
+        _reportError(job);
+      }
+    } finally {
+      _changing.remove(id);
+    }
+    if (!_disposed) unawaited(poll());
+  }
 }

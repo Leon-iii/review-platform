@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:review_platform/domain/enums/concept_status.dart';
 import 'package:review_platform/features/library/question_editor/question_editor_view_model.dart';
 import 'package:review_platform/shared/widgets/app_error.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 
 class QuestionConceptPicker extends StatefulWidget {
   const QuestionConceptPicker({
@@ -122,7 +123,7 @@ class _QuestionConceptPickerState extends State<QuestionConceptPicker> {
                       return ListTile(
                         key: Key('select-primary-concept-${concept.id}'),
                         selected: widget.selectedConceptId == concept.id,
-                        title: Text(
+                        title: StudyText(
                           concept.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,

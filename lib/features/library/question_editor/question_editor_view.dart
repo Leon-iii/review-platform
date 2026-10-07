@@ -3,6 +3,7 @@ import 'package:review_platform/shared/widgets/question_type_options.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:review_platform/shared/widgets/app_option_selector.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/app/design_tokens.dart';
@@ -219,6 +220,8 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         decoration: const InputDecoration(
                           labelText: '문제',
                           alignLabelWithHint: true,
+                          helperText: studyNotationInputHint,
+                          helperMaxLines: 3,
                         ),
                         validator: (value) =>
                             value == null || value.trim().isEmpty
@@ -279,7 +282,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                                   ? null
                                   : _pickPrimaryConcept,
                               icon: const Icon(Icons.menu_book_rounded),
-                              label: Text(
+                              label: StudyText(
                                 _primaryConceptLabel ?? '자료에서 개념 선택',
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,

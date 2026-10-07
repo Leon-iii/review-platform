@@ -31,7 +31,7 @@ public static class DocumentVisionPrompt
         If the page is blank or contains no study content, extract no text.
         """;
 
-    public const string SystemPrompt = ExtractionInstructions + "\n" + """
+    public const string SystemPrompt = ExtractionInstructions + "\n" + StudyNotationPrompt.Instructions + "\n" + """
         Return only JSON: {"regions":[{"kind":"text","text":"...","visualRegion":false}]}.
         Use exactly one of the four kind values per region. For a blank page return {"regions":[]}.
         Do not add commentary or code fences, and do not duplicate the same content in multiple regions.
@@ -62,7 +62,7 @@ public static class DocumentVisionPrompt
         PAGE: {input.PageNumber}
 
         Extract all readable study content from this page image.
-        Keep formulas and symbols as plain text or Markdown-compatible notation.
+        Keep formulas and symbols in delimited LaTeX with exact superscript/subscript structure.
         """;
 
 }

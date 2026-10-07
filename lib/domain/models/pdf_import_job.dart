@@ -23,8 +23,12 @@ class PdfImportJob {
   bool get canRetry => status == 'failed' || status == 'cancelled';
   bool get isActive => status == 'queued' || status == 'running';
   bool get isAwaitingReview => status == 'awaiting_review';
+  bool get isAwaitingSelection => status == 'awaiting_selection';
+  bool get isDirect => data['extractionMode'] == 'direct';
   double? get progress => totalPages == 0
       ? null
+      : isDirect
+      ? (totalChunks > 0 ? (completedChunks / totalChunks).clamp(0, 1) : null)
       : stage == 'concepts' && totalChunks > 0
       ? (0.7 + 0.3 * completedChunks / totalChunks).clamp(0, 1)
       : (0.7 * completedPages / totalPages).clamp(0, 1);
@@ -33,8 +37,15 @@ class PdfImportJob {
     'uploadFailed' => '업로드 미완료',
     'queued' => '분석 대기 중',
     'awaiting_review' => 'OCR 검토 대기',
+    'awaiting_selection' => '추출 방식 선택 대기',
     'running' =>
-      stage == 'reading'
+      stage == 'rate_wait'
+          ? 'API 한도 회복 대기 중'
+          : stage == 'preflight'
+          ? '입력량 점검 중'
+          : stage == 'direct_concepts'
+          ? 'PDF 직접 개념 추출 중'
+          : stage == 'reading'
           ? 'PDF 구조 확인 중'
           : stage == 'concepts'
           ? '개념 추출 중'
@@ -46,7 +57,7 @@ class PdfImportJob {
   };
   String get progressLabel => isAwaitingReview
       ? '페이지 분석 완료 · 사용자 검토 대기'
-      : stage == 'concepts'
+      : isDirect || stage == 'concepts'
       ? '개념 추출 $completedChunks / $totalChunks 묶음'
       : '페이지 분석 $completedPages / $totalPages 페이지';
 }

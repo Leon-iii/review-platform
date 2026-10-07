@@ -75,7 +75,7 @@ public static class QuestionGenerationPrompt
         Every question must contain the exact supplied source reference. Use only the requested question types.
         For question prompts and choices, follow the Korean style rules above; for other fields,
         respond in the primary language used by SOURCE. Output only data matching the JSON schema.
-        """;
+        """ + "\n" + StudyNotationPrompt.Instructions;
 
     public static string BuildUserPrompt(QuestionGenerationInput input)
     {

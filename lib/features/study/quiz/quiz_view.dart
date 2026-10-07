@@ -1,4 +1,5 @@
 import 'package:review_platform/shared/widgets/app_dialog.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/app/design_tokens.dart';
@@ -128,7 +129,7 @@ class _QuizViewState extends ConsumerState<QuizView> {
                                       ),
                                 ),
                                 const SizedBox(height: 12),
-                                Text(
+                                StudyText(
                                   question.prompt,
                                   style: Theme.of(context)
                                       .textTheme
@@ -179,7 +180,7 @@ class _QuizViewState extends ConsumerState<QuizView> {
                                           RadioListTile<String>(
                                             key: Key('choice-${choice.id}'),
                                             value: choice.id,
-                                            title: Text(choice.text),
+                                            title: StudyText(choice.text),
                                             contentPadding: EdgeInsets.zero,
                                           ),
                                       ],
@@ -193,21 +194,21 @@ class _QuizViewState extends ConsumerState<QuizView> {
                                       const Text('자기 채점'),
                                       const SizedBox(height: 8),
                                       const Text('내 답안'),
-                                      Text(
+                                      StudyText(
                                         item.pendingEssayResponse!['textAnswer']
                                                 as String? ??
                                             '',
                                       ),
                                       const Divider(height: 24),
                                       const Text('모범 답안'),
-                                      Text(
+                                      StudyText(
                                         question.acceptableAnswers.join('\n\n'),
                                       ),
                                       if (question.explanation?.isNotEmpty ==
                                           true) ...[
                                         const Divider(height: 24),
                                         const Text('해설'),
-                                        Text(question.explanation!),
+                                        StudyText(question.explanation!),
                                       ],
                                     ],
                                   )

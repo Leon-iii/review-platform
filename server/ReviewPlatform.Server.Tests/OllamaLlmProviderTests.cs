@@ -339,12 +339,16 @@ public sealed class OllamaLlmProviderTests
             retryRoot.GetProperty("options").GetProperty("num_ctx").GetInt32());
         Assert.Equal(3500,
             retryRoot.GetProperty("options").GetProperty("num_predict").GetInt32());
-        Assert.Equal(ConceptExtractionPrompt.MaximumConceptsPerRequest,
+        Assert.Equal(ConceptExtractionPrompt.OllamaMaximumConceptsPerRequest,
             retryRoot.GetProperty("format")
                 .GetProperty("properties")
                 .GetProperty("concepts")
                 .GetProperty("maxItems")
                 .GetInt32());
+        Assert.Equal(ConceptExtractionPrompt.OllamaSystemPrompt,
+            retryRoot.GetProperty("messages")[0].GetProperty("content").GetString());
+        Assert.Contains("at most 8", retryRoot.GetProperty("messages")[0]
+            .GetProperty("content").GetString());
         Assert.Contains("[PAGE 1]", retryRoot.GetProperty("messages")[1]
             .GetProperty("content").GetString());
         Assert.DoesNotContain("[PAGE 3]", retryRoot.GetProperty("messages")[1]

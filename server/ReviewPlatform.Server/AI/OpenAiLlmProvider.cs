@@ -6,10 +6,11 @@ using ReviewPlatform.Server.Contracts;
 
 namespace ReviewPlatform.Server.AI;
 
-public sealed class OpenAiLlmProvider(
+public sealed partial class OpenAiLlmProvider(
     HttpClient httpClient,
     IOptions<LlmOptions> options,
-    ILogger<OpenAiLlmProvider>? logger = null) : ILLMProvider
+    ILogger<OpenAiLlmProvider>? logger = null,
+    HttpClient? directPdfClient = null) : ILLMProvider, IDirectPdfConceptProvider
 {
     private static readonly Uri ResponsesEndpoint = new(
         "https://api.openai.com/v1/responses");

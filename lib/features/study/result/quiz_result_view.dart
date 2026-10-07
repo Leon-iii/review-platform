@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/app/design_tokens.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -317,7 +318,7 @@ class _AnswerResultCard extends StatelessWidget {
               ? Colors.green
               : Theme.of(context).colorScheme.error,
         ),
-        title: Text(question.prompt),
+        title: StudyText(question.prompt),
         subtitle: Text(
           attempt.isUnknown
               ? '모름'
@@ -328,12 +329,12 @@ class _AnswerResultCard extends StatelessWidget {
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('내 답: $submittedAnswer'),
+          StudyText('내 답: $submittedAnswer'),
           const SizedBox(height: 6),
-          Text('정답: $correctAnswer'),
+          StudyText('정답: $correctAnswer'),
           if (question.explanation case final explanation?) ...[
             const SizedBox(height: 10),
-            Text('해설: $explanation'),
+            StudyText('해설: $explanation'),
           ],
           if (question.type == QuestionType.shortAnswer &&
               !isCorrect &&

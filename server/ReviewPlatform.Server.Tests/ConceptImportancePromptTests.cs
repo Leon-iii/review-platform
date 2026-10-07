@@ -29,11 +29,11 @@ public sealed class ConceptImportancePromptTests
     [Fact]
     public void LearningValueCeiling_IsSharedByExtractionAndRevision()
     {
-        foreach (var prompt in new[] { ConceptExtractionPrompt.SystemPrompt, ConceptRevisionPrompt.SystemPrompt })
+        foreach (var prompt in new[] { ConceptExtractionPrompt.SystemPrompt, DirectPdfConceptPrompt.SystemPrompt, ConceptRevisionPrompt.SystemPrompt })
         {
             Assert.Contains(ConceptImportancePrompt.Instructions, prompt);
             Assert.Contains("Learning value first", prompt);
-            Assert.Contains("veryLow or low, regardless of how many facts", prompt);
+            Assert.Contains("veryLow, regardless of how many facts", prompt);
             Assert.Contains("a ceiling, not a weighted score", prompt);
             Assert.Contains("not every fact enumerated", prompt);
             Assert.Contains("explicit evidence", prompt);
@@ -45,6 +45,27 @@ public sealed class ConceptImportancePromptTests
     }
 
     [Fact]
+    public void VeryLowAndLow_DistinguishRetentionValue_NotSmallRecallLoad()
+    {
+        foreach (var prompt in new[] { ConceptExtractionPrompt.SystemPrompt, DirectPdfConceptPrompt.SystemPrompt, ConceptRevisionPrompt.SystemPrompt })
+        {
+            Assert.Contains("if the learner forgets these specific facts", prompt);
+            Assert.Contains("If not, and there is no explicit requirement to retain the facts, use veryLow.", prompt);
+            Assert.Contains("Reserve low for supporting knowledge that is genuinely worth retaining", prompt);
+            Assert.Contains("Do not promote", prompt);
+            Assert.Contains("veryLow to low merely because", prompt);
+            Assert.Contains("general principle from dispensable details", prompt);
+            Assert.DoesNotContain("veryLow or low", prompt);
+            Assert.DoesNotContain("or modest necessary recall burden", prompt);
+            // Do not introduce concrete source examples that could contaminate generated concepts.
+            Assert.DoesNotContain("Swiss", prompt);
+            Assert.DoesNotContain("traffic light", prompt);
+        }
+        Assert.Contains("low requires supporting knowledge worth retaining", ConceptImportancePrompt.SchemaDescription);
+        Assert.Contains("never promotes veryLow to low", ConceptImportancePrompt.SchemaDescription);
+    }
+
+    [Fact]
     public void ImportanceSchemaDescriptions_UseLearningValueCeilingForAllConceptKinds()
     {
         var extraction = ConceptExtractionPrompt.BuildSchema(new ConceptExtractionInput(
@@ -53,7 +74,8 @@ public sealed class ConceptImportancePromptTests
             "source", "자료.pdf", 1, "요청",
             [new ConceptRevisionContext("concept", "제목", "내용", [1], "held")],
             ["concept"], ConceptRevisionPrompt.Version, true));
-        foreach (var (schema, collection) in new[] { (extraction, "concepts"), (revision, "revisions"), (revision, "additions") })
+        var direct = DirectPdfConceptPrompt.Schema(new DirectPdfInput("source", "자료.pdf", [], 1, 64000));
+        foreach (var (schema, collection) in new[] { (extraction, "concepts"), (direct, "concepts"), (revision, "revisions"), (revision, "additions") })
             Assert.Equal(ConceptImportancePrompt.SchemaDescription,
                 schema["properties"]![collection]!["items"]!["properties"]!["importance"]!["description"]!.GetValue<string>());
     }

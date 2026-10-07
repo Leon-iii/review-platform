@@ -6,7 +6,7 @@ using ReviewPlatform.Server.Contracts;
 
 namespace ReviewPlatform.Server.Services;
 
-public sealed class DocumentProcessingService
+public sealed partial class DocumentProcessingService
 {
     private const int MaximumPageCount = 300;
     private const int TargetChunkCharacters = 8_000;
