@@ -115,9 +115,11 @@ public sealed class OllamaLlmProviderTests
                     title = "가우스 법칙",
                     content = "폐곡면을 기준으로 전기선속과 전하의 관계를 설명한다.",
                     pageNumbers = new[] { 2, 3 },
-                    importance = "high"
+                    importance = "high", reason = "설명을 보완했습니다."
                 }
-            }
+            },
+            additions = Array.Empty<object>(), deletions = Array.Empty<object>(),
+            status = "ready", comment = "요청을 반영했습니다.", clarificationQuestion = ""
         });
         var handler = new RecordingHandler(request =>
             request.RequestUri!.AbsolutePath switch
@@ -152,7 +154,7 @@ public sealed class OllamaLlmProviderTests
             input,
             TestContext.Current.CancellationToken);
 
-        var revision = Assert.Single(revisions);
+        var revision = Assert.Single(revisions.Changes);
         Assert.Equal("held-1", revision.Id);
         Assert.Equal("high", revision.Importance);
         var chatRequest = Assert.Single(handler.Requests,
@@ -171,7 +173,7 @@ public sealed class OllamaLlmProviderTests
         Assert.DoesNotContain("Return JSON matching this schema", userPrompt);
         Assert.False(root.GetProperty("think").GetBoolean());
         Assert.Equal("10m", root.GetProperty("keep_alive").GetString());
-        Assert.Equal(8_192,
+        Assert.Equal(16_384,
             root.GetProperty("options").GetProperty("num_ctx").GetInt32());
         Assert.Equal(2_432,
             root.GetProperty("options").GetProperty("num_predict").GetInt32());
@@ -337,7 +339,7 @@ public sealed class OllamaLlmProviderTests
                 {
                     message = new
                     {
-                        content = """{"questions":[],"concepts":[],"revisions":[],"text":"페이지 내용"}"""
+                        content = """{"questions":[],"concepts":[],"revisions":[],"additions":[],"deletions":[],"status":"noChanges","comment":"변경 불필요","clarificationQuestion":"","text":"페이지 내용"}"""
                     },
                     done = true
                 }));
@@ -363,6 +365,7 @@ public sealed class OllamaLlmProviderTests
     public async Task ReviseConcepts_ParsesAdditionsAndDeletionsWithGroups()
     {
         var output = JsonSerializer.Serialize(new {
+            status = "ready", comment = "교체 요청을 반영했습니다.", clarificationQuestion = "",
             revisions = Array.Empty<object>(),
             additions = new[] { new { title = "새 개념", content = "내용", pageNumbers = Array.Empty<int>(), importance = "high", groupId = "replace", reason = "교체" } },
             deletions = new[] { new { id = "c1", reason = "교체 요청", groupId = "replace" } }
@@ -373,9 +376,9 @@ public sealed class OllamaLlmProviderTests
         var changes = await CreateProvider(handler).ReviseConceptsAsync(new ConceptRevisionInput(
             "source", "자료", 0, "교체", [new ConceptRevisionContext("c1", "제목", "내용", [], "held")],
             ["c1"], ConceptRevisionPrompt.Version, true, true), TestContext.Current.CancellationToken);
-        Assert.Equal(["add", "delete"], changes.Select(item => item.Kind));
-        Assert.All(changes, item => Assert.Equal("replace", item.GroupId));
-        Assert.Equal("교체 요청", changes[1].Reason);
+        Assert.Equal(["add", "delete"], changes.Changes.Select(item => item.Kind));
+        Assert.All(changes.Changes, item => Assert.Equal("replace", item.GroupId));
+        Assert.Equal("교체 요청", changes.Changes[1].Reason);
     }
 
     private static OllamaLlmProvider CreateProvider(

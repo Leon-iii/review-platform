@@ -18,8 +18,10 @@ import 'package:review_platform/domain/models/study_source.dart';
 import 'package:review_platform/features/documents/document_import_view_model.dart';
 import 'package:review_platform/features/documents/concept_importance_dialog.dart';
 import 'package:review_platform/features/documents/document_job_panel.dart';
+import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
-import 'package:review_platform/shared/widgets/concept_badge.dart';
+import 'package:review_platform/shared/widgets/concept_badge_action.dart';
+import 'package:review_platform/shared/widgets/concept_source_badge.dart';
 import 'package:review_platform/shared/widgets/concept_status_badge.dart';
 import 'package:review_platform/shared/widgets/pdf_drop_zone.dart';
 import 'package:review_platform/shared/widgets/unsaved_changes_guard.dart';
@@ -438,207 +440,377 @@ class _ConceptReview extends ConsumerWidget {
     required Set<String> initialSelectedIds,
   }) async {
     var instruction = '';
+    var editorReview = review;
     final selectedIds = Set<String>.of(initialSelectedIds);
     var isSending = false;
     var allowAdditions = false;
     var allowDeletions = false;
     String? errorMessage;
-    final proposal = await showDialog<ConceptRevisionProposal>(
+    String? question;
+    String? aiComment;
+    var history = <ConceptRevisionClarification>[];
+    StudySourceWithConcepts? snapshot;
+    final answerController = TextEditingController();
+    final answerFocus = FocusNode();
+    final requestRoute = DialogRoute<ConceptRevisionProposal>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AppDialog(
-          title: const Text('개념 수정 요청'),
-          content: SizedBox(
-            width: 560,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextFormField(
-                    key: const Key('concept-revision-instruction-field'),
-                    enabled: !isSending,
-                    minLines: 4,
-                    maxLines: 10,
-                    maxLength: 4000,
-                    decoration: const InputDecoration(
-                      labelText: '요청사항',
-                      hintText: '개념을 어떻게 수정할지 입력해 주세요.',
-                      alignLabelWithHint: true,
+        builder: (context, setDialogState) => PopScope(
+          canPop: !isSending,
+          child: AppDialog(
+            title: const Text('개념 수정 요청'),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      key: const Key('concept-revision-instruction-field'),
+                      enabled:
+                          !isSending && question == null && history.isEmpty,
+                      minLines: 4,
+                      maxLines: 10,
+                      maxLength: 4000,
+                      decoration: const InputDecoration(
+                        labelText: '요청사항',
+                        hintText: '개념을 어떻게 수정할지 입력해 주세요.',
+                        alignLabelWithHint: true,
+                      ),
+                      onChanged: (value) => instruction = value,
                     ),
-                    onChanged: (value) => instruction = value,
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    key: const Key('allow-concept-additions'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('새 개념 추가 허용'),
-                    subtitle: const Text('추가만 요청할 때는 기존 개념을 선택하지 않아도 됩니다.'),
-                    value: allowAdditions,
-                    onChanged: isSending
-                        ? null
-                        : (value) =>
-                              setDialogState(() => allowAdditions = value),
-                  ),
-                  SwitchListTile(
-                    key: const Key('allow-concept-deletions'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('기존 개념 삭제 허용'),
-                    subtitle: const Text(
-                      '선택한 개념에 한해 삭제안을 제안합니다. 확인 전에는 삭제하지 않습니다.',
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      key: const Key('allow-concept-additions'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('새 개념 추가 허용'),
+                      subtitle: const Text('추가만 요청할 때는 기존 개념을 선택하지 않아도 됩니다.'),
+                      value: allowAdditions,
+                      onChanged:
+                          isSending || question != null || history.isNotEmpty
+                          ? null
+                          : (value) =>
+                                setDialogState(() => allowAdditions = value),
                     ),
-                    value: allowDeletions,
-                    onChanged: isSending
-                        ? null
-                        : (value) =>
-                              setDialogState(() => allowDeletions = value),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '수정·삭제할 개념 (${selectedIds.length}/${review.concepts.length})',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Wrap(
-                      spacing: 4,
-                      children: [
-                        TextButton(
-                          onPressed: isSending
-                              ? null
-                              : () => setDialogState(() {
-                                  selectedIds
-                                    ..clear()
-                                    ..addAll(
-                                      review.concepts.map(
-                                        (concept) => concept.id,
+                    SwitchListTile(
+                      key: const Key('allow-concept-deletions'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('기존 개념 삭제 허용'),
+                      subtitle: const Text(
+                        '선택한 개념에 한해 삭제안을 제안합니다. 확인 전에는 삭제하지 않습니다.',
+                      ),
+                      value: allowDeletions,
+                      onChanged:
+                          isSending || question != null || history.isNotEmpty
+                          ? null
+                          : (value) =>
+                                setDialogState(() => allowDeletions = value),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '수정·삭제할 개념 (${selectedIds.length}/${editorReview.concepts.length})',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Wrap(
+                        spacing: 4,
+                        children: [
+                          TextButton(
+                            onPressed:
+                                isSending ||
+                                    question != null ||
+                                    history.isNotEmpty
+                                ? null
+                                : () => setDialogState(() {
+                                    selectedIds
+                                      ..clear()
+                                      ..addAll(
+                                        editorReview.concepts.map(
+                                          (concept) => concept.id,
+                                        ),
+                                      );
+                                  }),
+                            child: const Text('전체 선택'),
+                          ),
+                          TextButton(
+                            onPressed:
+                                isSending ||
+                                    question != null ||
+                                    history.isNotEmpty ||
+                                    selectedIds.isEmpty
+                                ? null
+                                : () => setDialogState(selectedIds.clear),
+                            child: const Text('선택 해제'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: editorReview.concepts.length,
+                        itemBuilder: (context, index) {
+                          final concept = editorReview.concepts[index];
+                          return CheckboxListTile(
+                            key: ValueKey(
+                              'concept-revision-target-${concept.id}',
+                            ),
+                            dense: true,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: StudyText('${index + 1}. ${concept.title}'),
+                            subtitle: Text(
+                              '${concept.status.label}'
+                              ' · 중요도 ${concept.importance.label}'
+                              '${concept.hasPageSource ? ' · p.${formatPageNumbers(concept.pageNumbers)}' : ''}',
+                            ),
+                            value: selectedIds.contains(concept.id),
+                            onChanged:
+                                isSending ||
+                                    question != null ||
+                                    history.isNotEmpty
+                                ? null
+                                : (selected) => setDialogState(() {
+                                    if (selected == true) {
+                                      selectedIds.add(concept.id);
+                                    } else {
+                                      selectedIds.remove(concept.id);
+                                    }
+                                  }),
+                          );
+                        },
+                      ),
+                    ),
+                    if (estimateConceptRevisionOutput(
+                          editorReview.concepts,
+                          selectedIds,
+                          allowAdditions: allowAdditions,
+                        ) >
+                        64000) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        '수정할 내용이 많아 응답이 길어질 수 있어요. 범위를 줄이는 것을 권장하지만, 이 경고 기준에서 응답을 자르지는 않습니다.',
+                      ),
+                    ],
+                    if (question != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'AI 확인 질문',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      StudyText(aiComment ?? '', selectable: true),
+                      const SizedBox(height: 8),
+                      StudyText(question!, selectable: true),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('concept-revision-answer-field'),
+                        controller: answerController,
+                        focusNode: answerFocus,
+                        enabled: !isSending && history.length < 10,
+                        minLines: 2,
+                        maxLines: 8,
+                        maxLength: 4000,
+                        decoration: const InputDecoration(
+                          labelText: '확인 질문에 대한 답변',
+                          alignLabelWithHint: true,
+                        ),
+                      ),
+                      if (history.length >= 10)
+                        const Text(
+                          '확인 질문이 10회를 넘었어요. 답변 내용을 포함해 요청을 다시 작성해 주세요.',
+                        ),
+                      TextButton(
+                        key: const Key('restart-concept-revision-button'),
+                        onPressed: isSending
+                            ? null
+                            : () async {
+                                setDialogState(() => isSending = true);
+                                try {
+                                  final latest = await ref
+                                      .read(sourceRepositoryProvider)
+                                      .getSourceWithConcepts(
+                                        editorReview.source.id,
+                                      );
+                                  if (!dialogContext.mounted) return;
+                                  setDialogState(() {
+                                    editorReview = latest;
+                                    selectedIds.removeWhere(
+                                      (id) => !latest.concepts.any(
+                                        (item) => item.id == id,
                                       ),
                                     );
-                                }),
-                          child: const Text('전체 선택'),
-                        ),
-                        TextButton(
-                          onPressed: isSending || selectedIds.isEmpty
-                              ? null
-                              : () => setDialogState(selectedIds.clear),
-                          child: const Text('선택 해제'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 280),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.outlineVariant,
+                                    history = [];
+                                    snapshot = null;
+                                    question = null;
+                                    aiComment = null;
+                                    errorMessage = null;
+                                    answerController.clear();
+                                    isSending = false;
+                                  });
+                                } catch (error) {
+                                  if (!dialogContext.mounted) return;
+                                  setDialogState(() {
+                                    isSending = false;
+                                    errorMessage = '현재 개념을 다시 불러오지 못했어요.';
+                                  });
+                                  showAppError(
+                                    dialogContext,
+                                    error,
+                                    fallback: errorMessage!,
+                                  );
+                                }
+                              },
+                        child: const Text('요청 다시 작성'),
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: review.concepts.length,
-                      itemBuilder: (context, index) {
-                        final concept = review.concepts[index];
-                        return CheckboxListTile(
-                          key: ValueKey(
-                            'concept-revision-target-${concept.id}',
-                          ),
-                          dense: true,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          title: StudyText('${index + 1}. ${concept.title}'),
-                          subtitle: Text(
-                            '${concept.status.label}'
-                            ' · 중요도 ${concept.importance.label}'
-                            '${concept.hasPageSource ? ' · p.${formatPageNumbers(concept.pageNumbers)}' : ''}',
-                          ),
-                          value: selectedIds.contains(concept.id),
-                          onChanged: isSending
-                              ? null
-                              : (selected) => setDialogState(() {
-                                  if (selected == true) {
-                                    selectedIds.add(concept.id);
-                                  } else {
-                                    selectedIds.remove(concept.id);
-                                  }
-                                }),
-                        );
-                      },
-                    ),
-                  ),
-                  if (errorMessage != null) ...[
-                    const SizedBox(height: 8),
-                    AppErrorNotice(error: errorMessage!),
+                    ],
+                    if (errorMessage != null) ...[
+                      const SizedBox(height: 8),
+                      AppErrorNotice(error: errorMessage!),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSending ? null : () => Navigator.pop(dialogContext),
-              child: const Text('취소'),
-            ),
-            FilledButton.icon(
-              key: const Key('send-concept-revision-button'),
-              onPressed: isSending
-                  ? null
-                  : () async {
-                      if (instruction.trim().isEmpty) {
-                        setDialogState(
-                          () => errorMessage = '수정 요청사항을 입력해 주세요.',
-                        );
-                        return;
-                      }
-                      if (selectedIds.isEmpty && !allowAdditions) {
-                        setDialogState(
-                          () => errorMessage = '수정할 개념을 하나 이상 선택해 주세요.',
-                        );
-                        return;
-                      }
-                      setDialogState(() {
-                        isSending = true;
-                        errorMessage = null;
-                      });
-                      try {
-                        final generated = await ref
-                            .read(provider.notifier)
-                            .requestConceptRevision(
-                              instruction: instruction,
-                              targetConceptIds: Set<String>.of(selectedIds),
-                              allowAdditions: allowAdditions,
-                              allowDeletions: allowDeletions,
-                            );
-                        if (dialogContext.mounted) {
-                          Navigator.pop(dialogContext, generated);
+            actions: [
+              TextButton(
+                onPressed: isSending
+                    ? null
+                    : () => Navigator.pop(dialogContext),
+                child: const Text('취소'),
+              ),
+              FilledButton.icon(
+                key: const Key('send-concept-revision-button'),
+                onPressed: isSending || question != null && history.length >= 10
+                    ? null
+                    : () async {
+                        if (instruction.trim().isEmpty) {
+                          setDialogState(
+                            () => errorMessage = '수정 요청사항을 입력해 주세요.',
+                          );
+                          return;
                         }
-                      } catch (error) {
-                        if (!dialogContext.mounted) return;
+                        if (selectedIds.isEmpty && !allowAdditions) {
+                          setDialogState(
+                            () => errorMessage = '수정할 개념을 하나 이상 선택해 주세요.',
+                          );
+                          return;
+                        }
+                        if (question != null &&
+                            answerController.text.trim().isEmpty) {
+                          setDialogState(
+                            () => errorMessage = '확인 질문에 대한 답변을 입력해 주세요.',
+                          );
+                          return;
+                        }
+                        final submittedHistory = [
+                          ...history,
+                          if (question != null)
+                            ConceptRevisionClarification(
+                              question: question!,
+                              answer: answerController.text.trim(),
+                            ),
+                        ];
                         setDialogState(() {
-                          isSending = false;
-                          errorMessage = error is AppFailure
-                              ? error.message
-                              : '개념 수정 요청을 처리하지 못했어요.';
+                          isSending = true;
+                          errorMessage = null;
                         });
-                        showAppError(dialogContext, errorMessage!);
-                      }
-                    },
-              icon: isSending
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send_rounded),
-              label: Text(isSending ? '전송 중...' : '요청 전송'),
-            ),
-          ],
+                        try {
+                          final generated = await ref
+                              .read(provider.notifier)
+                              .requestConceptRevision(
+                                instruction: instruction,
+                                targetConceptIds: Set<String>.of(selectedIds),
+                                allowAdditions: allowAdditions,
+                                allowDeletions: allowDeletions,
+                                clarifications: submittedHistory,
+                                expectedSnapshot: snapshot,
+                              );
+                          if (dialogContext.mounted) {
+                            if (generated.status ==
+                                ConceptRevisionStatus.needsClarification) {
+                              setDialogState(() {
+                                isSending = false;
+                                snapshot = generated.original;
+                                history = submittedHistory;
+                                question = generated.clarificationQuestion;
+                                aiComment = generated.comment;
+                                answerController.clear();
+                              });
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (dialogContext.mounted &&
+                                    history.length < 10) {
+                                  answerFocus.requestFocus();
+                                }
+                              });
+                            } else {
+                              Navigator.pop(dialogContext, generated);
+                            }
+                          }
+                        } catch (error) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() {
+                            isSending = false;
+                            errorMessage = error is AppFailure
+                                ? error.message
+                                : '개념 수정 요청을 처리하지 못했어요.';
+                          });
+                          showAppError(dialogContext, errorMessage!);
+                        }
+                      },
+                icon: isSending
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+                label: Text(
+                  isSending
+                      ? '전송 중...'
+                      : question != null
+                      ? '답변 전송'
+                      : '요청 전송',
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+    final proposal = await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(requestRoute);
+    // A popped dialog remains mounted during its exit transition. Release input
+    // resources only after that transition, before opening the confirmation.
+    await requestRoute.completed;
+    answerController.dispose();
+    answerFocus.dispose();
     if (proposal == null || !context.mounted) return;
     if (proposal.changes.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('수정된 개념이 없어요.')));
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AppDialog(
+          title: const Text('AI 수정 요청 결과'),
+          scrollable: true,
+          content: StudyText(proposal.comment, selectable: true),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
       return;
     }
     final selection = await _confirmRevisions(context, proposal);
@@ -715,121 +887,117 @@ class _ConceptReview extends ConsumerWidget {
             width: 680,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 560),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    ConceptChangeKind.values
-                        .map(
-                          (kind) =>
-                              '${label(kind)} ${revisions.where((item) => item.kind == kind).length}개',
-                        )
-                        .join(' · '),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '적용할 변경을 선택해 주세요. (${selected.length}/${revisions.length})\n삭제 및 삭제가 포함된 연결 그룹은 기본 미선택입니다.',
-                  ),
-                  const SizedBox(height: 12),
-                  Flexible(
-                    child: ListView.separated(
-                      key: const Key('concept-changes-list'),
-                      shrinkWrap: true,
-                      itemCount: revisions.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final revision = revisions[index];
-                        final original = originals[revision.id];
-                        final originalNumber = proposal.original.concepts
-                            .indexWhere((concept) => concept.id == revision.id);
-                        return Card(
-                          margin: EdgeInsets.zero,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              CheckboxListTile(
-                                key: ValueKey('select-concept-change-$index'),
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                value: selected.contains(index),
-                                title: StudyText(
-                                  '${label(revision.kind)} · ${original?.title ?? revision.title}',
-                                ),
-                                subtitle: revision.groupId.isEmpty
-                                    ? null
-                                    : Text(
-                                        '연결된 변경: ${revision.groupId} · 그룹 전체가 함께 선택됩니다.',
-                                      ),
-                                onChanged: (value) => setDialogState(() {
-                                  for (var i = 0; i < revisions.length; i++) {
-                                    if (i == index ||
-                                        (revision.groupId.isNotEmpty &&
-                                            revisions[i].groupId ==
-                                                revision.groupId)) {
-                                      if (value == true) {
-                                        selected.add(i);
-                                      } else {
-                                        selected.remove(i);
-                                      }
-                                    }
-                                  }
-                                }),
-                              ),
-                              if (revision.kind == ConceptChangeKind.update &&
-                                  original != null)
-                                _ConceptRevisionPreview(
-                                  number: originalNumber + 1,
-                                  original: original,
-                                  revision: revision,
-                                )
-                              else
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    0,
-                                    16,
-                                    16,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      StudyText(
-                                        revision.kind ==
-                                                ConceptChangeKind.delete
-                                            ? original?.content ?? ''
-                                            : revision.content,
-                                        selectable: true,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      if (revision.kind ==
-                                          ConceptChangeKind.add) ...[
-                                        Text(
-                                          '중요도 ${revision.importance.label}',
-                                        ),
-                                        Text(
-                                          revision.pageNumbers.isEmpty
-                                              ? 'PDF 페이지 출처 없음'
-                                              : 'p.${formatPageNumbers(revision.pageNumbers)}',
-                                        ),
-                                      ],
-                                      if (revision.reason.isNotEmpty)
-                                        Text('이유: ${revision.reason}'),
-                                      if (revision.kind ==
-                                          ConceptChangeKind.delete)
-                                        const Text('기존 문제와 풀이 기록은 유지됩니다.'),
-                                    ],
-                                  ),
-                                ),
-                            ],
+              child: ListView.separated(
+                key: const Key('concept-changes-list'),
+                shrinkWrap: true,
+                itemCount: revisions.length + 1,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (context, position) {
+                  if (position == 0) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          ConceptChangeKind.values
+                              .map(
+                                (kind) =>
+                                    '${label(kind)} ${revisions.where((item) => item.kind == kind).length}개',
+                              )
+                              .join(' · '),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '적용할 변경을 선택해 주세요. (${selected.length}/${revisions.length})\n삭제 및 삭제가 포함된 연결 그룹은 기본 미선택입니다.',
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'AI 코멘트',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        StudyText(proposal.comment, selectable: true),
+                        const Divider(),
+                      ],
+                    );
+                  }
+                  final index = position - 1;
+                  final revision = revisions[index];
+                  final original = originals[revision.id];
+                  final originalNumber = proposal.original.concepts.indexWhere(
+                    (concept) => concept.id == revision.id,
+                  );
+                  return Card(
+                    margin: EdgeInsets.zero,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        CheckboxListTile(
+                          key: ValueKey('select-concept-change-$index'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: selected.contains(index),
+                          title: StudyText(
+                            '${label(revision.kind)} · ${original?.title ?? revision.title}',
                           ),
-                        );
-                      },
+                          subtitle: revision.groupId.isEmpty
+                              ? null
+                              : Text(
+                                  '연결된 변경: ${revision.groupId} · 그룹 전체가 함께 선택됩니다.',
+                                ),
+                          onChanged: (value) => setDialogState(() {
+                            for (var i = 0; i < revisions.length; i++) {
+                              if (i == index ||
+                                  (revision.groupId.isNotEmpty &&
+                                      revisions[i].groupId ==
+                                          revision.groupId)) {
+                                if (value == true) {
+                                  selected.add(i);
+                                } else {
+                                  selected.remove(i);
+                                }
+                              }
+                            }
+                          }),
+                        ),
+                        if (revision.kind == ConceptChangeKind.update &&
+                            original != null)
+                          _ConceptRevisionPreview(
+                            number: originalNumber + 1,
+                            original: original,
+                            revision: revision,
+                          )
+                        else
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                StudyText(
+                                  revision.kind == ConceptChangeKind.delete
+                                      ? original?.content ?? ''
+                                      : revision.content,
+                                  selectable: true,
+                                ),
+                                const SizedBox(height: 8),
+                                if (revision.kind == ConceptChangeKind.add) ...[
+                                  Text('중요도 ${revision.importance.label}'),
+                                  Text(
+                                    revision.pageNumbers.isEmpty
+                                        ? 'PDF 페이지 출처 없음'
+                                        : 'p.${formatPageNumbers(revision.pageNumbers)}',
+                                  ),
+                                ],
+                                if (revision.reason.isNotEmpty)
+                                  Text('이유: ${revision.reason}'),
+                                if (revision.kind == ConceptChangeKind.delete)
+                                  const Text('기존 문제와 풀이 기록은 유지됩니다.'),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
@@ -912,6 +1080,19 @@ class _ConceptRevisionPreview extends StatelessWidget {
           label: '중요도',
           before: original.importance.label,
           after: revision.importance.label,
+        ),
+      );
+    }
+    if (revision.reason.isNotEmpty) {
+      changes.add(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Divider(),
+            Text('변경 이유', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
+            StudyText(revision.reason, selectable: true),
+          ],
         ),
       );
     }
@@ -1193,7 +1374,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
     WidgetRef ref, {
     required bool compact,
   }) => [
-    _ConceptBadgeAction(
+    ConceptBadgeAction(
       key: ValueKey('concept-status-${concept.id}'),
       label: '${concept.title} ${concept.status.label}',
       tooltip: concept.status == ConceptStatus.approved
@@ -1209,7 +1390,7 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
             ),
       child: ConceptStatusBadge(status: concept.status, compact: compact),
     ),
-    _ConceptBadgeAction(
+    ConceptBadgeAction(
       key: ValueKey('concept-importance-${concept.id}'),
       label: '${concept.title} 중요도 ${concept.importance.label}',
       tooltip: '중요도 변경',
@@ -1220,13 +1401,11 @@ class _ConceptCardState extends ConsumerState<_ConceptCard> {
       ),
     ),
     if (concept.hasPageSource)
-      Tooltip(
-        message: 'p.${formatPageNumbers(concept.pageNumbers)}',
-        child: ConceptBadge(
-          key: ValueKey('concept-page-source-${concept.id}'),
-          label: 'p.${formatPageNumbers(concept.pageNumbers)}',
-          compact: compact,
-        ),
+      ConceptSourceBadge(
+        key: ValueKey('concept-page-source-${concept.id}'),
+        sourceId: concept.sourceId,
+        pages: concept.pageNumbers,
+        compact: compact,
       ),
   ];
 
@@ -1471,55 +1650,6 @@ class _ConceptFocusTargetState extends State<_ConceptFocusTarget> {
   @override
   Widget build(BuildContext context) =>
       SizedBox(key: _target, child: widget.child);
-}
-
-class _ConceptBadgeAction extends StatelessWidget {
-  const _ConceptBadgeAction({
-    required this.label,
-    required this.tooltip,
-    required this.onTap,
-    required this.child,
-    this.toggled,
-    super.key,
-  });
-  final String label;
-  final String tooltip;
-  final VoidCallback? onTap;
-  final Widget child;
-  final bool? toggled;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: label,
-    button: true,
-    enabled: onTap != null,
-    toggled: toggled,
-    // Descendant semantics are excluded to avoid duplicate chip/button nodes;
-    // expose the action here so screen readers can still activate the badge.
-    onTap: onTap,
-    excludeSemantics: true,
-    child: Tooltip(
-      message: tooltip,
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          // The visual Chip stays passive; this control owns taps and focus.
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: AppLayout.touchTarget,
-              minHeight: AppLayout.touchTarget,
-            ),
-            child: Center(
-              widthFactor: 1,
-              heightFactor: 1,
-              child: IgnorePointer(child: child),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 Future<void> _showConceptEditor(

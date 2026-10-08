@@ -23,7 +23,10 @@ public sealed partial class DocumentJobService
             checkpoint.ExtractionMode, checkpoint.ExtractionRevision, profile.Model, profile.Provider,
             direct is null ? 0 : processing.DirectOutputBudget(direct),
             processing.ConfiguredDirectTpm, checkpoint.SplitAfterPages,
-            checkpoint.Preflight?.Model == profile.Model && checkpoint.Preflight.Provider == profile.Provider ? checkpoint.Preflight : null);
+            checkpoint.Preflight?.Model == profile.Model && checkpoint.Preflight.Provider == profile.Provider &&
+                checkpoint.Preflight.BudgetPolicyVersion == DirectPdfBudgetPolicy.Version &&
+                checkpoint.Preflight.Parts.All(p => p.OutputSafetyThresholdTokens == processing.DirectOutputSafetyThreshold)
+                ? checkpoint.Preflight : null, processing.DirectOutputSafetyThreshold);
     }
     public async Task<RenderedDocumentPage> ExtractionImageAsync(string id, int page, CancellationToken token)
     {
@@ -73,7 +76,7 @@ public sealed partial class DocumentJobService
             checkpoint.DirectPromptVersion = DirectPdfConceptPrompt.Version;
             checkpoint.ExtractionRevision++;
             checkpoint.Preflight = new(profile.Model, profile.Provider, checkpoint.ExtractionRevision,
-                DocumentProcessingService.PreflightStatus(parts), parts);
+                DocumentProcessingService.PreflightStatus(parts), parts, BudgetPolicyVersion: DirectPdfBudgetPolicy.Version);
             // Store profile together with the check. Start rejects stale model settings.
             var changed = await database.DocumentJobs.Where(job => job.Id == id && job.CheckpointJson == record.CheckpointJson && job.Status == record.Status)
                 .ExecuteUpdateAsync(setters => setters.SetProperty(job => job.CheckpointJson, JsonSerializer.Serialize(checkpoint, Json))
@@ -97,7 +100,10 @@ public sealed partial class DocumentJobService
             if (selection.Mode == PdfExtractionModes.Direct)
             {
                 if (checkpoint.Preflight is null || checkpoint.Preflight.Status == "blocked" ||
-                    checkpoint.Preflight.Parts.Any(part => part.Status == "waiting" && part.InputTokens is null) ||
+                    checkpoint.Preflight.BudgetPolicyVersion != DirectPdfBudgetPolicy.Version ||
+                    checkpoint.Preflight.Parts.Any(part => part.OutputBudget is null ||
+                        part.OutputSafetyThresholdTokens != processing.DirectOutputSafetyThreshold ||
+                        part.Status == "waiting" && part.InputTokens is null) ||
                     !checkpoint.SplitAfterPages.SequenceEqual(selection.SplitAfterPages ?? []) ||
                     !SameProfile(JsonSerializer.Deserialize<LlmProfileDto>(record.ConceptProfileJson, Json)!, profile))
                     throw new DocumentImportException("직접 추출 사전 점검을 먼저 수행해 주세요. 모델 또는 분할 지점이 변경되면 다시 점검해야 합니다.");

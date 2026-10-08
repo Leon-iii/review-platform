@@ -17,7 +17,7 @@ abstract interface class RemoteDocumentApi {
     required String sourceId,
   });
 
-  Future<List<ConceptRevision>> reviseConcepts({
+  Future<ConceptRevisionResponse> reviseConcepts({
     required SyncConfiguration configuration,
     required StudySource source,
     required List<StudyConcept> concepts,
@@ -25,6 +25,7 @@ abstract interface class RemoteDocumentApi {
     required Set<String> targetConceptIds,
     bool allowAdditions = false,
     bool allowDeletions = false,
+    List<ConceptRevisionClarification> clarifications = const [],
   });
 }
 
@@ -75,6 +76,14 @@ abstract interface class RemoteDocumentExtractionApi {
   );
 }
 
+abstract interface class RemoteSourceSnapshotApi {
+  Future<Uint8List> sourceImage(
+    SyncConfiguration configuration,
+    String sourceId,
+    int page,
+  );
+}
+
 class _PdfUploadRequest extends http.BaseRequest {
   _PdfUploadRequest(Uri url, this.document) : super('POST', url) {
     contentLength = document.length;
@@ -92,7 +101,8 @@ class HttpRemoteDocumentApi
     implements
         RemoteDocumentApi,
         RemoteDocumentJobApi,
-        RemoteDocumentExtractionApi {
+        RemoteDocumentExtractionApi,
+        RemoteSourceSnapshotApi {
   HttpRemoteDocumentApi(this._client);
 
   final http.Client _client;
@@ -253,6 +263,28 @@ class HttpRemoteDocumentApi
   }
 
   @override
+  Future<Uint8List> sourceImage(
+    SyncConfiguration configuration,
+    String sourceId,
+    int page,
+  ) async {
+    final response = await _jobRequest(
+      configuration,
+      'GET',
+      'sources/${Uri.encodeComponent(sourceId)}/pages/$page/image',
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _decode(response);
+    }
+    if (!(response.headers['content-type'] ?? '').startsWith('image/') ||
+        response.bodyBytes.isEmpty ||
+        response.bodyBytes.length > 12 * 1024 * 1024) {
+      throw const NetworkFailure('PDF 원본 이미지 응답이 올바르지 않아요.');
+    }
+    return response.bodyBytes;
+  }
+
+  @override
   Future<PdfImportJob?> getJob(
     SyncConfiguration configuration,
     String id,
@@ -379,7 +411,7 @@ class HttpRemoteDocumentApi
   }
 
   @override
-  Future<List<ConceptRevision>> reviseConcepts({
+  Future<ConceptRevisionResponse> reviseConcepts({
     required SyncConfiguration configuration,
     required StudySource source,
     required List<StudyConcept> concepts,
@@ -387,6 +419,7 @@ class HttpRemoteDocumentApi
     required Set<String> targetConceptIds,
     bool allowAdditions = false,
     bool allowDeletions = false,
+    List<ConceptRevisionClarification> clarifications = const [],
   }) async {
     http.Response response;
     try {
@@ -401,7 +434,11 @@ class HttpRemoteDocumentApi
               'sourceId': source.id,
               'fileName': source.fileName,
               'pageCount': source.pageCount,
+              'contentHash': source.contentHash,
               'instruction': instruction,
+              'clarifications': [
+                for (final item in clarifications) item.toJson(),
+              ],
               'targetConceptIds': targetConceptIds.toList(growable: false),
               'allowAdditions': allowAdditions,
               'allowDeletions': allowDeletions,
@@ -431,15 +468,20 @@ class HttpRemoteDocumentApi
       invalidSuccessMessage: '개념 수정 응답 형식이 올바르지 않아요.',
     );
     try {
-      return [
+      final status = ConceptRevisionStatus.values.byName(
+        body['status']! as String,
+      );
+      final comment = (body['comment']! as String).trim();
+      final question = (body['clarificationQuestion']! as String).trim();
+      final changes = <ConceptRevision>[
         for (final raw in body['revisions']! as List)
           _revision(Map<String, Object?>.from(raw as Map)),
-        for (final (index, raw) in ((body['additions'] as List?) ?? []).indexed)
+        for (final (index, raw) in (body['additions']! as List).indexed)
           _revision({
             ...Map<String, Object?>.from(raw as Map),
             'id': 'addition-$index',
           }, kind: ConceptChangeKind.add),
-        for (final raw in (body['deletions'] as List?) ?? [])
+        for (final raw in body['deletions']! as List)
           _revision({
             ...Map<String, Object?>.from(raw as Map),
             'title': '',
@@ -448,6 +490,23 @@ class HttpRemoteDocumentApi
             'importance': 'medium',
           }, kind: ConceptChangeKind.delete),
       ];
+      if (comment.isEmpty ||
+          comment.length > 4000 ||
+          question.length > 2000 ||
+          (status == ConceptRevisionStatus.needsClarification) !=
+              question.isNotEmpty ||
+          (status == ConceptRevisionStatus.ready) != changes.isNotEmpty ||
+          changes.any(
+            (item) => item.reason.trim().isEmpty || item.reason.length > 1000,
+          )) {
+        throw const FormatException('Invalid revision feedback');
+      }
+      return ConceptRevisionResponse(
+        status: status,
+        comment: comment,
+        clarificationQuestion: question,
+        changes: List.unmodifiable(changes),
+      );
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
         NetworkFailure('개념 수정 응답 형식이 올바르지 않아요.', cause: error),

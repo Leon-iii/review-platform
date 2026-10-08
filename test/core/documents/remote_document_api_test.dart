@@ -16,6 +16,50 @@ void main() {
     accessToken: 'private-token',
   );
 
+  test('자료 이미지 전용 경로로 인증 요청하고 이미지가 아닌 응답을 차단한다', () async {
+    final api = HttpRemoteDocumentApi(
+      MockClient((request) async {
+        expect(
+          request.url.path,
+          '/api/documents/sources/source/pages/47/image',
+        );
+        expect(request.headers['x-sync-token'], 'private-token');
+        return http.Response.bytes(
+          [1, 2, 3],
+          200,
+          headers: {'content-type': 'image/jpeg'},
+        );
+      }),
+    );
+    expect(await api.sourceImage(configuration, 'source', 47), [1, 2, 3]);
+    final invalid = HttpRemoteDocumentApi(
+      MockClient(
+        (_) async => http.Response(
+          '{}',
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    await expectLater(
+      invalid.sourceImage(configuration, 'source', 47),
+      throwsA(isA<NetworkFailure>()),
+    );
+    final missing = HttpRemoteDocumentApi(
+      MockClient(
+        (_) async => http.Response(
+          jsonEncode({'error': '원본 PDF가 없습니다.'}),
+          400,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    await expectLater(
+      missing.sourceImage(configuration, 'source', 47),
+      throwsA(predicate((error) => error.toString().contains('원본 PDF가 없습니다.'))),
+    );
+  });
+
   test('추가·삭제 권한을 보내고 세 변경 목록과 연결 그룹을 해석한다', () async {
     final api = HttpRemoteDocumentApi(
       MockClient((request) async {
@@ -25,6 +69,9 @@ void main() {
         expect(body['targetConceptIds'], isEmpty);
         return http.Response(
           jsonEncode({
+            'status': 'ready',
+            'comment': '교체 요청을 반영했습니다.',
+            'clarificationQuestion': '',
             'revisions': [],
             'additions': [
               {
@@ -62,16 +109,151 @@ void main() {
       allowAdditions: true,
       allowDeletions: true,
     );
-    expect(changes.map((item) => item.kind), [
+    expect(changes.changes.map((item) => item.kind), [
       ConceptChangeKind.add,
       ConceptChangeKind.delete,
     ]);
-    expect(changes.every((item) => item.groupId == 'replace'), isTrue);
-    expect(changes.first.importance, ConceptImportance.veryHigh);
-    expect(changes.first.pageNumbers, isEmpty);
-    expect(changes.last.id, 'old');
-    expect(changes.last.reason, '교체 요청');
+    expect(changes.changes.every((item) => item.groupId == 'replace'), isTrue);
+    expect(changes.changes.first.importance, ConceptImportance.veryHigh);
+    expect(changes.changes.first.pageNumbers, isEmpty);
+    expect(changes.changes.last.id, 'old');
+    expect(changes.changes.last.reason, '교체 요청');
   });
+
+  test('확인 질문 응답을 해석하고 원본 해시·질문 답변 이력을 다음 요청에 보낸다', () async {
+    final source = StudySource(
+      id: 'source',
+      folderId: 'folder',
+      fileName: '자료.pdf',
+      contentHash: 'original-hash',
+      pageCount: 12,
+      extractionMethod: 'directPdf',
+      importedAt: DateTime.utc(2026),
+    );
+    final api = HttpRemoteDocumentApi(
+      MockClient((request) async {
+        final body = jsonDecode(request.body) as Map;
+        expect(body['contentHash'], source.contentHash);
+        expect(body['instruction'], '관계를 보완해 줘.');
+        expect(body['clarifications'], [
+          {'question': '어느 관계인가요?', 'answer': '두 계층 사이의 관계'},
+        ]);
+        return http.Response(
+          jsonEncode({
+            'status': 'needsClarification',
+            'comment': '원본에서 두 해석이 가능해 확인이 필요합니다.',
+            'clarificationQuestion': '어느 계층을 기준으로 설명할까요?',
+            'revisions': [],
+            'additions': [],
+            'deletions': [],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    final response = await api.reviseConcepts(
+      configuration: configuration,
+      source: source,
+      concepts: const [],
+      instruction: '관계를 보완해 줘.',
+      targetConceptIds: const {},
+      allowAdditions: true,
+      clarifications: const [
+        ConceptRevisionClarification(
+          question: '어느 관계인가요?',
+          answer: '두 계층 사이의 관계',
+        ),
+      ],
+    );
+    expect(response.status, ConceptRevisionStatus.needsClarification);
+    expect(response.comment, contains('확인이 필요'));
+    expect(response.clarificationQuestion, contains('어느 계층'));
+    expect(response.changes, isEmpty);
+  });
+
+  final invalidFeedback = <Map<String, Object?>>[
+    {'status': 'unknown'},
+    {'comment': ''},
+    {'comment': List.filled(4001, '가').join()},
+    {'status': 'ready'},
+    {'status': 'needsClarification'},
+    {'clarificationQuestion': '질문이지만 noChanges 상태'},
+    {'revisions': null},
+    {
+      'status': 'needsClarification',
+      'clarificationQuestion': '질문',
+      'revisions': [
+        {
+          'id': 'id',
+          'title': '제목',
+          'content': '내용',
+          'pageNumbers': [],
+          'importance': 'medium',
+          'reason': '이유',
+        },
+      ],
+    },
+    {
+      'status': 'ready',
+      'revisions': [
+        {
+          'id': 'id',
+          'title': '제목',
+          'content': '내용',
+          'pageNumbers': [],
+          'importance': 'medium',
+          'reason': '',
+        },
+      ],
+    },
+  ];
+  for (final (index, invalid) in invalidFeedback.indexed) {
+    test('일관되지 않거나 불완전한 개념 수정 피드백을 차단한다 ($index)', () async {
+      final api = HttpRemoteDocumentApi(
+        MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'status': 'noChanges',
+              'comment': '변경 없음',
+              'clarificationQuestion': '',
+              'revisions': [],
+              'additions': [],
+              'deletions': [],
+              ...invalid,
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      );
+      await expectLater(
+        api.reviseConcepts(
+          configuration: configuration,
+          source: StudySource(
+            id: 'source',
+            folderId: 'folder',
+            fileName: '노트',
+            contentHash: '',
+            pageCount: 0,
+            extractionMethod: 'manual',
+            importedAt: DateTime.utc(2026),
+          ),
+          concepts: const [],
+          instruction: '추가',
+          targetConceptIds: const {},
+          allowAdditions: true,
+        ),
+        throwsA(
+          isA<NetworkFailure>().having(
+            (e) => e.message,
+            'message',
+            '개념 수정 응답 형식이 올바르지 않아요.',
+          ),
+        ),
+      );
+    });
+  }
 
   for (final importance in ConceptImportance.values) {
     test('수동 자료 AI 수정의 중요도 ${importance.label} 송수신과 빈 출처를 보존한다', () async {
@@ -89,8 +271,14 @@ void main() {
                   'content': '직접 쓴 내용 수정',
                   'pageNumbers': [],
                   'importance': importance.name,
+                  'reason': '설명을 보완했습니다.',
                 },
               ],
+              'status': 'ready',
+              'comment': '요청을 반영했습니다.',
+              'clarificationQuestion': '',
+              'additions': [],
+              'deletions': [],
             }),
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
@@ -132,9 +320,9 @@ void main() {
         (payload['concepts'] as List).single['importance'],
         importance.name,
       );
-      expect(result.single.pageNumbers, isEmpty);
-      expect(result.single.importance, importance);
-      expect(result.single.content, '직접 쓴 내용 수정');
+      expect(result.changes.single.pageNumbers, isEmpty);
+      expect(result.changes.single.importance, importance);
+      expect(result.changes.single.content, '직접 쓴 내용 수정');
     });
 
     test('PDF 작업 결과의 중요도 ${importance.label}와 Source를 파싱한다', () async {
@@ -231,8 +419,14 @@ void main() {
                 'content': '폐곡면을 기준으로 전기선속과 전하의 관계를 설명한다.',
                 'pageNumbers': [3, 4],
                 'importance': 'high',
+                'reason': '설명을 보완했습니다.',
               },
             ],
+            'status': 'ready',
+            'comment': '요청을 반영했습니다.',
+            'clarificationQuestion': '',
+            'additions': [],
+            'deletions': [],
           }),
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
@@ -289,8 +483,8 @@ void main() {
     expect(body['instruction'], '설명을 더 자연스럽게 고쳐 줘.');
     expect(body['concepts'], hasLength(2));
     expect((body['concepts'] as List).last['status'], 'approved');
-    expect(revisions.single.title, '수정된 가우스 법칙');
-    expect(revisions.single.pageNumbers, [3, 4]);
-    expect(revisions.single.importance, ConceptImportance.high);
+    expect(revisions.changes.single.title, '수정된 가우스 법칙');
+    expect(revisions.changes.single.pageNumbers, [3, 4]);
+    expect(revisions.changes.single.importance, ConceptImportance.high);
   });
 }

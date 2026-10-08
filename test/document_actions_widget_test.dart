@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/study_text.dart';
+import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,6 +35,7 @@ import 'package:review_platform/repositories/source_repository.dart';
 import 'support/fake_ai.dart';
 import 'support/fake_documents.dart';
 import 'support/fake_sync.dart';
+import 'support/fake_source_snapshots.dart';
 
 void main() {
   late AppDatabase database;
@@ -130,6 +132,341 @@ void main() {
       tester.renderObject<RenderParagraph>(
         find.descendant(of: text, matching: find.byType(RichText)),
       );
+
+  Future<void> openRevision(WidgetTester tester) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('home-view'))),
+    );
+    container
+        .read(routerProvider)
+        .go(
+          AppRoutes.documentsForSource(saved.source.folderId, saved.source.id),
+        );
+    await tester.pumpAndSettle();
+    await tapVisible(
+      tester,
+      find.byKey(Key('request-concept-revision-${saved.concepts.first.id}')),
+    );
+  }
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'AI 확인 질문→답변→검토: 입력·선택 유지 및 좁은 화면 글자 확대 ($brightness)',
+      (tester) async {
+        tester.platformDispatcher.platformBrightnessTestValue = brightness;
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.platformDispatcher.clearAllTestValues);
+        await tester.binding.setSurfaceSize(const Size(360, 800));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        const comment = '원본의 표현과 요청 범위가 다를 수 있어 수정하기 전에 확인이 필요합니다.';
+        const question = '첫 번째 개념의 본문 마지막 문장만 교정할까요?';
+        final first = saved.concepts.first;
+        documentApi.responses.addAll([
+          const ConceptRevisionResponse(
+            status: ConceptRevisionStatus.needsClarification,
+            comment: comment,
+            clarificationQuestion: question,
+            changes: [],
+          ),
+          ConceptRevisionResponse(
+            status: ConceptRevisionStatus.ready,
+            comment: '답변에 따라 마지막 문장만 교정했습니다.',
+            clarificationQuestion: '',
+            changes: [
+              ConceptRevision(
+                id: first.id,
+                title: first.title,
+                content: '${first.content} 교정',
+                pageNumbers: first.pageNumbers,
+                importance: first.importance,
+                reason: '원본과 대조하여 요청한 부분만 교정했습니다.',
+              ),
+            ],
+          ),
+        ]);
+        await openRevision(tester);
+        await tester.enterText(
+          find.byKey(const Key('concept-revision-instruction-field')),
+          '모호한 부분을 교정해 줘.',
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('send-concept-revision-button')),
+        );
+        expect(find.text('AI 수정안 검토'), findsNothing);
+        expect(documentApi.requestCount, 1);
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const Key('concept-revision-instruction-field')),
+              )
+              .enabled,
+          isFalse,
+        );
+        final selection = tester.widget<CheckboxListTile>(
+          find.byKey(Key('concept-revision-target-${first.id}')),
+        );
+        expect(selection.value, isTrue);
+        expect(selection.onChanged, isNull);
+        expect(
+          (await sources.getSourceWithConcepts(saved.source.id))
+              .concepts
+              .first
+              .content,
+          first.content,
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('send-concept-revision-button')),
+        );
+        expect(
+          documentApi.requestCount,
+          1,
+        ); // Empty answer must not call the API.
+        tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+        addTearDown(tester.view.resetViewInsets);
+        await tester.enterText(
+          find.byKey(const Key('concept-revision-answer-field')),
+          '네, 마지막 문장만 교정해 줘.',
+        );
+        await tapVisible(
+          tester,
+          find.byKey(const Key('send-concept-revision-button')),
+        );
+        tester.view.resetViewInsets();
+        await tester.pumpAndSettle();
+        expect(documentApi.requestCount, 2);
+        expect(documentApi.lastInstruction, '모호한 부분을 교정해 줘.');
+        expect(documentApi.histories.last.single.question, question);
+        expect(documentApi.histories.last.single.answer, '네, 마지막 문장만 교정해 줘.');
+        expect(find.text('AI 코멘트'), findsOneWidget);
+        await tapVisible(
+          tester,
+          find.byKey(const Key('apply-concept-revisions-button')),
+        );
+        expect(
+          (await sources.getSourceWithConcepts(saved.source.id))
+              .concepts
+              .first
+              .content,
+          '${first.content} 교정',
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  testWidgets('AI 확인 답변 중 개념 변경은 재호출 전에 차단하고 다시 작성으로 복구한다', (tester) async {
+    documentApi.responses.add(
+      const ConceptRevisionResponse(
+        status: ConceptRevisionStatus.needsClarification,
+        comment: '범위를 확인해 주세요.',
+        clarificationQuestion: '어느 부분인가요?',
+        changes: [],
+      ),
+    );
+    await openRevision(tester);
+    await tester.enterText(
+      find.byKey(const Key('concept-revision-instruction-field')),
+      '내용 교정',
+    );
+    await tapVisible(
+      tester,
+      find.byKey(const Key('send-concept-revision-button')),
+    );
+    final first = saved.concepts.first;
+    await sources.setConceptApproval(id: first.id, approved: true);
+    await tester.enterText(
+      find.byKey(const Key('concept-revision-answer-field')),
+      '전체 본문',
+    );
+    await tapVisible(
+      tester,
+      find.byKey(const Key('send-concept-revision-button')),
+    );
+    expect(documentApi.requestCount, 1);
+    expect(find.textContaining('확인 답변 중 개념이 변경됐어요.'), findsWidgets);
+    await tapVisible(tester, find.text('확인'));
+    await tapVisible(
+      tester,
+      find.byKey(const Key('restart-concept-revision-button')),
+    );
+    expect(
+      find.byKey(const Key('concept-revision-answer-field')),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const Key('concept-revision-instruction-field')),
+          )
+          .enabled,
+      isTrue,
+    );
+    await tapVisible(
+      tester,
+      find.byKey(const Key('send-concept-revision-button')),
+    );
+    expect(documentApi.requestCount, 2);
+    expect(documentApi.histories.last, isEmpty);
+    await tapVisible(
+      tester,
+      find.byKey(const Key('cancel-concept-revisions-button')),
+    );
+    expect(
+      (await sources.getSourceWithConcepts(saved.source.id))
+          .concepts
+          .first
+          .content,
+      first.content,
+    );
+  });
+
+  testWidgets('AI 수정 실패는 입력을 보존하고 재시도하며 전송 중 중복 제출·뒤로 가기를 막는다', (tester) async {
+    await openRevision(tester);
+    await tester.enterText(
+      find.byKey(const Key('concept-revision-instruction-field')),
+      '본문 교정',
+    );
+    documentApi.error = const NetworkFailure('원본 PDF를 찾지 못했어요.');
+    await tapVisible(
+      tester,
+      find.byKey(const Key('send-concept-revision-button')),
+    );
+    expect(find.textContaining('원본 PDF를 찾지 못했어요.'), findsWidgets);
+    expect(find.text('본문 교정'), findsOneWidget);
+    await tapVisible(tester, find.text('확인'));
+    documentApi.error = null;
+    documentApi.gate = Completer<void>();
+    await tester.tap(find.byKey(const Key('send-concept-revision-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const Key('send-concept-revision-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.text('개념 수정 요청'), findsOneWidget);
+    expect(documentApi.requestCount, 2);
+    documentApi.gate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('AI 수정안 검토'), findsOneWidget);
+    await tapVisible(
+      tester,
+      find.byKey(const Key('cancel-concept-revisions-button')),
+    );
+  });
+
+  testWidgets('변경 없는 응답도 AI 코멘트를 표시하고 데이터를 저장하지 않는다', (tester) async {
+    documentApi.responses.add(
+      const ConceptRevisionResponse(
+        status: ConceptRevisionStatus.noChanges,
+        comment: '첨부 원본에는 요청한 관계가 없어 변경하지 않았습니다.',
+        clarificationQuestion: '',
+        changes: [],
+      ),
+    );
+    await openRevision(tester);
+    await tester.enterText(
+      find.byKey(const Key('concept-revision-instruction-field')),
+      '관계 추가',
+    );
+    await tapVisible(
+      tester,
+      find.byKey(const Key('send-concept-revision-button')),
+    );
+    expect(find.text('AI 수정 요청 결과'), findsOneWidget);
+    expect(find.text('첨부 원본에는 요청한 관계가 없어 변경하지 않았습니다.'), findsOneWidget);
+    await tapVisible(tester, find.text('확인'));
+    expect(
+      (await sources.getSourceWithConcepts(saved.source.id))
+          .concepts
+          .first
+          .content,
+      saved.concepts.first.content,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('자료 출처를 눌러도 개념 펼침·검토 상태가 바뀌지 않는다', (tester) async {
+    final api = FakeSourceSnapshotsApi();
+    documentApi = api;
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('home-view'))),
+    );
+    container
+        .read(routerProvider)
+        .go(
+          AppRoutes.documentsForSource(saved.source.folderId, saved.source.id),
+        );
+    await tester.pumpAndSettle();
+    final concept = saved.concepts.first;
+    final details = find.byKey(Key('concept-details-${concept.id}'));
+    final height = tester.getSize(details).height;
+    await tapVisible(
+      tester,
+      find.byKey(Key('concept-page-source-${concept.id}')),
+    );
+    expect(find.text('p.1 · 출처 1/2'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('source-snapshot-close')));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(details).height, height);
+    expect(
+      (await sources.getSourceWithConcepts(saved.source.id))
+          .concepts
+          .first
+          .status,
+      concept.status,
+    );
+    expect(api.calls, [(saved.source.id, 1)]);
+  });
+
+  testWidgets('문제 생성 출처 팝업을 눌러도 학습 개념 선택이 바뀌지 않는다', (tester) async {
+    final api = FakeSourceSnapshotsApi();
+    documentApi = api;
+    await sources.setConceptApproval(
+      id: saved.concepts.first.id,
+      approved: true,
+    );
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('home-view'))),
+    );
+    container
+        .read(routerProvider)
+        .go(
+          AppRoutes.aiGenerateForSource(saved.source.folderId, saved.source.id),
+        );
+    await tester.pumpAndSettle();
+    expect(find.text('학습 개념 · 선택 1/1개'), findsOneWidget);
+    await tapVisible(
+      tester,
+      find.byKey(Key('ai-concept-page-source-${saved.concepts.first.id}')),
+    );
+    expect(find.text('p.1 · 출처 1/2'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('source-snapshot-close')));
+    await tester.pumpAndSettle();
+    expect(find.text('학습 개념 · 선택 1/1개'), findsOneWidget);
+    expect(api.calls.length, 1);
+  });
 
   testWidgets(
     '개념 접기·펼치기와 전체 접기도 본문 높이를 연속적으로 전환한다',
@@ -513,12 +850,9 @@ void main() {
         final card = find.byKey(Key('ai-concept-${first.id}'));
         final checkboxTile = find.descendant(
           of: card,
-          matching: find.byType(CheckboxListTile),
+          matching: find.byType(ListTile),
         );
-        expect(
-          tester.widget<CheckboxListTile>(checkboxTile).controlAffinity,
-          ListTileControlAffinity.leading,
-        );
+        expect(tester.widget<ListTile>(checkboxTile).leading, isA<Checkbox>());
         final checkbox = find.descendant(
           of: card,
           matching: find.byType(Checkbox),
@@ -674,7 +1008,7 @@ void main() {
       await tapVisible(tester, find.text('전체 선택'));
       final second = find.descendant(
         of: find.byKey(Key('ai-concept-${saved.concepts[1].id}')),
-        matching: find.byType(CheckboxListTile),
+        matching: find.byType(ListTile),
       );
       await tapVisible(tester, second);
       expect(find.text('학습 개념 · 선택 1/2개'), findsOneWidget);
@@ -946,7 +1280,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.byTooltip('p.1 - 2'), findsOneWidget);
+        expect(find.byTooltip('출처 슬라이드 보기 · p.1 - 2'), findsOneWidget);
       }
 
       expectPages();

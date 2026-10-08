@@ -13,7 +13,6 @@ import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
 import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
-import 'package:review_platform/domain/formatters/page_number_formatter.dart';
 import 'package:review_platform/domain/models/folder.dart';
 import 'package:review_platform/domain/models/ai_question_generation.dart';
 import 'package:review_platform/domain/models/study_source.dart';
@@ -22,6 +21,7 @@ import 'package:review_platform/features/ai_generation/ai_source_picker.dart';
 import 'package:review_platform/repositories/repository_providers.dart';
 import 'package:review_platform/shared/widgets/folder_picker.dart';
 import 'package:review_platform/shared/widgets/concept_badge.dart';
+import 'package:review_platform/shared/widgets/concept_source_badge.dart';
 import 'package:review_platform/shared/widgets/review_status_badge.dart';
 import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 
@@ -519,9 +519,17 @@ class _AiQuestionGenerationViewState
               final concept = concepts[index];
               return Card(
                 key: ValueKey('ai-concept-${concept.id}'),
-                child: CheckboxListTile(
-                  controlAffinity: ListTileControlAffinity.leading,
-                  value: _selectedConceptIds.contains(concept.id),
+                child: ListTile(
+                  leading: Checkbox(
+                    value: _selectedConceptIds.contains(concept.id),
+                    onChanged: (selected) => setState(() {
+                      if (selected == true) {
+                        _selectedConceptIds.add(concept.id);
+                      } else {
+                        _selectedConceptIds.remove(concept.id);
+                      }
+                    }),
+                  ),
                   title: LayoutBuilder(
                     builder: (context, constraints) => Row(
                       children: [
@@ -556,17 +564,13 @@ class _AiQuestionGenerationViewState
                               if (concept.hasPageSource) ...[
                                 const SizedBox(width: 4),
                                 Flexible(
-                                  child: Tooltip(
-                                    message:
-                                        'p.${formatPageNumbers(concept.pageNumbers)}',
-                                    child: ConceptBadge(
-                                      key: ValueKey(
-                                        'ai-concept-page-source-${concept.id}',
-                                      ),
-                                      label:
-                                          'p.${formatPageNumbers(concept.pageNumbers)}',
-                                      compact: true,
+                                  child: ConceptSourceBadge(
+                                    key: ValueKey(
+                                      'ai-concept-page-source-${concept.id}',
                                     ),
+                                    sourceId: concept.sourceId,
+                                    pages: concept.pageNumbers,
+                                    compact: true,
                                   ),
                                 ),
                               ],
@@ -576,8 +580,8 @@ class _AiQuestionGenerationViewState
                       ],
                     ),
                   ),
-                  onChanged: (selected) => setState(() {
-                    if (selected == true) {
+                  onTap: () => setState(() {
+                    if (!_selectedConceptIds.contains(concept.id)) {
                       _selectedConceptIds.add(concept.id);
                     } else {
                       _selectedConceptIds.remove(concept.id);

@@ -177,6 +177,8 @@ class DocumentImportController extends _$DocumentImportController {
     required Set<String> targetConceptIds,
     bool allowAdditions = false,
     bool allowDeletions = false,
+    List<ConceptRevisionClarification> clarifications = const [],
+    StudySourceWithConcepts? expectedSnapshot,
   }) async {
     final current = state.value;
     if (current == null) {
@@ -197,10 +199,41 @@ class DocumentImportController extends _$DocumentImportController {
     }
     // Read a database snapshot, not optimistic in-memory timestamps, for the
     // later compare-and-apply check while the provider is running.
-    final original = await ref
+    final latest = await ref
         .read(sourceRepositoryProvider)
         .getSourceWithConcepts(current.source.id);
-    final changes = await ref
+    final original = expectedSnapshot ?? latest;
+    if (expectedSnapshot != null &&
+        (original.source.id != latest.source.id ||
+            original.source.contentHash != latest.source.contentHash ||
+            original.concepts.length != latest.concepts.length ||
+            original.concepts.any(
+              (item) => !latest.concepts.any(
+                (other) =>
+                    item.id == other.id &&
+                    item.title == other.title &&
+                    item.content == other.content &&
+                    item.updatedAt == other.updatedAt &&
+                    item.status == other.status &&
+                    item.importance == other.importance &&
+                    item.pageNumbers.join(',') == other.pageNumbers.join(','),
+              ),
+            ))) {
+      throw const ValidationFailure('확인 답변 중 개념이 변경됐어요. 요청을 다시 작성해 주세요.');
+    }
+    if (original.concepts.any(
+      (item) => targetConceptIds.contains(item.id) && item.hasPageSource,
+    )) {
+      final job = await ref
+          .read(documentJobRepositoryProvider)
+          .get(original.source.id);
+      if (job != null &&
+          job.serverUrl.replaceFirst(RegExp(r'/+$'), '') !=
+              configuration.serverUrl.replaceFirst(RegExp(r'/+$'), '')) {
+        throw const ValidationFailure('자료를 업로드한 원본 PDF 서버에 연결해 주세요.');
+      }
+    }
+    final response = await ref
         .read(remoteDocumentApiProvider)
         .reviseConcepts(
           configuration: configuration,
@@ -210,10 +243,14 @@ class DocumentImportController extends _$DocumentImportController {
           targetConceptIds: targetConceptIds,
           allowAdditions: allowAdditions,
           allowDeletions: allowDeletions,
+          clarifications: clarifications,
         );
     return ConceptRevisionProposal(
       original: original,
-      changes: changes,
+      changes: response.changes,
+      status: response.status,
+      comment: response.comment,
+      clarificationQuestion: response.clarificationQuestion,
       targetConceptIds: Set.unmodifiable(targetConceptIds),
       allowAdditions: allowAdditions,
       allowDeletions: allowDeletions,
@@ -229,7 +266,8 @@ class DocumentImportController extends _$DocumentImportController {
     if (current == null) {
       throw const ValidationFailure('수정할 자료를 찾을 수 없어요.');
     }
-    if (current.source.id != proposal.original.source.id ||
+    if (proposal.status != ConceptRevisionStatus.ready ||
+        current.source.id != proposal.original.source.id ||
         revisions.any((item) => !proposal.changes.contains(item))) {
       throw const ValidationFailure('적용할 개념 변경안이 올바르지 않아요.');
     }

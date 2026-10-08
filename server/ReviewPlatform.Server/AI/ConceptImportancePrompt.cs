@@ -46,5 +46,8 @@ public static class ConceptImportancePrompt
         Never rate importance high or veryHigh solely for length, a dense table, a timeline, a
         decorative box, or difficult memorization. Assess separated concepts independently:
         a valuable concept does not raise the importance of adjacent peripheral background.
+        Rate a parent concept by its learning-worthy knowledge, not by the volume or recall
+        precision of incidental details in embedded illustrative examples. A separate case is
+        not automatically important merely because it was extracted as its own concept.
         """;
 }

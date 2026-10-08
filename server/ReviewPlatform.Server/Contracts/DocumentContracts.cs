@@ -45,7 +45,15 @@ public sealed record ReviseConceptsRequest(
     IReadOnlyList<string> TargetConceptIds,
     IReadOnlyList<ConceptRevisionContext> Concepts,
     bool AllowAdditions = false,
-    bool AllowDeletions = false);
+    bool AllowDeletions = false,
+    IReadOnlyList<ConceptRevisionClarification>? Clarifications = null,
+    string? ContentHash = null);
+
+public sealed record ConceptRevisionClarification(string Question, string Answer);
+public sealed record ConceptRevisionSource(byte[] PdfBytes, IReadOnlyList<int> OriginalPages);
+public sealed record ConceptRevisionResult(
+    string Status, string Comment, string ClarificationQuestion,
+    IReadOnlyList<GeneratedConceptRevision> Changes);
 
 public sealed record ConceptRevisionInput(
     string SourceId,
@@ -56,7 +64,9 @@ public sealed record ConceptRevisionInput(
     IReadOnlyList<string> EditableConceptIds,
     string PromptVersion,
     bool AllowAdditions = false,
-    bool AllowDeletions = false);
+    bool AllowDeletions = false,
+    IReadOnlyList<ConceptRevisionClarification>? Clarifications = null,
+    ConceptRevisionSource? Source = null);
 
 public sealed record GeneratedConceptRevision(
     string Id,
@@ -71,7 +81,10 @@ public sealed record GeneratedConceptRevision(
 public sealed record ReviseConceptsResponse(
     IReadOnlyList<GeneratedConceptRevision> Revisions,
     IReadOnlyList<GeneratedConceptAddition> Additions,
-    IReadOnlyList<GeneratedConceptDeletion> Deletions);
+    IReadOnlyList<GeneratedConceptDeletion> Deletions,
+    string Status,
+    string Comment,
+    string ClarificationQuestion);
 
 public sealed record GeneratedConceptAddition(
     string Title,
@@ -88,8 +101,18 @@ public sealed record GeneratedConceptDeletion(string Id, string Reason, string G
 public sealed record ConceptChangeEnvelope(
     IReadOnlyList<GeneratedConceptRevision>? Revisions,
     IReadOnlyList<GeneratedConceptAddition>? Additions = null,
-    IReadOnlyList<GeneratedConceptDeletion>? Deletions = null)
+    IReadOnlyList<GeneratedConceptDeletion>? Deletions = null,
+    string? Status = null,
+    string? Comment = null,
+    string? ClarificationQuestion = null)
 {
+    public ConceptRevisionResult ToResult()
+    {
+        if (Revisions is null || Additions is null || Deletions is null ||
+            Status is null || Comment is null || ClarificationQuestion is null)
+            throw new System.Text.Json.JsonException("Missing concept revision response fields.");
+        return new(Status, Comment, ClarificationQuestion, Flatten());
+    }
     public IReadOnlyList<GeneratedConceptRevision> Flatten()
     {
         if (Revisions is null) throw new System.Text.Json.JsonException("Missing revisions array.");

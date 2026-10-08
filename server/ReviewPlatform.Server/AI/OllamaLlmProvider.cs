@@ -113,11 +113,13 @@ public sealed class OllamaLlmProvider(
         }
     }
 
-    public async Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
+    public async Task<ConceptRevisionResult> ReviseConceptsAsync(
         ConceptRevisionInput input,
         CancellationToken cancellationToken = default)
     {
         ValidateConfiguration();
+        if (input.Source is not null)
+            throw new LlmProviderUnavailableException("Ollama 수정 경로는 PDF 원본 첨부를 지원하지 않습니다. PDF 입력을 지원하는 OpenAI 모델을 선택해 주세요.");
         var stopwatch = Stopwatch.StartNew();
         logger.LogInformation(
             "LLM operation started. Provider={Provider} Model={Model} Operation={Operation}",
@@ -185,7 +187,7 @@ public sealed class OllamaLlmProvider(
                 ProviderName,
                 ModelName,
                 "concept-revision",
-                revisions.Count,
+                revisions.Changes.Count,
                 stopwatch.ElapsedMilliseconds);
             return revisions;
         }
@@ -354,7 +356,7 @@ public sealed class OllamaLlmProvider(
         }
     }
 
-    private IReadOnlyList<GeneratedConceptRevision> ParseConceptRevisionResponse(
+    private ConceptRevisionResult ParseConceptRevisionResponse(
         string body)
     {
         try
@@ -378,7 +380,7 @@ public sealed class OllamaLlmProvider(
             var envelope = JsonSerializer.Deserialize<ConceptChangeEnvelope>(
                 content.GetString()!,
                 JsonOptions);
-            return envelope?.Flatten() ?? throw new LlmProviderRequestException(
+            return envelope?.ToResult() ?? throw new LlmProviderRequestException(
                 "Ollama의 구조화된 개념 수정 응답을 해석하지 못했습니다.");
         }
         catch (LlmProviderRequestException)

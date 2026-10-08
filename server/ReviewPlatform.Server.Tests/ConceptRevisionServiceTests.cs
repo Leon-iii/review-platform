@@ -257,10 +257,37 @@ public sealed class ConceptRevisionServiceTests
             Request() with { AllowAdditions = true }, TestContext.Current.CancellationToken));
     }
 
-    private static ConceptRevisionService CreateService(ILLMProvider provider) =>
+    private static ConceptRevisionService CreateService(ILLMProvider provider, IConceptRevisionSourceReader? reader = null) =>
         new(
             new FixedLlmProviderResolver(provider),
-            NullLogger<ConceptRevisionService>.Instance);
+            NullLogger<ConceptRevisionService>.Instance,
+            reader ?? new FakeSourceReader());
+
+    private sealed class FakeSourceReader(bool missing = false) : IConceptRevisionSourceReader
+    {
+        public Task<ConceptRevisionSource> ReadAsync(string id, int pageCount, IReadOnlyList<int> pages, string? hash, CancellationToken token) =>
+            missing ? throw new DocumentImportException("원본 PDF가 없습니다.") :
+                Task.FromResult(new ConceptRevisionSource([1], pages));
+    }
+
+    [Fact]
+    public async Task Reference_MissingOriginalNeverFallsBackToTextOrCallsProvider()
+    {
+        var provider = new FakeProvider(_ => []);
+        await Assert.ThrowsAsync<DocumentImportException>(() =>
+            CreateService(provider, new FakeSourceReader(missing: true))
+                .ReviseAsync(Request(), TestContext.Current.CancellationToken));
+        Assert.Null(provider.LastInput);
+    }
+
+    [Fact]
+    public async Task Reference_RejectsUnattachedProvenanceOnUpdatesEvenIfWithinMaterial()
+    {
+        var provider = new FakeProvider(_ => [new("held-1", "수정 제목", "수정 내용", [5])]);
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() =>
+            CreateService(provider).ReviseAsync(Request(), TestContext.Current.CancellationToken));
+        Assert.Equal([3, 4, 6], provider.LastInput!.Source!.OriginalPages);
+    }
 
     private static ReviseConceptsRequest Request() => new(
         "source-1",
@@ -290,6 +317,78 @@ public sealed class ConceptRevisionServiceTests
         ]);
 
     [Fact]
+    public async Task Feedback_ClarificationAndNoChangesPreserveComments_AndHistoryIsForwarded()
+    {
+        var request = Request() with { Clarifications = [new("어떤 범위인가요?", "  첫 개념의 본문만  ")] };
+        foreach (var status in new[] { "needsClarification", "noChanges" })
+        {
+            var question = status == "needsClarification" ? "어느 부분을 삭제할까요?" : "";
+            var fake = new FakeProvider(_ => [], new(status, "원문 확인 후 요청 범위를 확인합니다.", question, []));
+            var response = await CreateService(fake).ReviseAsync(request, TestContext.Current.CancellationToken);
+            Assert.Equal(status, response.Status);
+            Assert.Equal(question, response.ClarificationQuestion);
+            Assert.Equal("원문 확인 후 요청 범위를 확인합니다.", response.Comment);
+            Assert.Empty(response.Revisions);
+            Assert.Empty(response.Additions);
+            Assert.Empty(response.Deletions);
+            Assert.Equal("첫 개념의 본문만", Assert.Single(fake.LastInput!.Clarifications!).Answer);
+            Assert.Equal([3, 4, 6], fake.LastInput.Source!.OriginalPages);
+        }
+    }
+
+    [Theory]
+    [InlineData("needsClarification", "질문", true)]
+    [InlineData("needsClarification", "", false)]
+    [InlineData("noChanges", "", true)]
+    [InlineData("ready", "질문", true)]
+    [InlineData("ready", "", false)]
+    [InlineData("unknown", "", false)]
+    public async Task Feedback_RejectsContradictoryStates(string status, string question, bool changed)
+    {
+        var changes = changed ? new[] { new GeneratedConceptRevision("held-1", "제목", "수정 내용", [3], Reason: "요청 반영") } : [];
+        var fake = new FakeProvider(_ => [], new(status, "처리 결과", question, changes));
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(fake).ReviseAsync(Request(), TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task Feedback_RejectsMissingCommentOrChangeReason(string empty)
+    {
+        var change = new GeneratedConceptRevision("held-1", "제목", "수정 내용", [3], Reason: "요청 반영");
+        var fake = new FakeProvider(_ => [], new("ready", empty, "", [change]));
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(fake).ReviseAsync(Request(), TestContext.Current.CancellationToken));
+        fake = new FakeProvider(_ => [], new("ready", "처리 결과", "", [change with { Reason = empty }]));
+        await Assert.ThrowsAsync<LlmProviderRequestException>(() => CreateService(fake).ReviseAsync(Request(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Feedback_ChangeReasonSurvivesValidation_AndUnsupportedPdfNeverCallsProvider()
+    {
+        var fake = new FakeProvider(_ => [new("held-1", "제목", "수정 내용", [3], Reason: "원본과 대조하여 표현을 교정했습니다.")]);
+        var response = await CreateService(fake).ReviseAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.Equal("원본과 대조하여 표현을 교정했습니다.", Assert.Single(response.Revisions).Reason);
+        fake = new FakeProvider(_ => [], supportsPdf: false);
+        await Assert.ThrowsAsync<LlmProviderUnavailableException>(() => CreateService(fake).ReviseAsync(Request(), TestContext.Current.CancellationToken));
+        Assert.Null(fake.LastInput);
+        var manual = Request() with { TargetConceptIds = ["held-1"], Concepts = [Request().Concepts[0] with { PageNumbers = [] }] };
+        await CreateService(fake).ReviseAsync(manual, TestContext.Current.CancellationToken);
+        Assert.Null(fake.LastInput!.Source);
+    }
+
+    [Fact]
+    public async Task Feedback_RejectsExcessiveOrEmptyClarificationHistoryBeforeCallingProvider()
+    {
+        var fake = new FakeProvider(_ => []);
+        foreach (var history in new IReadOnlyList<ConceptRevisionClarification>[] {
+            Enumerable.Repeat(new ConceptRevisionClarification("질문", "답변"), 11).ToArray(), [new("질문", " ")], [new("", "답변")] })
+        {
+            await Assert.ThrowsAsync<ConceptRevisionRequestException>(() => CreateService(fake).ReviseAsync(Request() with { Clarifications = history }, TestContext.Current.CancellationToken));
+            Assert.Null(fake.LastInput);
+        }
+    }
+
+    [Fact]
     public async Task Revise_RejectsUnknownTargetConcept()
     {
         var provider = new FakeProvider(_ => []);
@@ -305,12 +404,15 @@ public sealed class ConceptRevisionServiceTests
     }
 
     private sealed class FakeProvider(
-        Func<ConceptRevisionInput, IReadOnlyList<GeneratedConceptRevision>> result)
+        Func<ConceptRevisionInput, IReadOnlyList<GeneratedConceptRevision>> result,
+        ConceptRevisionResult? feedback = null,
+        bool supportsPdf = true)
         : ILLMProvider
     {
         public string ProviderName => "fake";
 
         public string ModelName => "fake-model";
+        public bool SupportsRevisionPdf => supportsPdf;
 
         public ConceptRevisionInput? LastInput { get; private set; }
 
@@ -319,12 +421,14 @@ public sealed class ConceptRevisionServiceTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<GeneratedQuestionDraft>>([]);
 
-        public Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
+        public Task<ConceptRevisionResult> ReviseConceptsAsync(
             ConceptRevisionInput input,
             CancellationToken cancellationToken = default)
         {
             LastInput = input;
-            return Task.FromResult(result(input));
+            if (feedback is not null) return Task.FromResult(feedback);
+            var changes = result(input).Select(item => item with { Reason = item.Reason.Length == 0 && item.Kind != "delete" ? "요청 반영" : item.Reason }).ToList();
+            return Task.FromResult(new ConceptRevisionResult(changes.Count == 0 ? "noChanges" : "ready", "요청을 반영했습니다.", "", changes));
         }
     }
 }

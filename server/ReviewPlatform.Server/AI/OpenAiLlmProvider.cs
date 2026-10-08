@@ -10,7 +10,8 @@ public sealed partial class OpenAiLlmProvider(
     HttpClient httpClient,
     IOptions<LlmOptions> options,
     ILogger<OpenAiLlmProvider>? logger = null,
-    HttpClient? directPdfClient = null) : ILLMProvider, IDirectPdfConceptProvider
+    HttpClient? directPdfClient = null,
+    ReviewPlatform.Server.Services.DirectPdfTelemetryStore? directPdfTelemetry = null) : ILLMProvider, IDirectPdfConceptProvider
 {
     private static readonly Uri ResponsesEndpoint = new(
         "https://api.openai.com/v1/responses");
@@ -24,6 +25,10 @@ public sealed partial class OpenAiLlmProvider(
     public string ProviderName => "openai";
 
     public string ModelName => settings.Model;
+
+    public bool SupportsRevisionPdf => OpenAiModelCapabilitiesRegistry.Get(settings.Model) is
+        { IsKnown: true, SupportsStructuredOutputs: true } &&
+        settings.Model is not ("o3-mini" or "o3-mini-2025-01-31" or "o1-preview" or "o1-preview-2024-09-12");
 
     public int MaximumQuestionsPerRequest => settings.MaximumQuestionsPerRequest;
 
@@ -91,7 +96,7 @@ public sealed partial class OpenAiLlmProvider(
         catch (JsonException) { /* The response parser below reports malformed output. */ }
     }
 
-    public async Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
+    public async Task<ConceptRevisionResult> ReviseConceptsAsync(
         ConceptRevisionInput input,
         CancellationToken cancellationToken = default)
     {
@@ -100,15 +105,15 @@ public sealed partial class OpenAiLlmProvider(
         request.Headers.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             settings.ApiKey);
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(BuildConceptRevisionRequest(input), JsonOptions),
-            Encoding.UTF8,
-            "application/json");
+        var payload = BuildConceptRevisionRequest(input);
+        var started = System.Diagnostics.Stopwatch.StartNew();
 
         HttpResponseMessage response;
         try
         {
-            response = await httpClient.SendAsync(request, cancellationToken);
+            await CheckRevisionInputAsync(input, payload, cancellationToken);
+            request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+            response = await (directPdfClient ?? httpClient).SendAsync(request, cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -126,6 +131,7 @@ public sealed partial class OpenAiLlmProvider(
         {
             var responseBody = await response.Content.ReadAsStringAsync(
                 cancellationToken);
+            LogRevisionUsage(responseBody, started.ElapsedMilliseconds, payload["max_output_tokens"]);
             if (!response.IsSuccessStatusCode)
             {
                 throw new LlmProviderRequestException(
@@ -234,15 +240,17 @@ public sealed partial class OpenAiLlmProvider(
         return request;
     }
 
-    private object BuildConceptRevisionRequest(ConceptRevisionInput input)
+    private Dictionary<string, object?> BuildConceptRevisionRequest(ConceptRevisionInput input)
     {
+        var maximum = OpenAiModelCapabilitiesRegistry.Get(settings.Model).MaxOutputTokens
+            ?? throw new LlmProviderUnavailableException("이 모델의 출력 한도가 미등록되어 있습니다. 지원 정보가 등록된 개념 수정 모델을 선택해 주세요.");
+        if (input.Source is not null && !SupportsRevisionPdf)
+            throw new LlmProviderUnavailableException("선택한 모델은 PDF 원본을 첨부한 개념 수정을 지원하지 않습니다.");
         return ApplyReasoning(new Dictionary<string, object?>
         {
             ["model"] = settings.Model,
             ["store"] = false,
-            ["max_output_tokens"] = Math.Min(
-                12_000,
-                500 + input.EditableConceptIds.Count * 650),
+            ["max_output_tokens"] = maximum,
             ["input"] = new object[]
             {
                 new
@@ -253,7 +261,12 @@ public sealed partial class OpenAiLlmProvider(
                 new
                 {
                     role = "user",
-                    content = ConceptRevisionPrompt.BuildUserPrompt(input)
+                    content = input.Source is null ? (object)ConceptRevisionPrompt.BuildUserPrompt(input) : new object[]
+                    {
+                        new { type = "input_file", filename = "concept-reference.pdf", detail = "high",
+                            file_data = "data:application/pdf;base64," + Convert.ToBase64String(input.Source.PdfBytes) },
+                        new { type = "input_text", text = ConceptRevisionPrompt.BuildUserPrompt(input) }
+                    }
                 }
             },
             ["text"] = new
@@ -317,7 +330,7 @@ public sealed partial class OpenAiLlmProvider(
         }
     }
 
-    private static IReadOnlyList<GeneratedConceptRevision>
+    private static ConceptRevisionResult
         ParseConceptRevisionResponse(string body)
     {
         try
@@ -326,7 +339,7 @@ public sealed partial class OpenAiLlmProvider(
             var envelope = JsonSerializer.Deserialize<ConceptChangeEnvelope>(
                 outputText,
                 JsonOptions);
-            return envelope?.Flatten() ?? throw new LlmProviderRequestException(
+            return envelope?.ToResult() ?? throw new LlmProviderRequestException(
                 "OpenAI의 구조화된 개념 수정 응답을 해석하지 못했습니다.");
         }
         catch (LlmProviderRequestException)

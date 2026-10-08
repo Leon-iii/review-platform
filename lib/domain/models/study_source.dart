@@ -81,6 +81,43 @@ class StudySourceWithConcepts {
 
 enum ConceptChangeKind { update, add, delete }
 
+enum ConceptRevisionStatus { ready, needsClarification, noChanges }
+
+class ConceptRevisionClarification {
+  const ConceptRevisionClarification({
+    required this.question,
+    required this.answer,
+  });
+  final String question;
+  final String answer;
+  Map<String, String> toJson() => {'question': question, 'answer': answer};
+}
+
+class ConceptRevisionResponse {
+  const ConceptRevisionResponse({
+    required this.status,
+    required this.comment,
+    required this.clarificationQuestion,
+    required this.changes,
+  });
+  final ConceptRevisionStatus status;
+  final String comment;
+  final String clarificationQuestion;
+  final List<ConceptRevision> changes;
+}
+
+/// Advisory estimate only; never truncates text or limits API output.
+int estimateConceptRevisionOutput(
+  List<StudyConcept> concepts,
+  Set<String> selected, {
+  required bool allowAdditions,
+}) => concepts
+    .where((item) => selected.contains(item.id))
+    .fold<int>(
+      2000 + selected.length * 400 + (allowAdditions ? 8000 : 0),
+      (total, item) => total + item.title.length + item.content.length,
+    );
+
 class ConceptRevision {
   const ConceptRevision({
     required this.id,
@@ -110,6 +147,9 @@ class ConceptRevisionProposal {
     required this.targetConceptIds,
     required this.allowAdditions,
     required this.allowDeletions,
+    required this.status,
+    required this.comment,
+    required this.clarificationQuestion,
   });
 
   final StudySourceWithConcepts original;
@@ -117,6 +157,9 @@ class ConceptRevisionProposal {
   final Set<String> targetConceptIds;
   final bool allowAdditions;
   final bool allowDeletions;
+  final ConceptRevisionStatus status;
+  final String comment;
+  final String clarificationQuestion;
 }
 
 class ConceptRevisionApplyResult {

@@ -10,8 +10,8 @@ using ReviewPlatform.Server.Services;
 var builder = WebApplication.CreateBuilder(args);
 var documentLimits = builder.Configuration.GetSection("Documents").Get<DocumentLimits>() ?? new();
 var directLimits = builder.Configuration.GetSection("Documents:DirectPdf").Get<DirectPdfLimits>() ?? new();
-if (directLimits.MaximumOutputTokens is < 1 or > 64000 || directLimits.TokensPerMinute < 1 ||
-    directLimits.InputSafetyLimit < 1 || directLimits.ContextMarginTokens < 0 || directLimits.EstimatedOutputTokensPerPage < 1)
+if (directLimits.OutputSafetyThresholdTokens < 1 || directLimits.TokensPerMinute < 1 ||
+    directLimits.InputSafetyLimit < 1 || directLimits.ContextMarginTokens < 0)
     throw new InvalidOperationException("Documents:DirectPdf safety limits are invalid.");
 if (documentLimits.MaximumFileSizeMb is < 1 or > 2048 ||
     documentLimits.MaximumPages is < 1 or > 10000 ||
@@ -52,10 +52,12 @@ builder.Services.PostConfigure<LlmOptions>(options =>
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<QuestionGenerationService>();
 builder.Services.AddScoped<DocumentProcessingService>();
+builder.Services.AddSingleton<DirectPdfTelemetryStore>();
 builder.Services.AddScoped<DocumentJobService>();
 builder.Services.AddSingleton<DocumentJobSignals>();
 builder.Services.AddHostedService<DocumentJobWorker>();
 builder.Services.AddScoped<ConceptRevisionService>();
+builder.Services.AddScoped<IConceptRevisionSourceReader>(provider => provider.GetRequiredService<DocumentProcessingService>());
 builder.Services.AddScoped<LlmProfileService>();
 builder.Services.AddScoped<ILlmApiKeyStore, LlmApiKeyStore>();
 builder.Services.AddScoped<LlmModelCatalogService>();
@@ -90,6 +92,18 @@ app.UseMiddleware<SyncTokenMiddleware>();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 app.MapGet("/api/documents/limits", () => Results.Ok(documentLimits));
+app.MapGet("/api/documents/sources/{sourceId}/pages/{page:int}/image", async (
+    string sourceId, int page, DocumentProcessingService service, HttpResponse response, CancellationToken token) =>
+{
+    // Auth is supplied by the same sync-token middleware as all document routes.
+    response.Headers.CacheControl = "no-store";
+    try
+    {
+        var image = await service.SourceImageAsync(sourceId, page, token);
+        return Results.File(image.ImageBytes, image.MimeType);
+    }
+    catch (DocumentImportException e) { return Results.BadRequest(new { error = e.Message }); }
+});
 app.MapPost("/api/documents/jobs/{id}", async (string id, string fileName,
     HttpRequest request, DocumentJobService service, CancellationToken cancellationToken) =>
 {
@@ -341,6 +355,10 @@ app.MapPost("/api/documents/concepts/revise", async (
             cancellationToken));
     }
     catch (ConceptRevisionRequestException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (DocumentImportException exception)
     {
         return Results.BadRequest(new { error = exception.Message });
     }

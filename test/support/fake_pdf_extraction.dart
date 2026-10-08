@@ -16,8 +16,13 @@ class FakePdfExtractionApi extends FakePdfJobsApi
   String provider = 'openai';
   int revision = 0, starts = 0, checks = 0;
   String status = 'warning';
+  int? outputBudget = 128000;
+  Map<String, Object?>? outputEstimate;
   Map<String, Object?>? lastSelection;
   Completer<PdfImportJob>? startGate;
+  Completer<void>? checkGate;
+  Object? checkError;
+  final List<int> previewPages = [];
   PdfExtractionPreflight? lastCheck;
   @override
   Future<PdfImportJob> prepareJob(
@@ -52,6 +57,8 @@ class FakePdfExtractionApi extends FakePdfJobsApi
     Map<String, Object?> selection,
   ) async {
     checks++;
+    if (checkGate != null) await checkGate!.future;
+    if (checkError != null) throw checkError!;
     revision++;
     lastSelection = selection;
     return lastCheck = PdfExtractionPreflight({
@@ -61,8 +68,18 @@ class FakePdfExtractionApi extends FakePdfJobsApi
         {
           'range': {'firstPage': 1, 'lastPage': 3},
           'inputTokens': status == 'blocked' ? 600000 : 1000,
-          'outputBudget': 64000,
-          'estimatedOutputTokens': 3150,
+          'outputBudget': outputBudget,
+          'estimatedOutputTokens': outputEstimate?['tokens'],
+          'outputSafetyThresholdTokens': 64000,
+          'outputEstimate':
+              outputEstimate ??
+              {
+                'tokens': null,
+                'lowerTokens': null,
+                'upperTokens': null,
+                'sampleCount': 0,
+                'confidence': 'insufficient',
+              },
           'status': status,
           'messages': [
             status == 'blocked'
@@ -95,9 +112,11 @@ class FakePdfExtractionApi extends FakePdfJobsApi
     SyncConfiguration configuration,
     String id,
     int page,
-  ) async =>
-      previewBytes ??
-      base64Decode(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII=',
-      );
+  ) async {
+    previewPages.add(page);
+    return previewBytes ??
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII=',
+        );
+  }
 }

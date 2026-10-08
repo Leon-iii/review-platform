@@ -47,8 +47,14 @@ class PdfExtractionPreflight {
       final last = (range['lastPage']! as num).toInt();
       if (first < 1 ||
           last < first ||
-          (part['outputBudget']! as num) < 1 ||
-          (part['estimatedOutputTokens']! as num) < 0 ||
+          (part['outputBudget'] != null &&
+              ((part['outputBudget']! as num) < 0 ||
+                  ((part['outputBudget']! as num) < 16 &&
+                      part['status'] != 'blocked'))) ||
+          (part['estimatedOutputTokens'] != null &&
+              (part['estimatedOutputTokens']! as num) < 0) ||
+          (part['outputSafetyThresholdTokens'] != null &&
+              (part['outputSafetyThresholdTokens']! as num) < 1) ||
           !{
             'ready',
             'warning',
@@ -59,6 +65,24 @@ class PdfExtractionPreflight {
           (part['messages']! as List).any((message) => message is! String) ||
           (part['inputTokens'] != null && (part['inputTokens']! as num) < 1)) {
         throw const FormatException('Invalid PDF preflight part');
+      }
+      if (part['outputEstimate'] != null) {
+        final estimate = part['outputEstimate']! as Map;
+        if ((estimate['sampleCount']! as num) < 0 ||
+            !{
+              'insufficient',
+              'low',
+              'empirical',
+            }.contains(estimate['confidence']) ||
+            ['tokens', 'lowerTokens', 'upperTokens'].any(
+              (key) => estimate[key] != null && (estimate[key]! as num) < 0,
+            ) ||
+            (estimate['lowerTokens'] != null &&
+                estimate['upperTokens'] != null &&
+                (estimate['lowerTokens']! as num) >
+                    (estimate['upperTokens']! as num))) {
+          throw const FormatException('Invalid PDF output estimate');
+        }
       }
     }
   }
@@ -74,6 +98,7 @@ class PdfExtractionPreflight {
       !parts.any(
         (p) =>
             p['status'] == 'blocked' ||
+            p['outputBudget'] == null ||
             (p['status'] == 'waiting' && p['inputTokens'] == null),
       );
 }

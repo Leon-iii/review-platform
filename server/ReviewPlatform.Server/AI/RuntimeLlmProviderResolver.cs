@@ -31,7 +31,8 @@ public sealed class RuntimeLlmProviderResolver(
     LlmProfileService profiles,
     ILlmApiKeyStore apiKeyStore,
     IHttpClientFactory httpClientFactory,
-    ILoggerFactory loggerFactory) : ILlmProviderResolver
+    ILoggerFactory loggerFactory,
+    DirectPdfTelemetryStore? directPdfTelemetry = null) : ILlmProviderResolver
 {
     public async Task<ILLMProvider> ResolveAsync(
         string purpose,
@@ -78,7 +79,8 @@ public sealed class RuntimeLlmProviderResolver(
                 httpClientFactory.CreateClient("openai"),
                 options,
                 loggerFactory.CreateLogger<OpenAiLlmProvider>(),
-                httpClientFactory.CreateClient("openai-direct-pdf")),
+                httpClientFactory.CreateClient("openai-direct-pdf"),
+                directPdfTelemetry),
             _ => throw new LlmProviderUnavailableException(
                 $"지원하지 않는 LLM Provider입니다: '{profile.Provider}'.")
         };

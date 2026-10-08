@@ -54,8 +54,14 @@ public sealed partial class DocumentProcessingService
         }
         catch (Exception e) { throw new DocumentImportException("선택한 페이지의 PDF를 만들지 못했습니다. 원본은 보관됩니다.", e); }
     }
-    public int DirectOutputBudget(IDirectPdfConceptProvider provider) =>
-        Math.Clamp(DirectLimits.MaximumOutputTokens, 1, provider.MaximumPdfOutputTokens);
+    public int? DirectOutputBudget(IDirectPdfConceptProvider provider, long? inputTokens = null)
+    {
+        if (provider.MaximumPdfOutputTokens is not int maximum) return null;
+        if (provider.PdfContextTokens is int context && inputTokens is long input)
+            return (int)Math.Max(0, Math.Min(maximum, context - input - DirectLimits.ContextMarginTokens));
+        return maximum;
+    }
+    public int DirectOutputSafetyThreshold => DirectLimits.OutputSafetyThresholdTokens;
     public int ConfiguredDirectTpm => Math.Max(1, DirectLimits.TokensPerMinute);
 
     public async Task<PdfPreflightPart> InspectDirectPartAsync(string id, string fileName,
@@ -63,21 +69,27 @@ public sealed partial class DocumentProcessingService
     {
         var bytes = ReadSelectedPdf(id, range, totalPages);
         var budget = DirectOutputBudget(provider);
-        var expected = (long)range.PageCount * Math.Max(1, DirectLimits.EstimatedOutputTokensPerPage);
+        var estimate = directPdfTelemetry?.Estimate(provider.PdfEstimationProfile, range.PageCount)
+            ?? new PdfOutputEstimate(null, null, null, 0, "insufficient");
+        var expected = estimate.Tokens;
+        PdfPreflightPart Result(long? input, string state, IReadOnlyList<string> notes) =>
+            new(range, bytes.LongLength, input, budget, expected, state, notes, DirectOutputSafetyThreshold, estimate);
         var messages = new List<string>();
         var status = "ready";
         // Individual native PDF inputs must be strictly below 50 MB.
         if (bytes.LongLength >= 50L * 1024 * 1024)
-            return new(range, bytes.LongLength, null, budget, expected, "blocked", ["이 묶음은 OpenAI PDF 파일 입력의 50MB 제한을 넘습니다. 분할 지점을 선택해 주세요."]);
+            return Result(null, "blocked", ["이 묶음은 OpenAI PDF 파일 입력의 50MB 제한을 넘습니다. 분할 지점을 선택해 주세요."]);
+        if (budget is null)
+            return Result(null, "unknown", ["이 모델의 API 출력 한도가 미등록되어 요청할 수 없습니다. 지원 정보가 등록된 모델을 선택해 주세요."]);
         PdfTokenCount count;
-        try { count = await provider.CountPdfTokensAsync(new(id, fileName, bytes, range.PageCount, budget), cancellationToken); }
+        try { count = await provider.CountPdfTokensAsync(new(id, fileName, bytes, range.PageCount, budget.Value), cancellationToken); }
         catch (PdfRateLimitException)
-        { return new(range, bytes.LongLength, null, budget, expected, "waiting", ["입력 점검 API의 일시적 한도에 도달했습니다. 잠시 후 다시 점검해 주세요."]); }
+        { return Result(null, "waiting", ["입력 점검 API의 일시적 한도에 도달했습니다. 잠시 후 다시 점검해 주세요."]); }
         catch (LlmProviderRequestException e)
-        { return new(range, bytes.LongLength, null, budget, expected, "unknown", [e.Message, "입력량 확인에 실패했습니다. 재점검하거나 불확실성을 확인한 뒤 진행할 수 있습니다."]); }
+        { return Result(null, "unknown", [e.Message, "입력량 확인에 실패했습니다. 재점검하거나 불확실성을 확인한 뒤 진행할 수 있습니다."]); }
+        budget = DirectOutputBudget(provider, count.InputTokens);
         var tpm = count.TokenLimit ?? ConfiguredDirectTpm;
-        if (count.InputTokens > tpm || count.InputTokens > DirectLimits.InputSafetyLimit ||
-            provider.PdfContextTokens is int context && count.InputTokens + budget + DirectLimits.ContextMarginTokens > context)
+        if (count.InputTokens > tpm || count.InputTokens > DirectLimits.InputSafetyLimit || budget < 16)
         {
             status = "blocked";
             messages.Add("입력량이 TPM 또는 입력·컨텍스트 안전 한도를 넘습니다. 개념 경계를 보고 직접 분할해 주세요.");
@@ -91,11 +103,17 @@ public sealed partial class DocumentProcessingService
         { if (status == "ready") status = "unknown"; messages.Add("이 모델의 컨텍스트 한도는 등록되어 있지 않습니다."); }
         if (count.TokenLimit is null)
         { if (status == "ready") status = "warning"; messages.Add($"TPM은 서버 설정 {tpm:N0} 기준입니다. 계정의 실제 한도·다른 앱 사용량은 확인되지 않았습니다."); }
-        if (expected >= budget * 0.8)
-        { if (status == "ready") status = "warning"; messages.Add("출력 부족 우려: 페이지당 출력량 가정에 따른 낮은 신뢰도의 추정입니다. 분할을 권장합니다."); }
+        if (expected >= DirectOutputSafetyThreshold)
+        { if (status == "ready") status = "warning"; messages.Add("안전 기준 초과: 예상 출력이 분할 권장 기준에 도달했습니다. 분할을 권장하지만 확인 후 진행할 수 있고, 이 기준에서 응답을 강제로 자르지 않습니다."); }
+        if (estimate.UpperTokens >= budget * 0.8)
+        { if (status == "ready") status = "warning"; messages.Add("응답 잘림 위험: 실측 기반 예상 범위가 실제 API 출력 한도에 근접합니다. 분할을 강하게 권장합니다."); }
+        if (estimate.Tokens is null)
+        { if (status == "ready") status = "warning"; messages.Add("예측 자료 부족: 동일 모델·추론 수준·지침의 서로 다른 PDF 묶음 정상 완료 표본이 5개 이상 필요합니다. 출력 분량은 아직 예측할 수 없습니다."); }
+        else if (estimate.Confidence == "low")
+        { if (status == "ready") status = "warning"; messages.Add("예측 신뢰도 낮음: 현재 페이지 수가 실측 표본 범위 밖입니다. 실제 출력은 예상 범위를 벗어날 수 있습니다."); }
         if (status is not ("blocked" or "unknown") && count.RemainingTokens is int remaining && remaining < count.InputTokens + budget)
         { status = "waiting"; messages.Add("전체 한도에는 들어가지만 현재 API 여유가 부족합니다. 분할할 필요 없이 대기 후 재점검합니다."); }
-        return new(range, bytes.LongLength, count.InputTokens, budget, expected, status, messages);
+        return Result(count.InputTokens, status, messages);
     }
     public static string PreflightStatus(IEnumerable<PdfPreflightPart> parts)
     {
@@ -112,6 +130,8 @@ public sealed partial class DocumentProcessingService
             throw new LlmProviderUnavailableException("PDF 직접 추출은 OpenAI PDF 입력을 지원하는 모델이 필요합니다.");
         if (checkpoint.DirectPromptVersion != DirectPdfConceptPrompt.Version)
             throw new DocumentImportException("직접 추출 지침이 변경되었습니다. 추출 화면에서 다시 점검해 주세요.");
+        if (checkpoint.Preflight?.BudgetPolicyVersion != DirectPdfBudgetPolicy.Version)
+            throw new PdfSelectionRequiredException("PDF 출력 한도 정책이 변경되었습니다. 완료된 묶음은 유지되며 추출 설정에서 다시 점검해 주세요.");
         var overview = InspectStoredPdf(id);
         var ranges = SelectedRanges(overview.PageCount, checkpoint.SplitAfterPages);
         checkpoint.TotalPages = overview.PageCount;
@@ -128,7 +148,7 @@ public sealed partial class DocumentProcessingService
             checkpoint.Stage = "preflight";
             await save(checkpoint);
             var check = await InspectDirectPartAsync(id, fileName, overview.PageCount, range, provider, cancellationToken);
-            if (check.Status == "blocked") await RequireSelection(string.Join("\n", check.Messages));
+            if (check.Status == "blocked" || check.OutputBudget is null) await RequireSelection(string.Join("\n", check.Messages));
             if (check.Status == "waiting" && check.InputTokens is null)
                 await RequireSelection("입력 점검 API의 한도 회복 후 다시 점검해 주세요. 아직 개념 추출은 시작하지 않았습니다.");
             if (check.Status == "unknown" && checkpoint.Preflight?.Status != "unknown")
@@ -154,11 +174,12 @@ public sealed partial class DocumentProcessingService
                 {
                     checkpoint.Stage = "direct_concepts";
                     await save(checkpoint);
-                    var reservation = (check.InputTokens ?? ConfiguredDirectTpm / 2) + check.OutputBudget;
+                    var reservation = (check.InputTokens ?? ConfiguredDirectTpm / 2) + check.OutputBudget!.Value;
                     DirectNextRequest[provider.RateLimitKey] = DateTimeOffset.UtcNow.AddSeconds(
                         Math.Max(1, 60d * reservation / ConfiguredDirectTpm));
                     generated = await provider.ExtractPdfConceptsAsync(new(id, fileName,
-                        ReadSelectedPdf(id, range, overview.PageCount), range.PageCount, check.OutputBudget), cancellationToken);
+                        ReadSelectedPdf(id, range, overview.PageCount), range.PageCount, check.OutputBudget!.Value,
+                        $"{overview.ContentHash}:{range.FirstPage}:{range.LastPage}"), cancellationToken);
                     break;
                 }
                 catch (PdfRateLimitException e) when (attempt < 3)

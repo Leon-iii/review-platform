@@ -43,10 +43,11 @@ public sealed class DocumentJobTests : IAsyncLifetime
         services.AddSingleton<ILlmProviderResolver>(new FixedLlmProviderResolver(fake));
         services.AddSingleton<IPdfPageRenderer, Renderer>();
         services.AddSingleton<DocumentJobSignals>();
+        services.AddSingleton<DirectPdfTelemetryStore>();
         services.AddScoped<DocumentProcessingService>(provider => new DocumentProcessingService(
             provider.GetRequiredService<IPdfPageRenderer>(),
             provider.GetRequiredService<IWebHostEnvironment>(), provider.GetRequiredService<IConfiguration>(),
-            NullLogger<DocumentProcessingService>.Instance));
+            NullLogger<DocumentProcessingService>.Instance, provider.GetRequiredService<DirectPdfTelemetryStore>()));
         services.AddScoped<DocumentJobService>();
         var result = services.BuildServiceProvider();
         providers.Add(result);
@@ -84,6 +85,35 @@ public sealed class DocumentJobTests : IAsyncLifetime
         Assert.Empty(fake.PdfCalls);
         Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(root, "sources", $"{id}.pdf"), TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<DocumentImportException>(() => service.PreflightAsync(id, new("ocr"), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SourcePreview_IsIndependentOfLegacyCheckpoint_DeletedJob_AndImportLimits()
+    {
+        var fake = new DirectProvider();
+        var provider = await CreateAsync(fake);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var processing = scope.ServiceProvider.GetRequiredService<DocumentProcessingService>();
+        var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+        var token = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "강의.pdf", pdf, pdf.Length, token);
+        await db.DocumentJobs.Where(job => job.Id == id).ExecuteUpdateAsync(setters => setters
+            .SetProperty(job => job.CheckpointJson, "incompatible checkpoint")
+            .SetProperty(job => job.ConceptProfileJson, "obsolete profile"), token);
+        provider.GetRequiredService<IConfiguration>()["Documents:MaximumPages"] = "1";
+        Assert.Equal(3, (await processing.SourceImageAsync(id, 3, token)).PageNumber);
+        await db.DocumentJobs.Where(job => job.Id == id).ExecuteDeleteAsync(token);
+        Assert.Equal(1, (await processing.SourceImageAsync(id, 1, token)).PageNumber);
+        Assert.Empty(fake.PdfCalls);
+        await Assert.ThrowsAsync<DocumentImportException>(() => processing.SourceImageAsync(id, 0, token));
+        await Assert.ThrowsAsync<DocumentImportException>(() => processing.SourceImageAsync(id, 4, token));
+        await Assert.ThrowsAsync<DocumentImportException>(() => processing.SourceImageAsync("../other", 1, token));
+        processing.DeletePdf(id);
+        var error = await Assert.ThrowsAsync<DocumentImportException>(() => processing.SourceImageAsync(id, 1, token));
+        Assert.Contains("원본 PDF를 찾을 수 없습니다", error.Message);
     }
 
     [Theory]
@@ -223,27 +253,134 @@ public sealed class DocumentJobTests : IAsyncLifetime
         Assert.Equal(original, await File.ReadAllBytesAsync(Path.Combine(root, "sources", $"{id}.pdf"), TestContext.Current.CancellationToken));
     }
 
+    [Theory]
+    [InlineData(63_000, false)]
+    [InlineData(64_000, true)]
+    [InlineData(65_000, true)]
+    public async Task SafetyThreshold_OnlyWarns_AndDoesNotClampRequest(long output, bool warning)
+    {
+        var fake = new DirectProvider { TokenLimit = 500_000 };
+        var provider = await CreateAsync(fake);
+        var telemetry = provider.GetRequiredService<DirectPdfTelemetryStore>();
+        for (var i = 0; i < 5; i++)
+            await telemetry.RecordAsync(new(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow,
+                "source", $"hash-{i}", ((IDirectPdfConceptProvider)fake).PdfEstimationProfile,
+                3, 128_000, 1000, output, 0, "completed", null, true, null), null);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "자료.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken);
+        var check = await service.PreflightAsync(id, new("direct"), TestContext.Current.CancellationToken);
+        Assert.Equal(warning ? "warning" : "ready", check.Status);
+        Assert.Equal(128_000, check.Parts[0].OutputBudget);
+        Assert.Equal(output, check.Parts[0].EstimatedOutputTokens);
+        Assert.Equal(warning, check.Parts[0].Messages.Any(m => m.StartsWith("안전 기준 초과")));
+        Assert.DoesNotContain(check.Parts[0].Messages, m => m.StartsWith("응답 잘림 위험"));
+        if (warning)
+            await Assert.ThrowsAsync<DocumentImportException>(() => service.StartExtractionAsync(id,
+                new("direct", Revision: check.Revision), TestContext.Current.CancellationToken));
+        await service.StartExtractionAsync(id, new("direct", AcknowledgeWarnings: true, Revision: check.Revision), TestContext.Current.CancellationToken);
+        await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("completed", (await Get(provider, id)).Status);
+        Assert.Equal(128_000, Assert.Single(fake.OutputBudgets));
+    }
+
+    [Fact]
+    public async Task ActualBudget_UsesRemainingContext_NotSafetyThreshold_AndWarnsOfTruncation()
+    {
+        var fake = new DirectProvider { InputTokens = 890_000, TokenLimit = 2_000_000, PdfContextTokens = 950_000 };
+        var provider = await CreateAsync(fake);
+        var telemetry = provider.GetRequiredService<DirectPdfTelemetryStore>();
+        for (var i = 0; i < 5; i++)
+            await telemetry.RecordAsync(new(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow,
+                "source", $"hash-{i}", ((IDirectPdfConceptProvider)fake).PdfEstimationProfile,
+                3, 128_000, 1000, 45_000, 0, "completed", null, true, null), null);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "자료.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken);
+        var check = await service.PreflightAsync(id, new("direct"), TestContext.Current.CancellationToken);
+        Assert.Equal(50_000, check.Parts[0].OutputBudget);
+        Assert.Contains(check.Parts[0].Messages, m => m.StartsWith("응답 잘림 위험"));
+        Assert.DoesNotContain(check.Parts[0].Messages, m => m.StartsWith("안전 기준 초과"));
+    }
+
+    [Fact]
+    public async Task UnknownOutputLimit_CannotBeBypassedByAcknowledgement()
+    {
+        var fake = new DirectProvider { MaximumPdfOutputTokens = null };
+        var provider = await CreateAsync(fake);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "자료.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken);
+        var check = await service.PreflightAsync(id, new("direct"), TestContext.Current.CancellationToken);
+        Assert.Equal("unknown", check.Status);
+        Assert.Null(check.Parts[0].OutputBudget);
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.StartExtractionAsync(id,
+            new("direct", Revision: check.Revision, AcknowledgeWarnings: true), TestContext.Current.CancellationToken));
+        Assert.Empty(fake.PdfCalls);
+    }
+
+    [Fact]
+    public async Task LegacyBudgetPolicy_RequiresRecheck_AndPreservesCompletedChunks()
+    {
+        var fake = new DirectProvider();
+        var provider = await CreateAsync(fake);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentJobService>();
+        var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+        var id = Guid.NewGuid().ToString();
+        await using var pdf = RealPdf(3);
+        await service.UploadAsync(id, "자료.pdf", pdf, pdf.Length, TestContext.Current.CancellationToken);
+        var check = await service.PreflightAsync(id, new("direct", [2]), TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        var record = await db.DocumentJobs.SingleAsync(job => job.Id == id, TestContext.Current.CancellationToken);
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var checkpoint = JsonSerializer.Deserialize<DocumentCheckpoint>(record.CheckpointJson, json)!;
+        checkpoint.Preflight = checkpoint.Preflight! with { BudgetPolicyVersion = "legacy" };
+        checkpoint.Chunks.Add([new("완료된 개념", "보존할 내용", [1, 2])]);
+        record.CheckpointJson = JsonSerializer.Serialize(checkpoint, json);
+        record.Status = "failed";
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        Assert.Null((await service.ExtractionOverviewAsync(id, TestContext.Current.CancellationToken)).Preflight);
+        await Assert.ThrowsAsync<DocumentImportException>(() => service.StartExtractionAsync(id,
+            new("direct", [2], AcknowledgeWarnings: true, Revision: check.Revision), TestContext.Current.CancellationToken));
+        check = await service.PreflightAsync(id, new("direct", [2], Revision: check.Revision), TestContext.Current.CancellationToken);
+        await service.StartExtractionAsync(id, new("direct", [2], AcknowledgeWarnings: true, Revision: check.Revision), TestContext.Current.CancellationToken);
+        await Worker(provider).RunNextAsync(TestContext.Current.CancellationToken);
+        var result = JsonSerializer.Deserialize<ImportDocumentResponse>((await Result(provider, id))!, json)!;
+        Assert.Contains(result.Concepts, c => c.Title == "완료된 개념" && c.Content == "보존할 내용");
+        Assert.Equal(new[] { 1 }, fake.PdfCalls); // Only the unfinished last page is requested.
+    }
+
     private sealed class DirectProvider : ILLMProvider, IDirectPdfConceptProvider
     {
         public string ProviderName => "openai";
         public string ModelName => "test-pdf";
-        public int MaximumPdfOutputTokens => 64_000;
-        public int? PdfContextTokens => 1_050_000;
+        public int? MaximumPdfOutputTokens { get; set; } = 128_000;
+        public int? PdfContextTokens { get; set; } = 1_050_000;
+        public int? TokenLimit { get; set; }
         public string RateLimitKey { get; } = Guid.NewGuid().ToString();
         public long InputTokens { get; set; } = 100;
         public int FailPdfCall { get; set; }
         public List<int> PdfCalls { get; } = [];
         public List<double> FirstPageWidths { get; } = [];
+        public List<int> OutputBudgets { get; } = [];
         public Task<PdfTokenCount> CountPdfTokensAsync(DirectPdfInput input, CancellationToken cancellationToken)
         {
             using var pdf = PdfDocument.Open(input.PdfBytes);
             Assert.Equal(input.PageCount, pdf.NumberOfPages);
-            return Task.FromResult(new PdfTokenCount(InputTokens));
+            return Task.FromResult(new PdfTokenCount(InputTokens, TokenLimit));
         }
         public Task<IReadOnlyList<GeneratedConceptDraft>> ExtractPdfConceptsAsync(DirectPdfInput input, CancellationToken cancellationToken)
         {
             using var pdf = PdfDocument.Open(input.PdfBytes);
             PdfCalls.Add(pdf.NumberOfPages);
+            OutputBudgets.Add(input.MaximumOutputTokens);
             if (PdfCalls.Count == FailPdfCall) throw new LlmProviderRequestException("테스트 일시 실패");
             FirstPageWidths.Add(pdf.GetPage(1).Width);
             return Task.FromResult<IReadOnlyList<GeneratedConceptDraft>>([

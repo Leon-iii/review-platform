@@ -2170,7 +2170,7 @@ class _FakeRemoteDocumentApi implements RemoteDocumentApi {
   }) async {}
 
   @override
-  Future<List<ConceptRevision>> reviseConcepts({
+  Future<ConceptRevisionResponse> reviseConcepts({
     required SyncConfiguration configuration,
     required StudySource source,
     required List<StudyConcept> concepts,
@@ -2178,10 +2178,16 @@ class _FakeRemoteDocumentApi implements RemoteDocumentApi {
     required Set<String> targetConceptIds,
     bool allowAdditions = false,
     bool allowDeletions = false,
+    List<ConceptRevisionClarification> clarifications = const [],
   }) async {
     capturedConcepts = List.of(concepts);
     capturedInstruction = instruction;
     capturedTargetConceptIds = Set.of(targetConceptIds);
-    return [revision];
+    return ConceptRevisionResponse(
+      status: ConceptRevisionStatus.ready,
+      comment: '요청을 반영했습니다.',
+      clarificationQuestion: '',
+      changes: [revision],
+    );
   }
 }

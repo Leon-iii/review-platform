@@ -145,8 +145,8 @@ public sealed class OpenAiStructuredOutputSchemaTests
             var text = operation switch
             {
                 "questions" => "{\"questions\":[]}",
-                "concepts" => "{\"concepts\":[]}",
-                "revision" => "{\"revisions\":[],\"additions\":[],\"deletions\":[]}",
+                "concepts" => "{\"concepts\":[{\"title\":\"개념\",\"content\":\"내용\",\"pageNumbers\":[1],\"importance\":\"medium\"}]}",
+                "revision" => "{\"revisions\":[],\"additions\":[],\"deletions\":[],\"status\":\"noChanges\",\"comment\":\"변경 불필요\",\"clarificationQuestion\":\"\"}",
                 _ => "{\"text\":\"\"}"
             };
             return new HttpResponseMessage(HttpStatusCode.OK)

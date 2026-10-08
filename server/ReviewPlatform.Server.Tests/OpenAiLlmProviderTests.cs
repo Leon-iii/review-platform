@@ -270,6 +270,7 @@ public sealed class OpenAiLlmProviderTests
     public async Task ReviseConcepts_ParsesAdditionsAndDeletionsWithGroups()
     {
         var output = JsonSerializer.Serialize(new {
+            status = "ready", comment = "교체 요청을 반영했습니다.", clarificationQuestion = "",
             revisions = Array.Empty<object>(),
             additions = new[] { new { title = "새 개념", content = "내용", pageNumbers = Array.Empty<int>(), importance = "high", groupId = "replace", reason = "교체" } },
             deletions = new[] { new { id = "c1", reason = "교체 요청", groupId = "replace" } }
@@ -277,12 +278,12 @@ public sealed class OpenAiLlmProviderTests
         var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, new {
             status = "completed", output = new[] { new { type = "message", content = new[] { new { type = "output_text", text = output } } } }
         }));
-        var changes = await CreateProvider(handler).ReviseConceptsAsync(new ConceptRevisionInput(
+        var changes = await CreateProvider(handler, model: "gpt-4.1").ReviseConceptsAsync(new ConceptRevisionInput(
             "source", "자료", 0, "교체", [new ConceptRevisionContext("c1", "제목", "내용", [], "held")],
             ["c1"], ConceptRevisionPrompt.Version, true, true), TestContext.Current.CancellationToken);
-        Assert.Equal(["add", "delete"], changes.Select(item => item.Kind));
-        Assert.All(changes, item => Assert.Equal("replace", item.GroupId));
-        Assert.Equal("교체 요청", changes[1].Reason);
+        Assert.Equal(["add", "delete"], changes.Changes.Select(item => item.Kind));
+        Assert.All(changes.Changes, item => Assert.Equal("replace", item.GroupId));
+        Assert.Equal("교체 요청", changes.Changes[1].Reason);
         using var request = JsonDocument.Parse(handler.RequestBody!);
         var schema = request.RootElement.GetProperty("text").GetProperty("format").GetProperty("schema");
         Assert.True(schema.GetProperty("properties").TryGetProperty("additions", out _));
@@ -295,6 +296,7 @@ public sealed class OpenAiLlmProviderTests
         const string revised = "객체가 캐시에 있으면 캐시 히트(cache hit)로 캐시가 반환하고, 없으면 캐시 미스(cache miss)로 원본 서버에서 받아 저장한 뒤 전달한다.";
         var output = JsonSerializer.Serialize(new
         {
+            status = "ready", comment = "용어를 통합했습니다.", clarificationQuestion = "",
             revisions = new[] { new { id = "cache", title = "웹 캐시", content = revised,
                 pageNumbers = new[] { 1 }, importance = "medium", groupId = "" } },
             additions = Array.Empty<object>(), deletions = Array.Empty<object>()
@@ -309,9 +311,9 @@ public sealed class OpenAiLlmProviderTests
             [new ConceptRevisionContext("cache", "웹 캐시", "객체가 캐시에 있으면 캐시가 반환한다.", [1], "approved")],
             ["cache"], ConceptRevisionPrompt.Version);
 
-        var revisions = await CreateProvider(handler).ReviseConceptsAsync(input, TestContext.Current.CancellationToken);
+        var revisions = await CreateProvider(handler, model: "gpt-4.1").ReviseConceptsAsync(input, TestContext.Current.CancellationToken);
 
-        Assert.Equal(revised, Assert.Single(revisions).Content);
+        Assert.Equal(revised, Assert.Single(revisions.Changes).Content);
         using var request = JsonDocument.Parse(handler.RequestBody!);
         var messages = request.RootElement.GetProperty("input");
         Assert.Equal(ConceptRevisionPrompt.SystemPrompt, messages[0].GetProperty("content").GetString());

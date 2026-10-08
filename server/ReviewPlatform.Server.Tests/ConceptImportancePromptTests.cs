@@ -91,4 +91,54 @@ public sealed class ConceptImportancePromptTests
         Assert.DoesNotContain("Cerf", extraction);
         Assert.DoesNotContain("ARPAnet", extraction);
     }
+
+    [Fact]
+    public void Examples_AreClassifiedByLearningValueBeforeIndependenceAndScope()
+    {
+        var prompt = DirectPdfConceptPrompt.SystemPrompt;
+        Assert.Contains("learning value,\nsemantic independence, then explanatory scope", prompt.Replace("\r\n", "\n"));
+        Assert.Contains("whether another example could", prompt);
+        Assert.Contains("forgetting this case's specific facts", prompt);
+        Assert.Contains("Illustrative example:", prompt);
+        Assert.Contains("integrate the useful illustration naturally", prompt);
+        Assert.Contains("Learning-worthy case within its parent:", prompt);
+        Assert.Contains("explicitly explain what the learner should understand", prompt);
+        Assert.Contains("Independent learning-worthy case:", prompt);
+        Assert.Contains("review question beyond isolated trivia", prompt);
+        Assert.Contains("Length, visual emphasis, or number of", prompt);
+        Assert.Contains("facts alone never justifies promotion", prompt);
+        Assert.Contains("Repetition is only a clue", prompt);
+        Assert.Contains("source explicitly requires learning them", prompt);
+    }
+
+    [Fact]
+    public void ExampleHandling_PreservesContextAndProvenanceWithoutInventingStudyRequirements()
+    {
+        var prompt = DirectPdfConceptPrompt.SystemPrompt;
+        Assert.Contains("If learning-value evidence is insufficient", prompt);
+        Assert.Contains("without claiming mandatory memorization", prompt);
+        Assert.Contains("do not duplicate the case's detailed facts", prompt);
+        Assert.Contains("context needed to understand it", prompt);
+        Assert.Contains("page numbers for each resulting concept, including across slides", prompt);
+        Assert.Contains("Do not add outside facts or invent case details", prompt);
+        Assert.Contains("These treatments do not override separation", prompt);
+        Assert.Contains(ConceptLanguagePrompt.Instructions, prompt);
+        Assert.Contains(StudyNotationPrompt.Instructions, prompt);
+        // Policy must not inject the discussion's examples into generated learning content.
+        Assert.DoesNotContain("Swiss", prompt);
+        Assert.DoesNotContain("traffic light", prompt);
+        Assert.DoesNotContain("Cerf", prompt);
+        Assert.DoesNotContain("Kahn", prompt);
+    }
+
+    [Fact]
+    public void IllustrativeDetails_DoNotInflateParentOrSeparatedCaseImportance()
+    {
+        foreach (var prompt in new[] { DirectPdfConceptPrompt.SystemPrompt, ConceptRevisionPrompt.SystemPrompt })
+        {
+            Assert.Contains("Rate a parent concept by its learning-worthy knowledge", prompt);
+            Assert.Contains("incidental details in embedded illustrative examples", prompt);
+            Assert.Contains("not automatically important merely because it was extracted", prompt);
+        }
+    }
 }

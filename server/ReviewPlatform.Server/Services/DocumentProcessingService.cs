@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using ReviewPlatform.Server.AI;
 using ReviewPlatform.Server.Contracts;
+using UglyToad.PdfPig;
 
 namespace ReviewPlatform.Server.Services;
 
@@ -10,15 +11,18 @@ public sealed partial class DocumentProcessingService
     private readonly IWebHostEnvironment environment;
     private readonly IConfiguration configuration;
     private readonly ILogger<DocumentProcessingService> logger;
+    private readonly DirectPdfTelemetryStore? directPdfTelemetry;
     private DocumentLimits Limits => configuration.GetSection("Documents").Get<DocumentLimits>() ?? new();
 
     public DocumentProcessingService(IPdfPageRenderer pageRenderer, IWebHostEnvironment environment,
-        IConfiguration configuration, ILogger<DocumentProcessingService> logger)
+        IConfiguration configuration, ILogger<DocumentProcessingService> logger,
+        DirectPdfTelemetryStore? directPdfTelemetry = null)
     {
         this.pageRenderer = pageRenderer;
         this.environment = environment;
         this.configuration = configuration;
         this.logger = logger;
+        this.directPdfTelemetry = directPdfTelemetry;
     }
 
     public Task<RenderedDocumentPage> RenderStoredPageAsync(string sourceId, int pageNumber,
@@ -28,6 +32,31 @@ public sealed partial class DocumentProcessingService
         if (!File.Exists(path))
             throw new DocumentImportException("서버에 원본 PDF 파일이 없습니다. 추출된 개념은 계속 열람할 수 있습니다.");
         return pageRenderer.RenderAsync(path, pageNumber, cancellationToken);
+    }
+
+    // Source previews must not depend on job checkpoints, prompt versions,
+    // current model settings or current import limits.
+    public async Task<RenderedDocumentPage> SourceImageAsync(string sourceId, int pageNumber,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParseExact(sourceId, "D", out _))
+            throw new DocumentImportException("올바르지 않은 PDF 자료 ID입니다.");
+        var path = Path.Combine(ResolveStorageRoot(), $"{sourceId}.pdf");
+        if (!File.Exists(path))
+            throw new DocumentImportException("원본 PDF를 찾을 수 없습니다. 개념은 계속 열람할 수 있습니다.");
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            using var pdf = PdfDocument.Open(path);
+            if (pageNumber < 1 || pageNumber > pdf.NumberOfPages)
+                throw new DocumentImportException("올바르지 않은 PDF 출처 페이지입니다.");
+        }
+        catch (DocumentImportException) { throw; }
+        catch (Exception exception)
+        {
+            throw new DocumentImportException("원본 PDF를 읽지 못했습니다. 파일이 손상되었거나 암호화되어 있는지 확인해 주세요.", exception);
+        }
+        return await pageRenderer.RenderAsync(path, pageNumber, cancellationToken);
     }
 
     public async Task StoreUploadAsync(string sourceId, Stream content, string fileName,
@@ -145,7 +174,7 @@ public sealed partial class DocumentProcessingService
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static IReadOnlyList<GeneratedConceptDraft> ValidateConcepts(
+    internal static IReadOnlyList<GeneratedConceptDraft> ValidateConcepts(
         IReadOnlyList<GeneratedConceptDraft> concepts,
         IEnumerable<int> pages)
     {
@@ -153,6 +182,8 @@ public sealed partial class DocumentProcessingService
         var validated = new List<GeneratedConceptDraft>(concepts.Count);
         foreach (var concept in concepts)
         {
+            if (concept is null || concept.Title is null || concept.Content is null || concept.PageNumbers is null)
+                throw new LlmProviderRequestException("LLM이 올바르지 않은 개념 추출 결과를 반환했습니다.");
             var title = concept.Title.Trim();
             var content = concept.Content.Trim();
             var pageNumbers = concept.PageNumbers

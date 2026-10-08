@@ -16,7 +16,9 @@ public interface ILLMProvider
         QuestionGenerationInput input,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<GeneratedConceptRevision>> ReviseConceptsAsync(
+    bool SupportsRevisionPdf => false;
+
+    Task<ConceptRevisionResult> ReviseConceptsAsync(
         ConceptRevisionInput input,
         CancellationToken cancellationToken = default)
     {
