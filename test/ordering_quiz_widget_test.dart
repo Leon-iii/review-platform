@@ -97,6 +97,17 @@ void main() {
         BoxDecoration decoration(String id) =>
             tester.widget<DecoratedBox>(badge(id)).decoration as BoxDecoration;
         final colors = Theme.of(tester.element(badge('a'))).colorScheme;
+        final rankStyle = Theme.of(tester.element(badge('a')))
+            .textTheme
+            .labelLarge!;
+        final textHeight =
+            MediaQuery.textScalerOf(tester.element(badge('a')))
+                .scale(rankStyle.fontSize!) *
+            (rankStyle.height ?? 1.25);
+        final previousExtent = (textHeight + AppSpacing.lg).clamp(
+          AppSpacing.section,
+          double.infinity,
+        );
         Future<void> tap(String id) async {
           final button = find.byKey(Key('ordering-choice-$id'));
           await tester.ensureVisible(button);
@@ -118,7 +129,24 @@ void main() {
           expect(rank(choice.id), isEmpty);
           final size = tester.getSize(badge(choice.id));
           expect(size.width, size.height);
-          expect(size.width, greaterThanOrEqualTo(AppSpacing.section));
+          expect(size.width, closeTo(previousExtent * 0.8 * 0.9, 0.001));
+          final choiceButton = find.byKey(Key('ordering-choice-${choice.id}'));
+          final text = find.descendant(
+            of: choiceButton,
+            matching: find.byType(StudyText),
+          );
+          expect(
+            tester.getCenter(text).dy,
+            closeTo(tester.getCenter(badge(choice.id)).dy, 0.001),
+          );
+          expect(
+            tester.getCenter(text).dy,
+            closeTo(tester.getCenter(choiceButton).dy, 0.001),
+          );
+          expect(
+            tester.getSize(choiceButton).height,
+            greaterThanOrEqualTo(AppLayout.touchTarget),
+          );
           expect(decoration(choice.id).color, colors.surface);
           expect(
             decoration(choice.id).borderRadius,
@@ -146,10 +174,11 @@ void main() {
           colors.onPrimary,
         );
         expect(tester.getSize(badge('d')), emptySize);
-        expect(
-          tester.getCenter(badge('d')),
-          tester.getCenter(find.byKey(const Key('ordering-choice-rank-d'))),
+        final rankCenter = tester.getCenter(
+          find.byKey(const Key('ordering-choice-rank-d')),
         );
+        expect(tester.getCenter(badge('d')).dx, closeTo(rankCenter.dx, 0.001));
+        expect(tester.getCenter(badge('d')).dy, closeTo(rankCenter.dy, 0.001));
         expect(rank('c'), isEmpty);
         expectNoSummary();
         final content = find.descendant(
@@ -178,6 +207,12 @@ void main() {
           await tap(choice.id);
         }
         expect(rank('a'), '6');
+        final numberRect = tester.getRect(
+          find.byKey(const Key('ordering-choice-rank-a')),
+        );
+        final badgeRect = tester.getRect(badge('a'));
+        expect(badgeRect.contains(numberRect.topLeft), isTrue);
+        expect(badgeRect.contains(numberRect.bottomRight), isTrue);
         expectNoSummary();
         update(() => enabled = false);
         await tester.pumpAndSettle();

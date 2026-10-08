@@ -45,7 +45,7 @@ class OrderingAnswerPicker extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     _OrderingRankBadge(
                       choiceId: choices[index].id,
@@ -94,14 +94,16 @@ class _OrderingRankBadge extends StatelessWidget {
       fontWeight: FontWeight.w700,
       color: selected && enabled ? colors.onPrimary : colors.onSurfaceVariant,
     );
-    // Preserve a square and stable alignment for both empty and numbered states,
-    // with room for the font's line height at enlarged text sizes.
-    final extent = math.max(
-      AppSpacing.section,
-      MediaQuery.textScalerOf(context).scale(style.fontSize!) *
-              (style.height ?? 1.25) +
-          AppSpacing.lg,
+    // Reduce the current badge by another 10%, keeping both states square.
+    // At unusually large text sizes, preserve the full number line.
+    final textHeight =
+        MediaQuery.textScalerOf(context).scale(style.fontSize!) *
+        (style.height ?? 1.25);
+    final previousExtent = math.max(
+      math.max(AppSpacing.section, textHeight + AppSpacing.lg) * 0.8,
+      textHeight + AppSpacing.xs,
     );
+    final extent = math.max(previousExtent * 0.9, textHeight);
     return SizedBox.square(
       dimension: extent,
       child: DecoratedBox(
