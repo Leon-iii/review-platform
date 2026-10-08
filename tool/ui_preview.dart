@@ -99,15 +99,36 @@ Future<UiPreviewFixture> createUiPreviewFixture({
           type: type,
           prompt: type == QuestionType.trueFalse
               ? '캐시에 객체가 있으면 캐시 히트이다.'
+              : type == QuestionType.ordering
+              ? '캐시 미스 처리 과정을 올바르게 배열해라.'
               : '캐시에 객체가 존재해 원본 서버 호출 없이 반환하는 동작을 무엇이라 하는가?',
-          explanation: '캐시 히트는 저장된 객체를 바로 반환하는 경우이다. 캐시 미스와 구별해라.',
+          explanation: type == QuestionType.ordering
+              ? '객체가 없는지 확인한 뒤 원본에서 가져와 저장하고 클라이언트에게 반환한다.'
+              : '캐시 히트는 저장된 객체를 바로 반환하는 경우이다. 캐시 미스와 구별해라.',
+          correctOrder: type == QuestionType.ordering
+              ? const [1, 2, 3]
+              : const [],
           acceptableAnswers:
               type == QuestionType.shortAnswer || type == QuestionType.essay
               ? const ['캐시 히트', 'cache hit']
               : const [],
-          choices:
-              type == QuestionType.multipleChoice ||
-                  type == QuestionType.trueFalse
+          choices: type == QuestionType.ordering
+              ? const [
+                  QuestionChoiceDraft(
+                    text: '캐시에 객체가 없음을 확인한다.',
+                    isCorrect: true,
+                  ),
+                  QuestionChoiceDraft(
+                    text: '원본 서버에서 객체를 받아 캐시에 저장한다.',
+                    isCorrect: true,
+                  ),
+                  QuestionChoiceDraft(
+                    text: '객체를 클라이언트에게 반환한다.',
+                    isCorrect: true,
+                  ),
+                ]
+              : type == QuestionType.multipleChoice ||
+                    type == QuestionType.trueFalse
               ? [
                   QuestionChoiceDraft(
                     text: type == QuestionType.trueFalse ? 'O' : '캐시 히트',

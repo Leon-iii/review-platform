@@ -384,6 +384,17 @@ class DriftQuestionRepository implements QuestionRepository {
     ];
 
     await _database.questionDao.replaceChoices(questionId, choiceCompanions);
+    await _database.questionDao.updateQuestion(
+      questionId,
+      QuestionsCompanion(
+        correctChoiceIdsJson: Value(
+          jsonEncode([
+            for (final position in draft.correctOrder)
+              choiceCompanions[position - 1].id.value,
+          ]),
+        ),
+      ),
+    );
     await _database.questionDao.replaceAcceptableAnswers(
       questionId,
       answerCompanions,
@@ -442,6 +453,9 @@ class DriftQuestionRepository implements QuestionRepository {
       difficulty: row.difficulty ?? 3,
       caseSensitive: row.caseSensitive,
       whitespaceSensitive: row.whitespaceSensitive,
+      correctChoiceIds: List.unmodifiable(
+        (jsonDecode(row.correctChoiceIdsJson) as List).cast<String>(),
+      ),
       choices: List.unmodifiable(
         choices.map(
           (choice) => QuestionChoice(

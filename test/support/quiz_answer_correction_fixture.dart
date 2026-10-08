@@ -34,8 +34,15 @@ createWrongQuiz(
       explanation: '정답 등록 테스트 해설',
       caseSensitive: caseSensitive,
       whitespaceSensitive: whitespaceSensitive,
-      choices:
-          type == QuestionType.multipleChoice || type == QuestionType.trueFalse
+      correctOrder: type == QuestionType.ordering ? const [1, 2, 3] : const [],
+      choices: type == QuestionType.ordering
+          ? const [
+              QuestionChoiceDraft(text: '시작', isCorrect: true),
+              QuestionChoiceDraft(text: '처리', isCorrect: true),
+              QuestionChoiceDraft(text: '종료', isCorrect: true),
+            ]
+          : type == QuestionType.multipleChoice ||
+                type == QuestionType.trueFalse
           ? [
               QuestionChoiceDraft(
                 text: type == QuestionType.trueFalse ? 'O' : '기존 정답',
@@ -70,6 +77,12 @@ createWrongQuiz(
       sessionId: session,
       response: unknown
           ? {'isUnknown': true}
+          : type == QuestionType.ordering
+          ? {
+              'orderedChoiceIds': correct
+                  ? question.correctChoiceIds
+                  : question.correctChoiceIds.reversed.toList(),
+            }
           : question.choices.isNotEmpty
           ? {'selectedChoiceId': question.choices[correct ? 0 : 1].id}
           : {'textAnswer': correct ? acceptableAnswers.first : submittedAnswer},

@@ -20,6 +20,72 @@ import '../../support/fake_ai.dart';
 import '../../support/fake_sync.dart';
 
 void main() {
+  test('AI 순서 배열형은 정답 순서를 ID로 저장하고 주개념·중요도·실제 난이도를 유지한다', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final folder = await DriftFolderRepository(db).createFolder(name: '과정');
+    final sources = DriftSourceRepository(db);
+    final source = (await sources.createSource(
+      folderId: folder,
+      name: '자료',
+    )).source;
+    final concept = await sources.addConcept(
+      sourceId: source.id,
+      title: '처리 과정',
+      content: '설정을 완료하고 정보를 처리한 뒤 결과를 저장한다.',
+      importance: ConceptImportance.high,
+    );
+    final remote = FakeRemoteAiApi();
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWithValue(db),
+        remoteAiApiProvider.overrideWithValue(remote),
+        syncCredentialsStoreProvider.overrideWithValue(
+          MemorySyncCredentialsStore(
+            configuration: const SyncConfiguration(
+              serverUrl: 'http://127.0.0.1:5080',
+              accessToken: 'token',
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final provider = aiQuestionGenerationControllerProvider(folder);
+    await container
+        .read(provider.notifier)
+        .generate(
+          folderId: folder,
+          sourceText: concept.content,
+          concepts: [concept],
+          questionCount: 1,
+          questionTypes: {QuestionType.ordering},
+          minimumDifficulty: 4,
+          maximumDifficulty: 5,
+          sourceReference: QuestionSourceDraft(
+            sourceId: source.id,
+            pageNumbers: const [],
+          ),
+        );
+    final item = container.read(provider).requireValue!.items.single;
+    final question = (await container
+        .read(questionRepositoryProvider)
+        .getQuestion(item.questionId))!;
+    expect(question.type, QuestionType.ordering);
+    expect(question.correctChoiceIds, question.choices.map((c) => c.id));
+    expect(question.primaryConceptId, concept.id);
+    expect(question.importance, ConceptImportance.high);
+    expect(question.difficulty, 2);
+    expect(question.status, QuestionStatus.draft);
+    await container.read(provider.notifier).approveAll();
+    expect(
+      (await container
+              .read(questionRepositoryProvider)
+              .getQuestion(item.questionId))!
+          .status,
+      QuestionStatus.approved,
+    );
+  });
   for (final invalidId in [false, true]) {
     test('문항별 주개념 연결을 검증하고 중요도를 상속한다 (잘못된 ID: $invalidId)', () async {
       final db = AppDatabase(NativeDatabase.memory());

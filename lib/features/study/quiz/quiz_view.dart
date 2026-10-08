@@ -1,5 +1,6 @@
 import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:review_platform/shared/widgets/study_text.dart';
+import 'package:review_platform/shared/widgets/ordering_answer_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/app/design_tokens.dart';
@@ -160,6 +161,24 @@ class _QuizViewState extends ConsumerState<QuizView> {
                                       expectedItemId: item.id,
                                     ),
                                   )
+                                else if (question.type == QuestionType.ordering)
+                                  OrderingAnswerPicker(
+                                    choices: question.choices,
+                                    selectedIds: state.orderedChoiceIds,
+                                    enabled: !state.isSubmitting,
+                                    onToggle: ref
+                                        .read(
+                                          quizViewModelProvider(sessionId)
+                                              .notifier,
+                                        )
+                                        .toggleOrderingChoice,
+                                    onClear: ref
+                                        .read(
+                                          quizViewModelProvider(sessionId)
+                                              .notifier,
+                                        )
+                                        .clearOrderingChoices,
+                                  )
                                 else if (question.type ==
                                     QuestionType.multipleChoice)
                                   RadioGroup<String>(
@@ -285,7 +304,11 @@ class _QuizViewState extends ConsumerState<QuizView> {
                           const SizedBox(height: 20),
                           FilledButton.icon(
                             key: const Key('submit-answer-button'),
-                            onPressed: state.isSubmitting
+                            onPressed:
+                                state.isSubmitting ||
+                                    (question.type == QuestionType.ordering &&
+                                        state.orderedChoiceIds.length !=
+                                            question.choices.length)
                                 ? null
                                 : () => _submit(
                                     context,
@@ -303,7 +326,8 @@ class _QuizViewState extends ConsumerState<QuizView> {
                             label: Text(
                               state.isSubmitting
                                   ? '저장 중...'
-                                  : question.type == QuestionType.essay
+                                  : question.type == QuestionType.essay ||
+                                        question.type == QuestionType.ordering
                                   ? '답안 제출'
                                   : '정답 제출',
                             ),
@@ -352,6 +376,7 @@ class _QuizViewState extends ConsumerState<QuizView> {
   }
 
   String _questionTypeLabel(QuestionType type) => switch (type) {
+    QuestionType.ordering => '순서 배열형',
     QuestionType.multipleChoice => '객관식',
     QuestionType.trueFalse => 'O/X',
     QuestionType.shortAnswer => '단답형',

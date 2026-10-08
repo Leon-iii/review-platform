@@ -58,7 +58,7 @@ final class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'review_platform'));
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -71,6 +71,10 @@ final class AppDatabase extends _$AppDatabase {
         await migrator.createTable(questions);
         await migrator.createTable(questionChoices);
         await migrator.createTable(acceptableAnswers);
+      }
+      // Before old migrations/sync seeding hydrate complete question rows.
+      if (from >= 3 && from < 16) {
+        await migrator.addColumn(questions, questions.correctChoiceIdsJson);
       }
       // Hydration during the older sync seeding also reads this column.
       if (from >= 3 && from < 12) {

@@ -159,6 +159,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
           QuestionDraft(
             folderId: folderId,
             type: question.type,
+            correctOrder: question.correctOrder,
             status: QuestionStatus.draft,
             prompt: question.prompt,
             choices: [

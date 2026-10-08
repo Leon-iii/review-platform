@@ -25,7 +25,8 @@ public sealed record GeneratedQuestionDraft(
     string? Explanation,
     int? Difficulty,
     IReadOnlyList<string> SourceIds,
-    string? PrimaryConceptId = null)
+    string? PrimaryConceptId = null,
+    IReadOnlyList<int>? CorrectOrder = null)
 {
     public string Status => "draft";
 }

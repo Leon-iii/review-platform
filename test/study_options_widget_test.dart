@@ -77,6 +77,7 @@ void main() {
     expect(typeFilters.map((chip) => (chip.label as Text).data).toList(), [
       'O/X',
       '객관식',
+      '순서 배열형',
       '단답형',
       '서술형',
     ]);

@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:review_platform/shared/widgets/app_option_selector.dart';
+import 'package:review_platform/shared/widgets/ordering_sequence.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:review_platform/app/app.dart';
@@ -38,6 +39,87 @@ void main() {
     await tester.tap(finder);
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+    '순서 배열형 AI 생성·검토·승인에서 정답 순서를 표시하고 저장한다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 850));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appDatabaseProvider.overrideWithValue(database),
+            isWindowsPlatformProvider.overrideWithValue(false),
+            remoteAiApiProvider.overrideWithValue(api),
+            syncCredentialsStoreProvider.overrideWithValue(
+              MemorySyncCredentialsStore(
+                configuration: const SyncConfiguration(
+                  serverUrl: 'http://127.0.0.1:5080',
+                  accessToken: 'test-token',
+                ),
+              ),
+            ),
+            remoteSyncApiProvider.overrideWithValue(FakeRemoteSyncApi()),
+          ],
+          child: const ReviewApp(),
+        ),
+      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('home-view'))),
+      );
+      container
+          .read(routerProvider)
+          .go('${AppRoutes.aiGenerate}?folderId=$folderId');
+      await tester.pumpAndSettle();
+      final types = tester.widget<AppOptionSelector<QuestionType>>(
+        find.byType(AppOptionSelector<QuestionType>),
+      );
+      types.onSelectionChanged!({QuestionType.ordering});
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('ai-source-text-field')),
+        '설정 후 정보를 처리하고 결과를 저장하는 과정에 관한 학습 내용',
+      );
+      await tapVisible(tester, find.byKey(const Key('ai-count-mode-manual')));
+      await tester.enterText(
+        find.byKey(const Key('ai-manual-question-count-field')),
+        '1',
+      );
+      await tapVisible(
+        tester,
+        find.byKey(const Key('generate-ai-questions-button')),
+      );
+      expect(api.lastRequest!.questionTypes, {QuestionType.ordering});
+      expect(find.byType(OrderingSequence), findsOneWidget);
+      final sequence = tester.widget<OrderingSequence>(
+        find.byType(OrderingSequence),
+      );
+      expect(sequence.steps.map((s) => s.label), ['1', '2', '3']);
+      expect(find.text('1 → 2 → 3'), findsOneWidget);
+      await tapVisible(
+        tester,
+        find.byKey(const Key('approve-all-ai-questions-button')),
+      );
+      final questions = (await tester.runAsync(
+        () => DriftQuestionRepository(database).watchQuestions(folderId).first,
+      ))!;
+      expect(
+        questions.single.correctChoiceIds,
+        questions.single.choices.map((c) => c.id),
+      );
+      expect(questions.single.status.name, 'approved');
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.android,
+    }),
+  );
 
   for (final mode in AiQuestionGenerationMode.values) {
     testWidgets(
@@ -82,6 +164,7 @@ void main() {
         expect(types.segments.map((segment) => segment.value).toList(), [
           QuestionType.trueFalse,
           QuestionType.multipleChoice,
+          QuestionType.ordering,
           QuestionType.shortAnswer,
           QuestionType.essay,
         ]);

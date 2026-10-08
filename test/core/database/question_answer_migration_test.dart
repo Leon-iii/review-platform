@@ -113,6 +113,7 @@ void main() {
     legacy.execute('PRAGMA user_version = 12');
     legacy.execute('ALTER TABLE questions DROP COLUMN case_sensitive');
     legacy.execute('ALTER TABLE questions DROP COLUMN whitespace_sensitive');
+    legacy.execute('ALTER TABLE questions DROP COLUMN correct_choice_ids_json');
     legacy.close();
     final upgraded = AppDatabase(NativeDatabase(file));
     var upgradedClosed = false;

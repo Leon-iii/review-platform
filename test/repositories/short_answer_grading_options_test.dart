@@ -154,6 +154,7 @@ void main() {
       'ALTER TABLE quiz_session_items DROP COLUMN skipped_for_review',
     );
     legacy.execute('PRAGMA user_version = 13');
+    legacy.execute('ALTER TABLE questions DROP COLUMN correct_choice_ids_json');
     legacy.close();
     final upgraded = AppDatabase(NativeDatabase(file));
     addTearDown(upgraded.close);
@@ -169,6 +170,6 @@ void main() {
     expect(after.caseSensitive, false);
     expect(after.whitespaceSensitive, false);
     expect((await DriftSyncRepository(upgraded).getPending()).length, pending);
-    expect(upgraded.schemaVersion, 15);
+    expect(upgraded.schemaVersion, 16);
   });
 }

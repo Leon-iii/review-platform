@@ -120,7 +120,14 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       text: question?.explanation ?? '',
     );
 
-    final choices = question?.choices ?? const <QuestionChoice>[];
+    final choices = [...question?.choices ?? const <QuestionChoice>[]];
+    if (_type == QuestionType.ordering && question != null) {
+      choices.sort(
+        (a, b) => question.correctChoiceIds
+            .indexOf(a.id)
+            .compareTo(question.correctChoiceIds.indexOf(b.id)),
+      );
+    }
     _choiceControllers = choices.isEmpty
         ? List.generate(4, (_) => TextEditingController())
         : [
@@ -203,6 +210,11 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         onSelectionChanged: (selection) {
                           setState(() {
                             _type = selection.single;
+                            if (_type == QuestionType.ordering) {
+                              while (_choiceControllers.length < 3) {
+                                _choiceControllers.add(TextEditingController());
+                              }
+                            }
                             if (_type == QuestionType.trueFalse &&
                                 _correctChoiceIndex > 1) {
                               _correctChoiceIndex = 0;
@@ -235,6 +247,7 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
                         QuestionType.trueFalse => _buildTrueFalseFields(),
                         QuestionType.shortAnswer => _buildShortAnswerFields(),
                         QuestionType.essay => _buildShortAnswerFields(),
+                        QuestionType.ordering => _buildOrderingFields(),
                       },
                       const SizedBox(height: 24),
                       DropdownButtonFormField<int>(
@@ -415,6 +428,83 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
     );
   }
 
+  Widget _buildOrderingFields() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text('단계 / 정답 순서', style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 8),
+      const Text('정답 순서대로 서로 다른 단계 3~6개를 입력해 주세요. 풀이에서는 선지를 섞어 표시합니다.'),
+      const SizedBox(height: 12),
+      for (var index = 0; index < _choiceControllers.length; index++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextFormField(
+                key: Key('ordering-step-field-$index'),
+                controller: _choiceControllers[index],
+                enabled: !_isSaving,
+                minLines: 1,
+                maxLines: 4,
+                decoration: InputDecoration(labelText: '단계 ${index + 1}'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? '단계를 입력해 주세요.'
+                    : null,
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    key: Key('ordering-step-up-$index'),
+                    tooltip: '단계 위로 이동',
+                    onPressed: _isSaving || index == 0
+                        ? null
+                        : () => _moveStep(index, index - 1),
+                    icon: const Icon(Icons.arrow_upward_rounded),
+                  ),
+                  IconButton(
+                    key: Key('ordering-step-down-$index'),
+                    tooltip: '단계 아래로 이동',
+                    onPressed:
+                        _isSaving || index == _choiceControllers.length - 1
+                        ? null
+                        : () => _moveStep(index, index + 1),
+                    icon: const Icon(Icons.arrow_downward_rounded),
+                  ),
+                  IconButton(
+                    key: Key('ordering-step-remove-$index'),
+                    tooltip: '단계 삭제',
+                    onPressed: _isSaving || _choiceControllers.length <= 3
+                        ? null
+                        : () => _removeChoice(index),
+                    icon: const Icon(Icons.remove_circle_outline_rounded),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      TextButton.icon(
+        key: const Key('ordering-step-add'),
+        onPressed: _isSaving || _choiceControllers.length >= 6
+            ? null
+            : () => setState(
+                () => _choiceControllers.add(TextEditingController()),
+              ),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('단계 추가'),
+      ),
+    ],
+  );
+
+  void _moveStep(int from, int to) {
+    setState(() {
+      final controller = _choiceControllers.removeAt(from);
+      _choiceControllers.insert(to, controller);
+    });
+  }
+
   Widget _buildShortAnswerFields() {
     final essay = _type == QuestionType.essay;
     return Column(
@@ -565,7 +655,14 @@ class _QuestionEditorFormState extends ConsumerState<_QuestionEditorForm> {
       importance: _importance,
       caseSensitive: _caseSensitive,
       whitespaceSensitive: _whitespaceSensitive,
+      correctOrder: _type == QuestionType.ordering
+          ? List.generate(_choiceControllers.length, (i) => i + 1)
+          : const [],
       choices: switch (_type) {
+        QuestionType.ordering => [
+          for (final controller in _choiceControllers)
+            QuestionChoiceDraft(text: controller.text, isCorrect: true),
+        ],
         QuestionType.multipleChoice => [
           for (var index = 0; index < _choiceControllers.length; index++)
             QuestionChoiceDraft(

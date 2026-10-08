@@ -31,6 +31,25 @@ public sealed class SyncServiceTests : IAsyncLifetime
         await connection.DisposeAsync();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Ordering_PreservesIdentityBasedAnswerAndRejectsInvalidPermutations(bool invalid)
+    {
+        var payload = JsonSerializer.SerializeToElement(new {
+            id = "ordered-q", type = "ordering", correctChoiceIds = invalid ? new[] { "a", "a", "x" } : new[] { "b", "a", "c" },
+            choices = new[] { new { id = "a", text = "단계 1", isCorrect = true }, new { id = "b", text = "단계 2", isCorrect = true },
+                new { id = "c", text = "단계 3", isCorrect = true } }, acceptableAnswers = Array.Empty<string>() });
+        var change = new PushChange("order-op", "question", "ordered-q", "upsert", payload, DateTimeOffset.UtcNow, null);
+        if (invalid)
+            await Assert.ThrowsAsync<SyncValidationException>(() => service.PushAsync(new([change]), TestContext.Current.CancellationToken));
+        else {
+            await service.PushAsync(new([change]), TestContext.Current.CancellationToken);
+            var pulled = await service.PullAsync(0, 100, TestContext.Current.CancellationToken);
+            Assert.Equal("[\"b\",\"a\",\"c\"]", pulled.Changes.Single().Payload!.Value.GetProperty("correctChoiceIds").GetRawText());
+        }
+    }
+
     [Fact]
     public async Task PushThenPull_AssignsIncreasingRevisions()
     {

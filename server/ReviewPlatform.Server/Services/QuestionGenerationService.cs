@@ -11,14 +11,15 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v15-haera-che";
+    public const string PromptVersion = "question-generation-v16-ordering";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [
         "multipleChoice",
         "trueFalse",
         "shortAnswer",
-        "essay"
+        "essay",
+        "ordering"
     ];
     private static readonly JsonSerializerOptions JsonOptions = new(
         JsonSerializerDefaults.Web);
@@ -321,7 +322,7 @@ public sealed class QuestionGenerationService
             questionTypes.Any(type => !SupportedQuestionTypes.Contains(type)))
         {
             throw new QuestionGenerationRequestException(
-                "문제 유형은 multipleChoice, trueFalse, shortAnswer 또는 essay만 사용할 수 있습니다.");
+                "문제 유형은 multipleChoice, trueFalse, shortAnswer, essay 또는 ordering만 사용할 수 있습니다.");
         }
 
         var sourceLabel = string.IsNullOrWhiteSpace(request.SourceLabel)
@@ -372,6 +373,8 @@ public sealed class QuestionGenerationService
         IReadOnlyList<GeneratedQuestionDraft> generated,
         QuestionGenerationInput input)
     {
+        if (generated.Count == 0 && input.QuestionTypes.All(type => type == "ordering"))
+            throw new LlmOutputValidationException("순서 배열형 문항이 생성되지 않았습니다. 자료에 선후 관계가 명확한 3~6단계 과정이 있는지 확인해 주세요.");
         if (input.PlannedQuestionCount is int planned && generated.Count != planned)
             throw new LlmOutputValidationException(
                 $"LLM이 개념별 배분과 다른 수의 문제를 반환했습니다 (계획 {planned}개, 응답 {generated.Count}개).");
@@ -448,7 +451,20 @@ public sealed class QuestionGenerationService
                 throw new LlmOutputValidationException(
                     "생성된 문제의 주개념 ID가 입력 개념 또는 생성 배분에 없습니다.", questionNumber);
 
-            if (type == "multipleChoice")
+            var order = question.CorrectOrder ?? [];
+            if (type != "ordering" && order.Count != 0)
+                throw new LlmOutputValidationException("순서 배열형이 아닌 문제에 정답 순서가 포함되었습니다.", questionNumber);
+            if (type == "ordering")
+            {
+                if (choices.Count is < 3 or > 6 ||
+                    choices.Any(choice => choice.Text.Length is < 1 or > 2000 || !choice.IsCorrect) ||
+                    choices.Select(choice => choice.Text).Distinct(StringComparer.OrdinalIgnoreCase).Count() != choices.Count ||
+                    answers.Count != 0 || order.Count != choices.Count ||
+                    order.Distinct().Count() != choices.Count ||
+                    order.Any(position => position < 1 || position > choices.Count))
+                    throw new LlmOutputValidationException("순서 배열형은 정답 단계 3~6개와 모든 단계를 한 번씩 포함한 정답 순서가 필요합니다.", questionNumber);
+            }
+            else if (type == "multipleChoice")
             {
                 choices = NormalizeMultipleChoiceChoices(
                     choices,
@@ -481,6 +497,7 @@ public sealed class QuestionGenerationService
                 Prompt = prompt,
                 Choices = choices,
                 AcceptableAnswers = answers,
+                CorrectOrder = order,
                 Explanation = string.IsNullOrWhiteSpace(question.Explanation)
                     ? null
                     : question.Explanation.Trim(),

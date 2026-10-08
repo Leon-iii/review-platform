@@ -41,6 +41,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
     QuestionType.trueFalse,
     QuestionType.shortAnswer,
     QuestionType.essay,
+    QuestionType.ordering,
   };
   int _questionCount = 10;
   bool _shuffle = true;
@@ -124,6 +125,7 @@ class _StudySetupViewState extends ConsumerState<StudySetupView> {
                                 'short-answer-filter',
                               ),
                               QuestionType.essay: Key('essay-filter'),
+                              QuestionType.ordering: Key('ordering-filter'),
                             },
                             multiSelectionEnabled: true,
                             emptySelectionAllowed: true,

@@ -1,6 +1,7 @@
 import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/ordering_sequence.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:review_platform/app/router.dart';
@@ -18,6 +19,7 @@ import 'package:review_platform/shared/widgets/concept_importance_badge.dart';
 import 'package:review_platform/shared/widgets/review_status_badge.dart';
 
 String questionTypeLabel(QuestionType type) => switch (type) {
+  QuestionType.ordering => '순서 배열형',
   QuestionType.multipleChoice => '객관식',
   QuestionType.trueFalse => 'O/X',
   QuestionType.shortAnswer => '단답형',
@@ -199,7 +201,20 @@ class _QuestionManagementCardState extends State<QuestionManagementCard> {
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     const SizedBox(height: 8),
-                    if (question.choices.isNotEmpty)
+                    if (question.type == QuestionType.ordering)
+                      OrderingSequence(
+                        steps: [
+                          for (final id in question.correctChoiceIds)
+                            (
+                              label:
+                                  '${question.choices.indexWhere((c) => c.id == id) + 1}',
+                              text: question.choices
+                                  .firstWhere((c) => c.id == id)
+                                  .text,
+                            ),
+                        ],
+                      )
+                    else if (question.choices.isNotEmpty)
                       for (final choice in question.choices)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),

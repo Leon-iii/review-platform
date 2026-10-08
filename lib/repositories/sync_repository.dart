@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:review_platform/domain/services/question_ordering.dart';
+
 import 'package:review_platform/repositories/quiz_answer_correction_repository.dart';
 
 import 'package:drift/drift.dart';
@@ -204,6 +206,7 @@ class DriftSyncRepository implements SyncRepository {
                   'importance': row.importance,
                   'caseSensitive': row.caseSensitive,
                   'whitespaceSensitive': row.whitespaceSensitive,
+                  'correctChoiceIds': jsonDecode(row.correctChoiceIdsJson),
                   'createdAt': row.createdAt.toUtc().toIso8601String(),
                   'updatedAt': row.updatedAt.toUtc().toIso8601String(),
                   'deletedAt': null,
@@ -399,11 +402,35 @@ class DriftSyncRepository implements SyncRepository {
           return;
         }
         final payload = _requirePayload(change);
+        if (payload['type'] == 'ordering') {
+          final order = (payload['correctChoiceIds'] as List? ?? const [])
+              .cast<String>();
+          final rawChoices = payload['choices'] as List;
+          if (!QuestionOrdering.isPermutation(
+                order,
+                rawChoices.map((raw) => (raw as Map)['id'] as String),
+              ) ||
+              rawChoices.any(
+                (raw) =>
+                    (raw as Map)['isCorrect'] != true ||
+                    (raw['text'] as String).trim().isEmpty,
+              ) ||
+              rawChoices.map((raw) => (raw as Map)['text']).toSet().length !=
+                  rawChoices.length ||
+              (payload['acceptableAnswers'] as List).isNotEmpty) {
+            throw const ValidationFailure(
+              '동기화된 순서 배열형의 단계 또는 정답 순서가 올바르지 않아요.',
+            );
+          }
+        }
         await _database.questionDao.upsertQuestion(
           QuestionsCompanion.insert(
             id: change.entityId,
             folderId: payload['folderId']! as String,
             type: QuestionAnswerFormat.syncedType(payload),
+            correctChoiceIdsJson: Value(
+              jsonEncode(payload['correctChoiceIds'] ?? const []),
+            ),
             status: payload['status']! as String,
             prompt: payload['prompt']! as String,
             explanation: Value(payload['explanation'] as String?),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/ordering_sequence.dart';
 import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
 import 'package:review_platform/app/design_tokens.dart';
@@ -292,6 +293,7 @@ class _AnswerResultCard extends StatelessWidget {
                   '선택 없음',
             QuestionType.shortAnswer || QuestionType.essay =>
               attempt.response['textAnswer'] as String? ?? '',
+            QuestionType.ordering => '',
           };
     final correctAnswer = switch (question.type) {
       QuestionType.multipleChoice || QuestionType.trueFalse =>
@@ -301,6 +303,7 @@ class _AnswerResultCard extends StatelessWidget {
             .join(', '),
       QuestionType.shortAnswer ||
       QuestionType.essay => question.acceptableAnswers.join('\n'),
+      QuestionType.ordering => '',
     };
 
     return Card(
@@ -329,9 +332,53 @@ class _AnswerResultCard extends StatelessWidget {
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          StudyText('내 답: $submittedAnswer'),
-          const SizedBox(height: 6),
-          StudyText('정답: $correctAnswer'),
+          if (question.type == QuestionType.ordering) ...[
+            const Text('내 답'),
+            const SizedBox(height: 8),
+            if (attempt.isUnknown)
+              const Text('모름')
+            else
+              OrderingSequence(
+                steps: [
+                  for (final id
+                      in (attempt.response['orderedChoiceIds'] as List? ??
+                              const [])
+                          .cast<String>())
+                    (
+                      label:
+                          '${question.choices.indexWhere((c) => c.id == id) + 1}',
+                      text:
+                          question.choices
+                              .where((c) => c.id == id)
+                              .firstOrNull
+                              ?.text ??
+                          '알 수 없는 단계',
+                    ),
+                ],
+              ),
+            const Divider(height: 24),
+            const Text('정답'),
+            const SizedBox(height: 8),
+            OrderingSequence(
+              steps: [
+                for (final id in question.correctChoiceIds)
+                  (
+                    label:
+                        '${question.choices.indexWhere((c) => c.id == id) + 1}',
+                    text:
+                        question.choices
+                            .where((c) => c.id == id)
+                            .firstOrNull
+                            ?.text ??
+                        '알 수 없는 단계',
+                  ),
+              ],
+            ),
+          ] else ...[
+            StudyText('내 답: $submittedAnswer'),
+            const SizedBox(height: 6),
+            StudyText('정답: $correctAnswer'),
+          ],
           if (question.explanation case final explanation?) ...[
             const SizedBox(height: 10),
             StudyText('해설: $explanation'),

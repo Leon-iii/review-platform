@@ -223,6 +223,33 @@ public sealed class SyncService(SyncDbContext database)
             {
                 throw new SyncValidationException("upsert에는 payload가 필요합니다.");
             }
+            if (change.Operation == "upsert" && change.EntityType == "question" &&
+                change.Payload is { ValueKind: JsonValueKind.Object } payload &&
+                payload.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String &&
+                type.GetString() == "ordering")
+                ValidateOrderingPayload(payload);
+        }
+    }
+
+    private static void ValidateOrderingPayload(JsonElement payload)
+    {
+        try
+        {
+            var choices = payload.GetProperty("choices").EnumerateArray().ToArray();
+            var ids = choices.Select(choice => choice.GetProperty("id").GetString()).ToArray();
+            var order = payload.GetProperty("correctChoiceIds").EnumerateArray().Select(id => id.GetString()).ToArray();
+            var texts = choices.Select(choice => choice.GetProperty("text").GetString()?.Trim()).ToArray();
+            if (choices.Length is < 3 or > 6 || ids.Any(string.IsNullOrWhiteSpace) ||
+                ids.Distinct().Count() != ids.Length || order.Length != ids.Length ||
+                order.Distinct().Count() != order.Length || order.Any(id => !ids.Contains(id)) ||
+                texts.Any(string.IsNullOrWhiteSpace) || texts.Distinct().Count() != texts.Length ||
+                choices.Any(choice => !choice.GetProperty("isCorrect").GetBoolean()) ||
+                payload.GetProperty("acceptableAnswers").GetArrayLength() != 0)
+                throw new SyncValidationException("순서 배열형의 단계 또는 정답 순서가 올바르지 않습니다.");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or FormatException)
+        {
+            throw new SyncValidationException("순서 배열형의 단계 또는 정답 순서가 올바르지 않습니다.");
         }
     }
 }

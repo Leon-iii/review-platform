@@ -505,6 +505,18 @@ class $QuestionsTable extends Questions
     requiredDuringInsert: false,
     defaultValue: const Constant('medium'),
   );
+  static const VerificationMeta _correctChoiceIdsJsonMeta =
+      const VerificationMeta('correctChoiceIdsJson');
+  @override
+  late final GeneratedColumn<String> correctChoiceIdsJson =
+      GeneratedColumn<String>(
+        'correct_choice_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('[]'),
+      );
   static const VerificationMeta _caseSensitiveMeta = const VerificationMeta(
     'caseSensitive',
   );
@@ -577,6 +589,7 @@ class $QuestionsTable extends Questions
     explanation,
     difficulty,
     importance,
+    correctChoiceIdsJson,
     caseSensitive,
     whitespaceSensitive,
     createdAt,
@@ -651,6 +664,15 @@ class $QuestionsTable extends Questions
       context.handle(
         _importanceMeta,
         importance.isAcceptableOrUnknown(data['importance']!, _importanceMeta),
+      );
+    }
+    if (data.containsKey('correct_choice_ids_json')) {
+      context.handle(
+        _correctChoiceIdsJsonMeta,
+        correctChoiceIdsJson.isAcceptableOrUnknown(
+          data['correct_choice_ids_json']!,
+          _correctChoiceIdsJsonMeta,
+        ),
       );
     }
     if (data.containsKey('case_sensitive')) {
@@ -734,6 +756,10 @@ class $QuestionsTable extends Questions
         DriftSqlType.string,
         data['${effectivePrefix}importance'],
       )!,
+      correctChoiceIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}correct_choice_ids_json'],
+      )!,
       caseSensitive: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}case_sensitive'],
@@ -772,6 +798,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
   final String? explanation;
   final int? difficulty;
   final String importance;
+  final String correctChoiceIdsJson;
   final bool caseSensitive;
   final bool whitespaceSensitive;
   final DateTime createdAt;
@@ -786,6 +813,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     this.explanation,
     this.difficulty,
     required this.importance,
+    required this.correctChoiceIdsJson,
     required this.caseSensitive,
     required this.whitespaceSensitive,
     required this.createdAt,
@@ -807,6 +835,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       map['difficulty'] = Variable<int>(difficulty);
     }
     map['importance'] = Variable<String>(importance);
+    map['correct_choice_ids_json'] = Variable<String>(correctChoiceIdsJson);
     map['case_sensitive'] = Variable<bool>(caseSensitive);
     map['whitespace_sensitive'] = Variable<bool>(whitespaceSensitive);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -831,6 +860,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           ? const Value.absent()
           : Value(difficulty),
       importance: Value(importance),
+      correctChoiceIdsJson: Value(correctChoiceIdsJson),
       caseSensitive: Value(caseSensitive),
       whitespaceSensitive: Value(whitespaceSensitive),
       createdAt: Value(createdAt),
@@ -855,6 +885,9 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       explanation: serializer.fromJson<String?>(json['explanation']),
       difficulty: serializer.fromJson<int?>(json['difficulty']),
       importance: serializer.fromJson<String>(json['importance']),
+      correctChoiceIdsJson: serializer.fromJson<String>(
+        json['correctChoiceIdsJson'],
+      ),
       caseSensitive: serializer.fromJson<bool>(json['caseSensitive']),
       whitespaceSensitive: serializer.fromJson<bool>(
         json['whitespaceSensitive'],
@@ -876,6 +909,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       'explanation': serializer.toJson<String?>(explanation),
       'difficulty': serializer.toJson<int?>(difficulty),
       'importance': serializer.toJson<String>(importance),
+      'correctChoiceIdsJson': serializer.toJson<String>(correctChoiceIdsJson),
       'caseSensitive': serializer.toJson<bool>(caseSensitive),
       'whitespaceSensitive': serializer.toJson<bool>(whitespaceSensitive),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -893,6 +927,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     Value<String?> explanation = const Value.absent(),
     Value<int?> difficulty = const Value.absent(),
     String? importance,
+    String? correctChoiceIdsJson,
     bool? caseSensitive,
     bool? whitespaceSensitive,
     DateTime? createdAt,
@@ -907,6 +942,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     explanation: explanation.present ? explanation.value : this.explanation,
     difficulty: difficulty.present ? difficulty.value : this.difficulty,
     importance: importance ?? this.importance,
+    correctChoiceIdsJson: correctChoiceIdsJson ?? this.correctChoiceIdsJson,
     caseSensitive: caseSensitive ?? this.caseSensitive,
     whitespaceSensitive: whitespaceSensitive ?? this.whitespaceSensitive,
     createdAt: createdAt ?? this.createdAt,
@@ -929,6 +965,9 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
       importance: data.importance.present
           ? data.importance.value
           : this.importance,
+      correctChoiceIdsJson: data.correctChoiceIdsJson.present
+          ? data.correctChoiceIdsJson.value
+          : this.correctChoiceIdsJson,
       caseSensitive: data.caseSensitive.present
           ? data.caseSensitive.value
           : this.caseSensitive,
@@ -952,6 +991,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           ..write('explanation: $explanation, ')
           ..write('difficulty: $difficulty, ')
           ..write('importance: $importance, ')
+          ..write('correctChoiceIdsJson: $correctChoiceIdsJson, ')
           ..write('caseSensitive: $caseSensitive, ')
           ..write('whitespaceSensitive: $whitespaceSensitive, ')
           ..write('createdAt: $createdAt, ')
@@ -971,6 +1011,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
     explanation,
     difficulty,
     importance,
+    correctChoiceIdsJson,
     caseSensitive,
     whitespaceSensitive,
     createdAt,
@@ -989,6 +1030,7 @@ class QuestionRow extends DataClass implements Insertable<QuestionRow> {
           other.explanation == this.explanation &&
           other.difficulty == this.difficulty &&
           other.importance == this.importance &&
+          other.correctChoiceIdsJson == this.correctChoiceIdsJson &&
           other.caseSensitive == this.caseSensitive &&
           other.whitespaceSensitive == this.whitespaceSensitive &&
           other.createdAt == this.createdAt &&
@@ -1005,6 +1047,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
   final Value<String?> explanation;
   final Value<int?> difficulty;
   final Value<String> importance;
+  final Value<String> correctChoiceIdsJson;
   final Value<bool> caseSensitive;
   final Value<bool> whitespaceSensitive;
   final Value<DateTime> createdAt;
@@ -1020,6 +1063,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     this.explanation = const Value.absent(),
     this.difficulty = const Value.absent(),
     this.importance = const Value.absent(),
+    this.correctChoiceIdsJson = const Value.absent(),
     this.caseSensitive = const Value.absent(),
     this.whitespaceSensitive = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -1036,6 +1080,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     this.explanation = const Value.absent(),
     this.difficulty = const Value.absent(),
     this.importance = const Value.absent(),
+    this.correctChoiceIdsJson = const Value.absent(),
     this.caseSensitive = const Value.absent(),
     this.whitespaceSensitive = const Value.absent(),
     required DateTime createdAt,
@@ -1058,6 +1103,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     Expression<String>? explanation,
     Expression<int>? difficulty,
     Expression<String>? importance,
+    Expression<String>? correctChoiceIdsJson,
     Expression<bool>? caseSensitive,
     Expression<bool>? whitespaceSensitive,
     Expression<DateTime>? createdAt,
@@ -1074,6 +1120,8 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
       if (explanation != null) 'explanation': explanation,
       if (difficulty != null) 'difficulty': difficulty,
       if (importance != null) 'importance': importance,
+      if (correctChoiceIdsJson != null)
+        'correct_choice_ids_json': correctChoiceIdsJson,
       if (caseSensitive != null) 'case_sensitive': caseSensitive,
       if (whitespaceSensitive != null)
         'whitespace_sensitive': whitespaceSensitive,
@@ -1093,6 +1141,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     Value<String?>? explanation,
     Value<int?>? difficulty,
     Value<String>? importance,
+    Value<String>? correctChoiceIdsJson,
     Value<bool>? caseSensitive,
     Value<bool>? whitespaceSensitive,
     Value<DateTime>? createdAt,
@@ -1109,6 +1158,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
       explanation: explanation ?? this.explanation,
       difficulty: difficulty ?? this.difficulty,
       importance: importance ?? this.importance,
+      correctChoiceIdsJson: correctChoiceIdsJson ?? this.correctChoiceIdsJson,
       caseSensitive: caseSensitive ?? this.caseSensitive,
       whitespaceSensitive: whitespaceSensitive ?? this.whitespaceSensitive,
       createdAt: createdAt ?? this.createdAt,
@@ -1145,6 +1195,11 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
     if (importance.present) {
       map['importance'] = Variable<String>(importance.value);
     }
+    if (correctChoiceIdsJson.present) {
+      map['correct_choice_ids_json'] = Variable<String>(
+        correctChoiceIdsJson.value,
+      );
+    }
     if (caseSensitive.present) {
       map['case_sensitive'] = Variable<bool>(caseSensitive.value);
     }
@@ -1177,6 +1232,7 @@ class QuestionsCompanion extends UpdateCompanion<QuestionRow> {
           ..write('explanation: $explanation, ')
           ..write('difficulty: $difficulty, ')
           ..write('importance: $importance, ')
+          ..write('correctChoiceIdsJson: $correctChoiceIdsJson, ')
           ..write('caseSensitive: $caseSensitive, ')
           ..write('whitespaceSensitive: $whitespaceSensitive, ')
           ..write('createdAt: $createdAt, ')
@@ -6980,6 +7036,7 @@ typedef $$QuestionsTableCreateCompanionBuilder = QuestionsCompanion Function({
   Value<String?> explanation,
   Value<int?> difficulty,
   Value<String> importance,
+  Value<String> correctChoiceIdsJson,
   Value<bool> caseSensitive,
   Value<bool> whitespaceSensitive,
   required DateTime createdAt,
@@ -6996,6 +7053,7 @@ typedef $$QuestionsTableUpdateCompanionBuilder = QuestionsCompanion Function({
   Value<String?> explanation,
   Value<int?> difficulty,
   Value<String> importance,
+  Value<String> correctChoiceIdsJson,
   Value<bool> caseSensitive,
   Value<bool> whitespaceSensitive,
   Value<DateTime> createdAt,
@@ -7166,6 +7224,11 @@ class $$QuestionsTableFilterComposer
 
   ColumnFilters<String> get importance => $composableBuilder(
     column: $table.importance,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get correctChoiceIdsJson => $composableBuilder(
+    column: $table.correctChoiceIdsJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7387,6 +7450,11 @@ class $$QuestionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get correctChoiceIdsJson => $composableBuilder(
+    column: $table.correctChoiceIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get caseSensitive => $composableBuilder(
     column: $table.caseSensitive,
     builder: (column) => ColumnOrderings(column),
@@ -7469,6 +7537,11 @@ class $$QuestionsTableAnnotationComposer
 
   GeneratedColumn<String> get importance => $composableBuilder(
     column: $table.importance,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get correctChoiceIdsJson => $composableBuilder(
+    column: $table.correctChoiceIdsJson,
     builder: (column) => column,
   );
 
@@ -7684,6 +7757,7 @@ class $$QuestionsTableTableManager
                 Value<String?> explanation = const Value.absent(),
                 Value<int?> difficulty = const Value.absent(),
                 Value<String> importance = const Value.absent(),
+                Value<String> correctChoiceIdsJson = const Value.absent(),
                 Value<bool> caseSensitive = const Value.absent(),
                 Value<bool> whitespaceSensitive = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -7699,6 +7773,7 @@ class $$QuestionsTableTableManager
                 explanation: explanation,
                 difficulty: difficulty,
                 importance: importance,
+                correctChoiceIdsJson: correctChoiceIdsJson,
                 caseSensitive: caseSensitive,
                 whitespaceSensitive: whitespaceSensitive,
                 createdAt: createdAt,
@@ -7716,6 +7791,7 @@ class $$QuestionsTableTableManager
                 Value<String?> explanation = const Value.absent(),
                 Value<int?> difficulty = const Value.absent(),
                 Value<String> importance = const Value.absent(),
+                Value<String> correctChoiceIdsJson = const Value.absent(),
                 Value<bool> caseSensitive = const Value.absent(),
                 Value<bool> whitespaceSensitive = const Value.absent(),
                 required DateTime createdAt,
@@ -7731,6 +7807,7 @@ class $$QuestionsTableTableManager
                 explanation: explanation,
                 difficulty: difficulty,
                 importance: importance,
+                correctChoiceIdsJson: correctChoiceIdsJson,
                 caseSensitive: caseSensitive,
                 whitespaceSensitive: whitespaceSensitive,
                 createdAt: createdAt,

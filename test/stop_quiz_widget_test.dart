@@ -52,13 +52,21 @@ void main() {
           folderId: folder,
           type: type,
           prompt: '중단 문제 ${i + 1}',
+          correctOrder: type == QuestionType.ordering
+              ? const [1, 2, 3]
+              : const [],
           acceptableAnswers:
               type == QuestionType.essay || type == QuestionType.shortAnswer
               ? const ['정답']
               : const [],
-          choices:
-              type == QuestionType.multipleChoice ||
-                  type == QuestionType.trueFalse
+          choices: type == QuestionType.ordering
+              ? const [
+                  QuestionChoiceDraft(text: '시작', isCorrect: true),
+                  QuestionChoiceDraft(text: '처리', isCorrect: true),
+                  QuestionChoiceDraft(text: '종료', isCorrect: true),
+                ]
+              : type == QuestionType.multipleChoice ||
+                    type == QuestionType.trueFalse
               ? [
                   QuestionChoiceDraft(
                     text: type == QuestionType.trueFalse ? 'O' : '정답 선택지',
@@ -147,6 +155,11 @@ void main() {
             model.selectChoice(
               initial.currentItem.questionSnapshot.choices.first.id,
             );
+          } else if (type == QuestionType.ordering) {
+            for (final id
+                in initial.currentItem.questionSnapshot.correctChoiceIds) {
+              model.toggleOrderingChoice(id);
+            }
           } else {
             model.updateTextAnswer('정답');
           }
@@ -169,6 +182,11 @@ void main() {
               find.byKey(Key('answer-${before.currentItem.id}')),
               '작성 중 답안',
             );
+          } else if (type == QuestionType.ordering) {
+            model.toggleOrderingChoice(
+              before.currentItem.questionSnapshot.choices.last.id,
+            );
+            await tester.pumpAndSettle();
           } else {
             model.selectChoice(
               before.currentItem.questionSnapshot.choices.last.id,
@@ -218,6 +236,10 @@ void main() {
           if (type == QuestionType.essay || type == QuestionType.shortAnswer) {
             expect(continued.textAnswer, '작성 중 답안');
             expect(find.text('작성 중 답안'), findsOneWidget);
+          } else if (type == QuestionType.ordering) {
+            expect(continued.orderedChoiceIds, [
+              before.currentItem.questionSnapshot.choices.last.id,
+            ]);
           } else {
             expect(
               continued.selectedChoiceId,
@@ -267,6 +289,8 @@ void main() {
             type == QuestionType.essay || type == QuestionType.shortAnswer;
         if (written) {
           model.updateTextAnswer('작성 중');
+        } else if (type == QuestionType.ordering) {
+          model.toggleOrderingChoice(first.questionSnapshot.choices.last.id);
         } else {
           model.selectChoice(first.questionSnapshot.choices.last.id);
         }
@@ -300,10 +324,16 @@ void main() {
             .read(quizViewModelProvider(session))
             .requireValue;
         expect(continued.currentItem.id, first.id);
-        expect(
-          written ? continued.textAnswer : continued.selectedChoiceId,
-          written ? '작성 중' : first.questionSnapshot.choices.last.id,
-        );
+        if (type == QuestionType.ordering) {
+          expect(continued.orderedChoiceIds, [
+            first.questionSnapshot.choices.last.id,
+          ]);
+        } else {
+          expect(
+            written ? continued.textAnswer : continued.selectedChoiceId,
+            written ? '작성 중' : first.questionSnapshot.choices.last.id,
+          );
+        }
         expect(
           (await DriftQuestionRepository(db).getQuestion(first.questionId))!
               .status,
@@ -322,6 +352,7 @@ void main() {
         expect(next.details.items.first.skippedForReview, isTrue);
         expect(next.textAnswer, isEmpty);
         expect(next.selectedChoiceId, isNull);
+        expect(next.orderedChoiceIds, isEmpty);
         expect(
           (await DriftQuestionRepository(db).getQuestion(first.questionId))!
               .status,
@@ -341,6 +372,10 @@ void main() {
         model = container.read(quizViewModelProvider(session).notifier);
         if (written) {
           model.updateTextAnswer('정답');
+        } else if (type == QuestionType.ordering) {
+          for (final id in next.currentItem.questionSnapshot.correctChoiceIds) {
+            model.toggleOrderingChoice(id);
+          }
         } else {
           model.selectChoice(
             next.currentItem.questionSnapshot.choices.first.id,

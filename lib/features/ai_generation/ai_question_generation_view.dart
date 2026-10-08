@@ -2,6 +2,7 @@ import 'package:review_platform/shared/widgets/question_type_options.dart';
 import 'package:review_platform/shared/widgets/app_dialog.dart';
 import 'package:review_platform/shared/widgets/study_text.dart';
 import 'package:flutter/material.dart';
+import 'package:review_platform/shared/widgets/ordering_sequence.dart';
 import 'package:review_platform/shared/widgets/app_action_group.dart';
 import 'package:review_platform/shared/widgets/app_option_selector.dart';
 import 'package:review_platform/shared/widgets/app_page_bar.dart';
@@ -936,7 +937,20 @@ class _ReviewCard extends ConsumerWidget {
               question.prompt,
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            if (question.type == QuestionType.multipleChoice ||
+            if (question.type == QuestionType.ordering) ...[
+              const SizedBox(height: 12),
+              const Text('단계 / 정답 순서'),
+              const SizedBox(height: 8),
+              OrderingSequence(
+                steps: [
+                  for (final position in question.correctOrder)
+                    (
+                      label: '$position',
+                      text: question.choices[position - 1].text,
+                    ),
+                ],
+              ),
+            ] else if (question.type == QuestionType.multipleChoice ||
                 question.type == QuestionType.trueFalse) ...[
               const SizedBox(height: 12),
               for (final choice in question.choices)
@@ -1031,6 +1045,7 @@ class _ReviewCard extends ConsumerWidget {
   ) => run(action, success);
 
   String _typeLabel(QuestionType type) => switch (type) {
+    QuestionType.ordering => '순서 배열형',
     QuestionType.multipleChoice => '객관식',
     QuestionType.trueFalse => 'O/X',
     QuestionType.shortAnswer => '단답형',

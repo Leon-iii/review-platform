@@ -71,6 +71,9 @@ void main() {
       'ALTER TABLE questions DROP COLUMN whitespace_sensitive',
     );
     await original.customStatement(
+      'ALTER TABLE questions DROP COLUMN correct_choice_ids_json',
+    );
+    await original.customStatement(
       'ALTER TABLE quiz_session_items DROP COLUMN pending_essay_response_json',
     );
     await original.close();

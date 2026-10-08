@@ -18,6 +18,7 @@ class QuizRuntimeState {
     this.selectedChoiceId,
     this.textAnswer = '',
     this.isSubmitting = false,
+    this.orderedChoiceIds = const [],
   });
 
   final QuizSessionDetails details;
@@ -26,6 +27,7 @@ class QuizRuntimeState {
   final String? selectedChoiceId;
   final String textAnswer;
   final bool isSubmitting;
+  final List<String> orderedChoiceIds;
 
   QuizSessionItem get currentItem => details.items[currentIndex];
 
@@ -37,6 +39,7 @@ class QuizRuntimeState {
     bool clearSelectedChoice = false,
     String? textAnswer,
     bool? isSubmitting,
+    List<String>? orderedChoiceIds,
   }) {
     return QuizRuntimeState(
       details: details ?? this.details,
@@ -47,6 +50,7 @@ class QuizRuntimeState {
           : selectedChoiceId ?? this.selectedChoiceId,
       textAnswer: textAnswer ?? this.textAnswer,
       isSubmitting: isSubmitting ?? this.isSubmitting,
+      orderedChoiceIds: orderedChoiceIds ?? this.orderedChoiceIds,
     );
   }
 }
@@ -98,6 +102,30 @@ class QuizViewModel extends _$QuizViewModel {
     final current = state.value;
     if (current == null || current.isSubmitting) return;
     state = AsyncData(current.copyWith(textAnswer: value));
+  }
+
+  void toggleOrderingChoice(String id) {
+    final current = state.value;
+    if (current == null ||
+        current.isSubmitting ||
+        current.currentItem.attemptId != null ||
+        current.currentItem.questionSnapshot.type != QuestionType.ordering ||
+        !current.currentItem.questionSnapshot.choices.any(
+          (choice) => choice.id == id,
+        )) {
+      return;
+    }
+    final order = [...current.orderedChoiceIds];
+    if (!order.remove(id)) order.add(id);
+    state = AsyncData(
+      current.copyWith(orderedChoiceIds: List.unmodifiable(order)),
+    );
+  }
+
+  void clearOrderingChoices() {
+    final current = state.value;
+    if (current == null || current.isSubmitting) return;
+    state = AsyncData(current.copyWith(orderedChoiceIds: const []));
   }
 
   Future<QuizSubmission> submit({
@@ -165,6 +193,12 @@ class QuizViewModel extends _$QuizViewModel {
       response = {'isUnknown': true};
     } else {
       switch (question.type) {
+        case QuestionType.ordering:
+          grade = AnswerGrader.gradeOrdering(
+            question,
+            current.orderedChoiceIds,
+          );
+          response = {'orderedChoiceIds': current.orderedChoiceIds};
         case QuestionType.multipleChoice:
           final choiceId = current.selectedChoiceId;
           if (choiceId == null) {

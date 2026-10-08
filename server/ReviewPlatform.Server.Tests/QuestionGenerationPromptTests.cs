@@ -46,6 +46,24 @@ public sealed class QuestionGenerationPromptTests
             fields["acceptableAnswers"]!["description"]!.GetValue<string>());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Ordering_HasNoDistractors_AndUsesRequiredOneBasedPermutation(bool bind)
+    {
+        var prompt = QuestionGenerationPrompt.GetSystemPrompt(Input(bind));
+        Assert.Contains("exactly 3-6 distinct steps", prompt);
+        Assert.Contains("never include", prompt);
+        Assert.Contains("distractors or optional steps", prompt);
+        Assert.Contains("simultaneous, branching, reversible, or interchangeable", prompt);
+        Assert.Contains("1-based array positions", prompt);
+        var input = Input(bind) with { QuestionTypes = ["ordering"] };
+        var item = QuestionGenerationPrompt.BuildQuestionSchema(input)["properties"]!["questions"]!["items"]!;
+        Assert.Contains("ordering", item["properties"]!["type"]!["enum"]!.ToJsonString());
+        Assert.Contains("correctOrder", item["required"]!.ToJsonString());
+        Assert.Equal("integer", item["properties"]!["correctOrder"]!["items"]!["type"]!.GetValue<string>());
+    }
+
     private static QuestionGenerationInput Input(bool bindConceptOnServer) => new(
         "Web caches return cached objects to clients.", 1,
         ["multipleChoice", "trueFalse", "shortAnswer", "essay"], "자료",

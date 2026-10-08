@@ -14,6 +14,11 @@ const questionTypeOptions = <ButtonSegment<QuestionType>>[
     label: Text('객관식'),
   ),
   ButtonSegment(
+    value: QuestionType.ordering,
+    icon: Icon(Icons.swap_vert_rounded),
+    label: Text('순서 배열형'),
+  ),
+  ButtonSegment(
     value: QuestionType.shortAnswer,
     icon: Icon(Icons.short_text_rounded),
     label: Text('단답형'),

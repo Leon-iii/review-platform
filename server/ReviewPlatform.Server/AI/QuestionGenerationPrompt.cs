@@ -57,6 +57,16 @@ public static class QuestionGenerationPrompt
         variants; the default grader already ignores case and whitespace. Keep distinct valid lexical variants.
         For essay, ask for a written explanation, description, comparison, reasoning, or simple application.
         Provide one or more model answers in acceptableAnswers and an empty choices array.
+        For ordering, ask the learner to reconstruct a process with exactly 3-6 distinct steps.
+        Include ONLY necessary correct steps, with isCorrect=true on EVERY choice; never include
+        distractors or optional steps. Supply choices without embedded step numbers or sequence hints,
+        and correctOrder as a complete permutation of their 1-based array positions (e.g. [2,1,4,3]).
+        Each step must occur exactly once. Use only processes with one clear, SOURCE-supported linear
+        order. Never force simultaneous, branching, reversible, or interchangeable steps into a unique
+        order. If SOURCE has no suitable process, use another allowed type; if ordering is the only
+        allowed type, return an empty questions array rather than inventing a process.
+        Use an empty acceptableAnswers array. Explain the dependency and ordering in explanation.
+        For ALL other types, return an empty correctOrder array.
         Do not mislabel a sentence-based written response as shortAnswer. Keep every explanation grounded in SOURCE.
         After drafting each question, evaluate its difficulty from the question itself,
         including the cognitive demand, reasoning steps, answer ambiguity, and distractor
@@ -156,7 +166,7 @@ public static class QuestionGenerationPrompt
                 ["questions"] = new JsonObject
                 {
                     ["type"] = "array",
-                    ["minItems"] = input.MinimumOutputQuestions,
+                    ["minItems"] = input.QuestionTypes.All(type => type == "ordering") ? 0 : input.MinimumOutputQuestions,
                     ["maxItems"] = input.MaximumOutputQuestions,
                     ["items"] = new JsonObject
                     {
@@ -179,7 +189,7 @@ public static class QuestionGenerationPrompt
                             ["choices"] = new JsonObject
                             {
                                 ["type"] = "array",
-                                ["description"] = "For multipleChoice, provide 2-6 unique choices and mark exactly one isCorrect=true. For trueFalse, provide exactly O and X. For shortAnswer and essay, use an empty array.",
+                                ["description"] = "For multipleChoice, provide 2-6 unique choices and mark exactly one isCorrect=true. For trueFalse, provide exactly O and X. For ordering, provide 3-6 distinct necessary steps, ALL isCorrect=true, without distractors or embedded step numbers. For shortAnswer and essay, use an empty array.",
                                 ["items"] = new JsonObject
                                 {
                                     ["type"] = "object",
@@ -202,11 +212,18 @@ public static class QuestionGenerationPrompt
                             ["acceptableAnswers"] = new JsonObject
                             {
                                 ["type"] = "array",
-                                ["description"] = "Empty for multipleChoice and trueFalse. For shortAnswer, exactly one word or term per entry, with every entry an alternative spelling or equivalent term for the same single answer concept. Canonical answer first, then as many unambiguously valid synonyms, abbreviations/expanded forms, Korean/English equivalents, conventional transliterations, and accepted spelling/hyphenation/punctuation variants as apply to the question. Respect explicit language/form requirements. Never add incorrect, partial, overly broad, or ambiguous answers. Case-only and whitespace-only variants are redundant under default grading. A multi-word technical term counts as one term. Never lists, enumerations, combined answers, sentences, or yes/no answers. For essay, provide written model answers.",
+                                ["description"] = "Empty for multipleChoice, trueFalse, and ordering. For shortAnswer, exactly one word or term per entry, with every entry an alternative spelling or equivalent term for the same single answer concept. Canonical answer first, then as many unambiguously valid synonyms, abbreviations/expanded forms, Korean/English equivalents, conventional transliterations, and accepted spelling/hyphenation/punctuation variants as apply to the question. Respect explicit language/form requirements. Never add incorrect, partial, overly broad, or ambiguous answers. Case-only and whitespace-only variants are redundant under default grading. A multi-word technical term counts as one term. Never lists, enumerations, combined answers, sentences, or yes/no answers. For essay, provide written model answers.",
                                 ["items"] = new JsonObject
                                 {
                                     ["type"] = "string"
                                 }
+                            },
+                            ["correctOrder"] = new JsonObject
+                            {
+                                ["type"] = "array",
+                                ["description"] = "For ordering, every 1-based choices array position exactly once, in the unique correct process order. For every other type, empty array.",
+                                ["maxItems"] = 6,
+                                ["items"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1, ["maximum"] = 6 }
                             },
                             ["explanation"] = new JsonObject
                             {
@@ -237,6 +254,7 @@ public static class QuestionGenerationPrompt
                             "prompt",
                             "choices",
                             "acceptableAnswers",
+                            "correctOrder",
                             "explanation",
                             "difficulty",
                             "sourceIds")
@@ -252,7 +270,7 @@ public static class QuestionGenerationPrompt
             array.Remove("maxItems");
             var item = array["items"]!;
             item["properties"]!.AsObject().Remove("sourceIds");
-            item["properties"]!["type"]!["enum"] = new JsonArray("multipleChoice", "trueFalse", "shortAnswer", "essay");
+            item["properties"]!["type"]!["enum"] = new JsonArray("multipleChoice", "trueFalse", "shortAnswer", "essay", "ordering");
             var required = item["required"]!.AsArray();
             required.Remove(required.First(node => node!.GetValue<string>() == "sourceIds"));
         }

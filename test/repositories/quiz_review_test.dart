@@ -234,11 +234,12 @@ void main() {
       'ALTER TABLE quiz_session_items DROP COLUMN skipped_for_review',
     );
     legacy.execute('PRAGMA user_version = 14');
+    legacy.execute('ALTER TABLE questions DROP COLUMN correct_choice_ids_json');
     legacy.close();
     final upgraded = AppDatabase(NativeDatabase(file));
     addTearDown(upgraded.close);
     final saved = (await DriftQuizRepository(upgraded).getSession(session))!;
-    expect(upgraded.schemaVersion, 15);
+    expect(upgraded.schemaVersion, 16);
     expect(saved.items.every((item) => !item.skippedForReview), true);
     expect(saved.items.first.pendingEssayResponse!['textAnswer'], '기존 답안');
     expect(saved.session.completedQuestions, 0);

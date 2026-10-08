@@ -155,6 +155,9 @@ class HttpRemoteAiApi implements RemoteAiApi {
     final type = QuestionType.fromStorage(json['type']! as String);
     return AiGeneratedQuestion(
       type: type,
+      correctOrder: List.unmodifiable(
+        (json['correctOrder'] as List? ?? const []).cast<int>(),
+      ),
       prompt: json['prompt']! as String,
       choices: [
         for (final raw in json['choices']! as List)

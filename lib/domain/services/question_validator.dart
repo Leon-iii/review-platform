@@ -2,6 +2,7 @@ import 'package:review_platform/core/errors/app_failure.dart';
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/services/answer_grader.dart';
+import 'package:review_platform/domain/services/question_ordering.dart';
 
 abstract final class QuestionValidator {
   static QuestionDraft validate(QuestionDraft draft) {
@@ -26,9 +27,44 @@ abstract final class QuestionValidator {
         explanation,
       ),
       QuestionType.trueFalse => _validateTrueFalse(draft, prompt, explanation),
+      QuestionType.ordering => _validateOrdering(draft, prompt, explanation),
       QuestionType.shortAnswer ||
       QuestionType.essay => _validateShortAnswer(draft, prompt, explanation),
     };
+  }
+
+  static QuestionDraft _validateOrdering(
+    QuestionDraft draft,
+    String prompt,
+    String? explanation,
+  ) {
+    final choices = [
+      for (final choice in draft.choices)
+        QuestionChoiceDraft(text: choice.text.trim(), isCorrect: true),
+    ];
+    if (!QuestionOrdering.isPermutation(
+          draft.correctOrder,
+          Iterable.generate(choices.length, (i) => i + 1),
+        ) ||
+        choices.any((choice) => choice.text.isEmpty) ||
+        draft.choices.any((choice) => !choice.isCorrect) ||
+        choices.map((choice) => choice.text).toSet().length != choices.length ||
+        draft.acceptableAnswers.isNotEmpty) {
+      throw const ValidationFailure(
+        '순서 배열형은 서로 다른 단계 3~6개와 모든 단계를 한 번씩 포함한 정답 순서가 필요해요.',
+      );
+    }
+    return QuestionDraft(
+      folderId: draft.folderId,
+      type: draft.type,
+      status: draft.status,
+      prompt: prompt,
+      explanation: _nullIfEmpty(explanation),
+      difficulty: draft.difficulty,
+      importance: draft.importance,
+      choices: choices,
+      correctOrder: List.unmodifiable(draft.correctOrder),
+    );
   }
 
   static QuestionDraft _validateTrueFalse(

@@ -14,6 +14,19 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
     private readonly SqliteConnection connection = new("Data Source=:memory:");
     private SyncDbContext database = null!;
 
+    [Fact]
+    public async Task OrderingWithoutSuitableProcess_FailsSafelyInsteadOfInventingSteps()
+    {
+        var provider = new FakeLlmProvider([]);
+        var error = await Assert.ThrowsAsync<LlmOutputValidationException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(
+                new GenerateQuestionsRequest("과정이 아닌 용어의 정의와 의미에 관한 학습 내용이다.", 1, ["ordering"], null),
+                TestContext.Current.CancellationToken));
+        Assert.Contains("선후 관계가 명확한 3~6단계", error.Message);
+        var schema = QuestionGenerationPrompt.BuildQuestionSchema(provider.LastInput!);
+        Assert.Equal(0, schema["properties"]!["questions"]!["minItems"]!.GetValue<int>());
+    }
+
     public async ValueTask InitializeAsync()
     {
         await connection.OpenAsync();
@@ -597,6 +610,56 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         "가우스 법칙의 정의를 확인한다.",
         2,
         ["provided-source"]);
+
+    private static GeneratedQuestionDraft OrderingQuestion(int count = 4) => new(
+        "ordering", "과정을 올바른 순서로 재구성해라.",
+        Enumerable.Range(1, count).Select(i => new GeneratedQuestionChoice($"과정 {i}을 수행한다.", true)).ToArray(),
+        [], "단계 사이의 선후 관계를 따른다.", 2, ["provided-source"],
+        CorrectOrder: Enumerable.Range(1, count).Reverse().ToArray());
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task Ordering_AllNecessaryStepsHaveOneCompletePermutation_AndActualDifficultyIsNotClamped(int count)
+    {
+        var draft = OrderingQuestion(count);
+        var result = await new QuestionGenerationService(database, new FakeLlmProvider([draft]))
+            .GenerateAsync(new("자료의 명확한 과정 단계들을 바탕으로 순서를 학습한다.", 1, ["ordering"], null,
+                MinimumDifficulty: 4, MaximumDifficulty: 5), TestContext.Current.CancellationToken);
+        var question = Assert.Single(result.Questions);
+        Assert.Equal(draft.CorrectOrder, question.CorrectOrder);
+        Assert.All(question.Choices, step => Assert.True(step.IsCorrect));
+        Assert.Empty(question.AcceptableAnswers);
+        Assert.Equal(2, question.Difficulty);
+    }
+
+    [Theory]
+    [InlineData("tooFew")]
+    [InlineData("tooMany")]
+    [InlineData("missing")]
+    [InlineData("duplicate")]
+    [InlineData("outOfRange")]
+    [InlineData("duplicateStep")]
+    [InlineData("distractor")]
+    [InlineData("textAnswer")]
+    public async Task Ordering_InvalidOrDistractorOutputIsRejectedWithoutSuccessRecord(string failure)
+    {
+        var original = OrderingQuestion();
+        var draft = failure switch {
+            "tooFew" => OrderingQuestion(2), "tooMany" => OrderingQuestion(7),
+            "missing" => original with { CorrectOrder = null },
+            "duplicate" => original with { CorrectOrder = [1, 2, 2, 4] },
+            "outOfRange" => original with { CorrectOrder = [1, 2, 3, 5] },
+            "duplicateStep" => original with { Choices = Enumerable.Repeat(original.Choices[0], 4).ToArray() },
+            "distractor" => original with { Choices = original.Choices.Select((choice, index) => choice with { IsCorrect = index != 0 }).ToArray() },
+            _ => original with { AcceptableAnswers = ["1-2-3-4"] }
+        };
+        await Assert.ThrowsAsync<LlmOutputValidationException>(() => new QuestionGenerationService(database, new FakeLlmProvider([draft]))
+            .GenerateAsync(new("명확한 선후 관계가 있는 자료의 과정을 학습한다.", 1, ["ordering"], null), TestContext.Current.CancellationToken));
+        Assert.Equal("failed", (await database.AiGenerationRecords.SingleAsync(TestContext.Current.CancellationToken)).Status);
+    }
 
     private static GeneratedQuestionDraft ShortAnswerQuestion() => new(
         "shortAnswer",

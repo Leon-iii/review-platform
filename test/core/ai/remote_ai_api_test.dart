@@ -15,6 +15,65 @@ void main() {
     accessToken: 'private-token',
   );
 
+  test('순서 배열형 요청과 1 기반 정답 순서를 변형 없이 파싱한다', () async {
+    late http.Request captured;
+    final api = HttpRemoteAiApi(
+      MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'metadata': {
+              'generationId': 'ordering-generation',
+              'provider': 'openai',
+              'model': 'test-model',
+              'promptVersion': 'question-generation-v16-ordering',
+              'requestedAt': '2026-10-08T00:00:00Z',
+              'inputHash': List.filled(64, 'a').join(),
+              'sourceLabel': null,
+            },
+            'questions': [
+              {
+                'type': 'ordering',
+                'status': 'draft',
+                'prompt': 'HTTP 정보교환 과정을 알맞게 재구성해라.',
+                'choices': [
+                  for (final text in [
+                    'Request 전송',
+                    'TCP 연결',
+                    '연결 종료',
+                    'Response 전송',
+                  ])
+                    {'text': text, 'isCorrect': true},
+                ],
+                'correctOrder': [2, 1, 4, 3],
+                'acceptableAnswers': [],
+                'explanation': '연결한 뒤 요청과 응답을 교환하고 종료한다.',
+                'difficulty': 3,
+                'sourceIds': [],
+                'primaryConceptId': 'concept-1',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    final result = await api.generateQuestions(
+      configuration: configuration,
+      request: const AiQuestionGenerationRequest(
+        sourceText: '비영속 HTTP 정보교환 과정에 관한 충분히 긴 학습 내용',
+        questionCount: 1,
+        questionTypes: {QuestionType.ordering},
+      ),
+    );
+    expect(jsonDecode(captured.body)['questionTypes'], ['ordering']);
+    expect(result.questions.single.type, QuestionType.ordering);
+    expect(result.questions.single.correctOrder, [2, 1, 4, 3]);
+    expect(result.questions.single.choices.every((c) => c.isCorrect), isTrue);
+    expect(result.questions.single.acceptableAnswers, isEmpty);
+  });
+
   for (final type in [QuestionType.shortAnswer, QuestionType.essay]) {
     test('${type.name}: 목표 난이도를 전송하되 범위 밖 AI 평가도 덮어쓰지 않고 파싱한다', () async {
       late http.Request captured;

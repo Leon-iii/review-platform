@@ -72,6 +72,23 @@ class FakeRemoteAiApi implements RemoteAiApi {
     int index,
     String? primaryConceptId,
   ) {
+    if (type == QuestionType.ordering) {
+      return AiGeneratedQuestion(
+        type: type,
+        prompt: '생성된 순서 배열형 문제 ${index + 1}',
+        choices: const [
+          AiGeneratedChoice(text: '설정을 완료한다.', isCorrect: true),
+          AiGeneratedChoice(text: '정보를 처리한다.', isCorrect: true),
+          AiGeneratedChoice(text: '결과를 저장한다.', isCorrect: true),
+        ],
+        correctOrder: const [1, 2, 3],
+        acceptableAnswers: const [],
+        sourceIds: const [],
+        explanation: '단계 간 선후 관계',
+        difficulty: 2,
+        primaryConceptId: primaryConceptId,
+      );
+    }
     if (type == QuestionType.multipleChoice) {
       return AiGeneratedQuestion(
         type: type,

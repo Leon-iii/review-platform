@@ -21,6 +21,7 @@ class Question {
     this.importance = ConceptImportance.medium,
     this.caseSensitive = false,
     this.whitespaceSensitive = false,
+    this.correctChoiceIds = const [],
   });
 
   final String id;
@@ -39,6 +40,7 @@ class Question {
   final ConceptImportance importance;
   final bool caseSensitive;
   final bool whitespaceSensitive;
+  final List<String> correctChoiceIds;
   String? get primaryConceptId => sourceReferences
       .where((reference) => reference.conceptId != null)
       .firstOrNull
@@ -80,6 +82,7 @@ class QuestionDraft {
     this.importance = ConceptImportance.medium,
     this.caseSensitive = false,
     this.whitespaceSensitive = false,
+    this.correctOrder = const [],
   });
 
   final String folderId;
@@ -93,6 +96,9 @@ class QuestionDraft {
   final ConceptImportance importance;
   final bool caseSensitive;
   final bool whitespaceSensitive;
+
+  /// One-based indexes into choices. Converted to persistent choice IDs on save.
+  final List<int> correctOrder;
 }
 
 class QuestionChoiceDraft {

@@ -2,7 +2,8 @@ enum QuestionType {
   multipleChoice,
   trueFalse,
   shortAnswer,
-  essay;
+  essay,
+  ordering;
 
   static QuestionType fromStorage(String value) {
     return QuestionType.values.firstWhere(

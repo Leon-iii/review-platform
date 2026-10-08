@@ -18,6 +18,8 @@ class Questions extends Table {
   IntColumn get difficulty => integer().nullable()();
 
   TextColumn get importance => text().withDefault(const Constant('medium'))();
+  TextColumn get correctChoiceIdsJson =>
+      text().withDefault(const Constant('[]'))();
 
   BoolColumn get caseSensitive =>
       boolean().withDefault(const Constant(false))();

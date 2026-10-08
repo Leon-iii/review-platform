@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:review_platform/domain/enums/question_type.dart';
 import 'package:review_platform/domain/models/question.dart';
 import 'package:review_platform/domain/models/question_answer_format.dart';
@@ -13,9 +15,20 @@ class QuestionSnapshot {
     this.difficulty,
     this.caseSensitive = false,
     this.whitespaceSensitive = false,
+    this.correctChoiceIds = const [],
   });
 
-  factory QuestionSnapshot.fromQuestion(Question question) {
+  factory QuestionSnapshot.fromQuestion(Question question, {Random? random}) {
+    final displayChoices = [...question.choices];
+    if (question.type == QuestionType.ordering) {
+      displayChoices.shuffle(random ?? Random());
+      // Do not begin with the answer already laid out in its correct sequence.
+      if (displayChoices.length > 1 &&
+          displayChoices.map((c) => c.id).join(',') ==
+              question.correctChoiceIds.join(',')) {
+        displayChoices.add(displayChoices.removeAt(0));
+      }
+    }
     return QuestionSnapshot(
       questionId: question.id,
       type: question.type,
@@ -24,8 +37,9 @@ class QuestionSnapshot {
       difficulty: question.difficulty,
       caseSensitive: question.caseSensitive,
       whitespaceSensitive: question.whitespaceSensitive,
+      correctChoiceIds: List.unmodifiable(question.correctChoiceIds),
       choices: [
-        for (final choice in question.choices)
+        for (final choice in displayChoices)
           SnapshotChoice(
             id: choice.id,
             text: choice.text,
@@ -47,6 +61,9 @@ class QuestionSnapshot {
       difficulty: json['difficulty'] as int?,
       caseSensitive: json['caseSensitive'] as bool? ?? false,
       whitespaceSensitive: json['whitespaceSensitive'] as bool? ?? false,
+      correctChoiceIds: List.unmodifiable(
+        (json['correctChoiceIds'] as List? ?? const []).cast<String>(),
+      ),
       choices: [
         for (final choice in json['choices']! as List)
           SnapshotChoice.fromJson(Map<String, Object?>.from(choice as Map)),
@@ -65,12 +82,14 @@ class QuestionSnapshot {
   final int? difficulty;
   final bool caseSensitive;
   final bool whitespaceSensitive;
+  final List<String> correctChoiceIds;
   final List<SnapshotChoice> choices;
   final List<String> acceptableAnswers;
 
   Map<String, Object?> toJson() => {
     'questionId': questionId,
     'type': type.name,
+    'correctChoiceIds': correctChoiceIds,
     'answerFormatVersion': QuestionAnswerFormat.version,
     'prompt': prompt,
     'explanation': explanation,

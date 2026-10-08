@@ -33,6 +33,7 @@ void main() {
     legacy.execute('ALTER TABLE questions DROP COLUMN importance');
     legacy.execute('ALTER TABLE questions DROP COLUMN case_sensitive');
     legacy.execute('ALTER TABLE questions DROP COLUMN whitespace_sensitive');
+    legacy.execute('ALTER TABLE questions DROP COLUMN correct_choice_ids_json');
     legacy.execute(
       'ALTER TABLE quiz_session_items DROP COLUMN pending_essay_response_json',
     );
@@ -50,7 +51,7 @@ void main() {
     expect(
       (await upgraded.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      15,
+      16,
     );
   });
 

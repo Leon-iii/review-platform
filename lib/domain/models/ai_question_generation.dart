@@ -125,6 +125,7 @@ class AiGeneratedQuestion {
     required this.difficulty,
     this.explanation,
     this.primaryConceptId,
+    this.correctOrder = const [],
   });
 
   final QuestionType type;
@@ -135,6 +136,7 @@ class AiGeneratedQuestion {
   final int difficulty;
   final List<String> sourceIds;
   final String? primaryConceptId;
+  final List<int> correctOrder;
 }
 
 class AiGeneratedChoice {
