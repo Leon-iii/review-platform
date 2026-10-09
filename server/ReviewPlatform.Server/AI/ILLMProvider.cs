@@ -37,8 +37,6 @@ public sealed record QuestionGenerationInput(
     string PromptVersion,
     string GenerationMode = "manual",
     string? AutomaticDensity = null,
-    int MinimumQuestionsPerConcept = 0,
-    int MaximumQuestionsPerConcept = 0,
     int MinimumDifficulty = 1,
     int MaximumDifficulty = 5,
     int MaximumQuestionsPerRequest = 120,
@@ -46,7 +44,7 @@ public sealed record QuestionGenerationInput(
     bool ReflectConceptImportance = false,
     bool BindConceptOnServer = false)
 {
-    public int? PlannedQuestionCount => ConceptPlans is { Count: > 0 }
+    public int? PlannedQuestionCount => !IsAutomatic && ConceptPlans is { Count: > 0 }
         ? ConceptPlans.Sum(plan => plan.QuestionCount) : null;
     public string SourceReference => string.IsNullOrWhiteSpace(SourceLabel)
         ? "provided-source"
@@ -56,23 +54,17 @@ public sealed record QuestionGenerationInput(
 
     public int MinimumOutputQuestions => PlannedQuestionCount ?? (IsAutomatic ? 1 : QuestionCount);
 
-    public int MaximumOutputQuestions => PlannedQuestionCount ?? (IsAutomatic
-        ? MaximumQuestionsPerRequest
-        : QuestionCount);
+    public int MaximumOutputQuestions => IsAutomatic ? MaximumQuestionsPerRequest
+        : PlannedQuestionCount ?? QuestionCount;
 
-    public int QuestionBudgetForTokenLimit => PlannedQuestionCount ?? (IsAutomatic
-        ? Math.Min(MaximumQuestionsPerRequest, AutomaticDensity switch
-        {
-            "low" => 10,
-            "medium" => 20,
-            "high" => 30,
-            _ => 20
-        })
-        : QuestionCount);
+    // Coverage count is not known until generation; reserve for the configured cap,
+    // rather than cutting a detailed concept off at a small density-based estimate.
+    public int QuestionBudgetForTokenLimit => IsAutomatic ? MaximumQuestionsPerRequest
+        : PlannedQuestionCount ?? QuestionCount;
 }
 
 public sealed record QuestionConceptPlan(QuestionGenerationConcept Concept, int QuestionCount,
-    IReadOnlyList<int>? TargetDifficulties = null);
+    IReadOnlyList<int>? TargetDifficulties = null, int AdditionalPracticeQuestions = 0);
 
 public sealed class LlmProviderUnavailableException(
     string message,

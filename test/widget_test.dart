@@ -1456,7 +1456,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('ai-automatic-density-field')), findsOneWidget);
-    expect(find.text('보통 · 개념별 3~4개'), findsOneWidget);
+    expect(find.text('보통 · 기본 커버 + 추가 연습'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('ai-count-mode-manual')));
     await tester.pumpAndSettle();

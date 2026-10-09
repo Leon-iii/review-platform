@@ -10,6 +10,24 @@ namespace ReviewPlatform.Server.Tests;
 
 public sealed class OpenAiLlmProviderTests
 {
+    [Theory]
+    [InlineData("gpt-6-luna", 120, 84_800)]
+    [InlineData("gpt-6-luna", 1000, 128_000)]
+    [InlineData("test-model", 120, 16_000)]
+    public async Task AutomaticCoverageReservesOutputBeyondOldDensityEstimateButRespectsModelLimit(
+        string model, int cap, int expectedBudget)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK,
+            new { status = "completed", output = new[] {
+                new { type = "message", content = new[] {
+                    new { type = "output_text", text = "{\"questions\":[]}" } } } } }));
+        await CreateProvider(handler, model: model, effort: model == "gpt-6-luna" ? "none" : null)
+            .GenerateQuestionsAsync(Input() with { GenerationMode = "automatic", AutomaticDensity = "low",
+                MaximumQuestionsPerRequest = cap }, TestContext.Current.CancellationToken);
+        using var request = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal(expectedBudget, request.RootElement.GetProperty("max_output_tokens").GetInt32());
+        Assert.Equal(1, handler.CallCount);
+    }
 
     [Fact]
     public async Task GenerateQuestions_UsesResponsesStructuredOutputs()

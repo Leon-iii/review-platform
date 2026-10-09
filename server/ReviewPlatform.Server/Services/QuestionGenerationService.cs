@@ -11,7 +11,7 @@ namespace ReviewPlatform.Server.Services;
 
 public sealed class QuestionGenerationService
 {
-    public const string PromptVersion = "question-generation-v16-ordering";
+    public const string PromptVersion = "question-generation-v19-self-contained-context";
     private const int MaximumSourceLength = 50_000;
     private static readonly HashSet<string> SupportedQuestionTypes =
     [
@@ -103,6 +103,7 @@ public sealed class QuestionGenerationService
         {
             var questions = new List<GeneratedQuestionDraft>();
             var failures = new List<QuestionGenerationFailure>();
+            var warnings = new List<string>();
             var plans = input.ConceptPlans?.Where(plan => plan.QuestionCount > 0).ToArray() ?? [];
             var completed = 0;
             if (plans.Length == 0)
@@ -111,6 +112,8 @@ public sealed class QuestionGenerationService
                 providerOutputCount = generated.Count;
                 stage = "output-validation";
                 questions.AddRange(ValidateProviderOutput(generated, input));
+                if (input.IsAutomatic && generated.Count == input.MaximumOutputQuestions)
+                    warnings.Add(CoverageLimitWarning(input.SourceLabel ?? "학습 내용", input.MaximumOutputQuestions));
             }
             else
             {
@@ -141,6 +144,8 @@ public sealed class QuestionGenerationService
                             SourceIds = [input.SourceReference]
                         }).ToArray();
                         questions.AddRange(ValidateProviderOutput(bound, conceptInput));
+                        if (input.IsAutomatic && bound.Length == conceptInput.MaximumOutputQuestions)
+                            warnings.Add(CoverageLimitWarning(plan.Concept.Title, conceptInput.MaximumOutputQuestions));
                     }
                     catch (Exception exception) when (exception is LlmProviderRequestException or
                         LlmProviderUnavailableException or LlmOutputValidationException)
@@ -177,7 +182,8 @@ public sealed class QuestionGenerationService
                     record.InputHash,
                     input.SourceLabel),
                 questions,
-                failures);
+                failures,
+                warnings);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -285,8 +291,6 @@ public sealed class QuestionGenerationService
 
         var questionCount = 0;
         string? automaticDensity = null;
-        var minimumQuestionsPerConcept = 0;
-        var maximumQuestionsPerConcept = 0;
         if (generationMode == "manual")
         {
             if (request.QuestionCount is null or < 1 or > 20)
@@ -302,15 +306,8 @@ public sealed class QuestionGenerationService
         else
         {
             automaticDensity = request.AutomaticDensity?.Trim();
-            (minimumQuestionsPerConcept, maximumQuestionsPerConcept) =
-                automaticDensity switch
-                {
-                    "low" => (1, 2),
-                    "medium" => (3, 4),
-                    "high" => (5, 6),
-                    _ => throw new QuestionGenerationRequestException(
-                        "자동 생성량은 low, medium 또는 high여야 합니다.")
-                };
+            if (automaticDensity is not ("low" or "medium" or "high"))
+                throw new QuestionGenerationRequestException("추가 연습량은 low, medium 또는 high여야 합니다.");
         }
 
         var questionTypes = (request.QuestionTypes ?? [])
@@ -341,7 +338,7 @@ public sealed class QuestionGenerationService
             {
                 // Targets cover the requested range independently of importance.
                 // Actual output ratings are never clamped to these drafting targets.
-                TargetDifficulties = Enumerable.Range(0, plan.QuestionCount).Select(index =>
+                TargetDifficulties = generationMode == "automatic" ? null : Enumerable.Range(0, plan.QuestionCount).Select(index =>
                     (int)Math.Round(plan.QuestionCount == 1
                         ? (request.MinimumDifficulty + request.MaximumDifficulty) / 2.0
                         : request.MinimumDifficulty + index *
@@ -360,8 +357,6 @@ public sealed class QuestionGenerationService
             PromptVersion,
             generationMode,
             automaticDensity,
-            minimumQuestionsPerConcept,
-            maximumQuestionsPerConcept,
             request.MinimumDifficulty,
             request.MaximumDifficulty,
             maximumQuestionsPerRequest,
@@ -375,6 +370,8 @@ public sealed class QuestionGenerationService
     {
         if (generated.Count == 0 && input.QuestionTypes.All(type => type == "ordering"))
             throw new LlmOutputValidationException("순서 배열형 문항이 생성되지 않았습니다. 자료에 선후 관계가 명확한 3~6단계 과정이 있는지 확인해 주세요.");
+        if (generated.Count == 0)
+            throw new LlmOutputValidationException("허용된 문제 유형으로 문항이 생성되지 않았습니다. 자료에 적합한 유형을 추가하거나 학습 내용을 확인해 주세요.");
         if (input.PlannedQuestionCount is int planned && generated.Count != planned)
             throw new LlmOutputValidationException(
                 $"LLM이 개념별 배분과 다른 수의 문제를 반환했습니다 (계획 {planned}개, 응답 {generated.Count}개).");
@@ -506,7 +503,7 @@ public sealed class QuestionGenerationService
             });
         }
 
-        if (input.ConceptPlans is { Count: > 0 } conceptPlans)
+        if (!input.IsAutomatic && input.ConceptPlans is { Count: > 0 } conceptPlans)
             foreach (var plan in conceptPlans)
                 if (validated.Count(q => q.PrimaryConceptId == plan.Concept.Id) != plan.QuestionCount)
                     throw new LlmOutputValidationException(
@@ -514,6 +511,9 @@ public sealed class QuestionGenerationService
                         diagnostic: $"ExpectedCount={plan.QuestionCount}; ActualCount={validated.Count(q => q.PrimaryConceptId == plan.Concept.Id)}");
         return validated;
     }
+
+    private static string CoverageLimitWarning(string title, int limit) =>
+        $"{title}: 요청 1회당 생성 상한({limit}문항)에 도달했어요. 일부 세부개념이 빠졌을 수 있으니 결과를 확인하거나 생성 상한을 조정해 주세요.";
 
     private static bool IsBinaryAnswer(string answer) => answer.Trim().ToLowerInvariant()
         .TrimEnd('.', '!', '?', '。') is "예" or "네" or "아니오" or "아니요" or "yes" or "no" or "true" or "false";

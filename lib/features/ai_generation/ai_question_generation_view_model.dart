@@ -40,12 +40,14 @@ class AiQuestionReviewState {
     required this.metadata,
     required this.items,
     this.failures = const [],
+    this.warnings = const [],
   });
 
   final String folderId;
   final AiGenerationMetadata metadata;
   final List<AiQuestionReviewItem> items;
   final List<AiConceptGenerationFailure> failures;
+  final List<String> warnings;
 
   int get pendingCount =>
       items.where((item) => item.status == AiReviewStatus.pending).length;
@@ -59,6 +61,7 @@ class AiQuestionReviewState {
       folderId: folderId,
       metadata: metadata,
       failures: failures,
+      warnings: warnings,
       items: [
         for (final item in items)
           ids.contains(item.questionId) ? item.copyWith(status: status) : item,
@@ -182,6 +185,7 @@ class AiQuestionGenerationController extends _$AiQuestionGenerationController {
           folderId: folderId,
           metadata: result.metadata,
           failures: result.failures,
+          warnings: result.warnings,
           items: [
             for (var index = 0; index < ids.length; index++)
               AiQuestionReviewItem(

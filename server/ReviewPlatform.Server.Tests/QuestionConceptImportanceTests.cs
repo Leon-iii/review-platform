@@ -92,19 +92,19 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
         var response = await new QuestionGenerationService(database, provider)
             .GenerateAsync(Request(), TestContext.Current.CancellationToken);
         Assert.Equal(8, response.Questions.Count);
-        Assert.Equal(1, response.Questions.Count(q => q.PrimaryConceptId == "low"));
-        Assert.Equal(7, response.Questions.Count(q => q.PrimaryConceptId == "high"));
+        Assert.Equal(2, response.Questions.Count(q => q.PrimaryConceptId == "low"));
+        Assert.Equal(6, response.Questions.Count(q => q.PrimaryConceptId == "high"));
         Assert.All(response.Questions, q => { Assert.Equal(1, q.Difficulty); Assert.Equal("draft", q.Status); });
         var input = provider.LastInput!;
-        Assert.Equal(7, input.QuestionBudgetForTokenLimit);
-        Assert.Equal(7, input.MinimumOutputQuestions);
+        Assert.Equal(6, input.QuestionBudgetForTokenLimit);
+        Assert.Equal(6, input.MinimumOutputQuestions);
         Assert.Equal(2, provider.Inputs.Count);
         Assert.All(provider.Inputs, call => { Assert.Single(call.ConceptPlans!); Assert.Empty(call.SourceText); });
-        Assert.Equal([5], provider.Inputs[0].ConceptPlans!.Single().TargetDifficulties);
-        Assert.Equal([4, 4, 4, 5, 5, 5, 5], provider.Inputs[1].ConceptPlans!.Single().TargetDifficulties);
+        Assert.Equal([4, 5], provider.Inputs[0].ConceptPlans!.Single().TargetDifficulties);
+        Assert.Equal([4, 4, 4, 5, 5, 5], provider.Inputs[1].ConceptPlans!.Single().TargetDifficulties);
         var prompt = QuestionGenerationPrompt.BuildUserPrompt(input);
         Assert.DoesNotContain("CONCEPT ALLOCATION", prompt);
-        Assert.Contains("\"questionCount\":7", prompt);
+        Assert.Contains("\"questionCount\":6", prompt);
         var schema = QuestionGenerationPrompt.BuildQuestionSchema(input);
         var item = schema["properties"]!["questions"]!["items"]!;
         Assert.DoesNotContain("primaryConceptId", item["required"]!.AsArray().Select(n => n!.GetValue<string>()));
@@ -123,8 +123,8 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
         var provider = new PlannedProvider { Failure = failure };
         var response = await new QuestionGenerationService(database, provider)
             .GenerateAsync(Request(), TestContext.Current.CancellationToken);
-        Assert.Equal(1, response.Questions.Count(q => q.PrimaryConceptId == "low"));
-        Assert.Equal(7, response.Questions.Count(q => q.PrimaryConceptId == "high"));
+        Assert.Equal(2, response.Questions.Count(q => q.PrimaryConceptId == "low"));
+        Assert.Equal(6, response.Questions.Count(q => q.PrimaryConceptId == "high"));
         var record = await database.AiGenerationRecords.SingleAsync(TestContext.Current.CancellationToken);
         Assert.Equal("succeeded", record.Status);
         Assert.NotNull(record.OutputJson);
@@ -136,8 +136,8 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
         var plans = QuestionConceptAllocator.Allocate(
             Enumerable.Range(0, 80).Select(i => Concept(i.ToString(), "veryHigh")).ToArray(),
             true, true, "high", 0, 3, perConceptRequests: true);
-        Assert.Equal(240, plans.Sum(p => p.QuestionCount));
-        Assert.All(plans, p => Assert.Equal(3, p.QuestionCount));
+        Assert.Equal(80, plans.Count);
+        Assert.All(plans, p => { Assert.Equal(1, p.QuestionCount); Assert.Equal(2, p.AdditionalPracticeQuestions); });
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
         var response = await new QuestionGenerationService(database, provider)
             .GenerateAsync(Request() with { SourceText = null }, TestContext.Current.CancellationToken,
                 value => { progress.Add(value); return Task.CompletedTask; });
-        Assert.Equal(7, response.Questions.Count);
+        Assert.Equal(6, response.Questions.Count);
         Assert.Equal("low", Assert.Single(response.Failures!).ConceptId);
         Assert.Equal(2, progress[^1].CompletedConcepts);
         Assert.Equal(1, progress[^1].FailedConcepts);
@@ -168,12 +168,34 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
     [Fact]
     public async Task BadCountFailsOnlyAffectedConceptWithoutAutomaticRetry()
     {
-        var provider = new PlannedProvider { BadCountConceptId = "low" };
+        var provider = new PlannedProvider { BadCountConceptId = "low", ReturnEmpty = false };
         var response = await new QuestionGenerationService(database, provider)
             .GenerateAsync(Request(), TestContext.Current.CancellationToken);
-        Assert.Equal(7, response.Questions.Count);
+        Assert.Equal(6, response.Questions.Count);
         Assert.Single(response.Failures!);
         Assert.Equal(2, provider.Inputs.Count);
+        Assert.Contains("개념별 배분과 다른 수", response.Failures!.Single().Error);
+    }
+
+    [Fact]
+    public async Task NoSuitableTypeFailsOnlyAffectedConceptAndKeepsRemainingResults()
+    {
+        var provider = new PlannedProvider { BadCountConceptId = "low" };
+        var progress = new List<QuestionGenerationProgress>();
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            Request() with { QuestionTypes = ["trueFalse", "multipleChoice", "ordering", "shortAnswer", "essay"] },
+            TestContext.Current.CancellationToken,
+            value => { progress.Add(value); return Task.CompletedTask; });
+        Assert.Equal(6, response.Questions.Count);
+        Assert.All(response.Questions, question => Assert.Equal("high", question.PrimaryConceptId));
+        var failure = Assert.Single(response.Failures!);
+        Assert.Equal("low", failure.ConceptId);
+        Assert.Equal("개념 low", failure.Title);
+        Assert.Contains("허용된 문제 유형으로 문항이 생성되지 않았습니다", failure.Error);
+        Assert.Equal(2, provider.Inputs.Count);
+        Assert.Equal(1, progress[^1].FailedConcepts);
+        Assert.Equal("partial", (await database.AiGenerationRecords.SingleAsync(
+            TestContext.Current.CancellationToken)).Status);
     }
 
     [Fact]
@@ -204,9 +226,63 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
     }
 
     private static GenerateQuestionsRequest Request() => new(
-        "구조화된 개념으로 생성할 충분히 긴 학습 내용입니다.", null, ["shortAnswer"], "자료",
-        "automatic", "medium", 4, 5,
+        "구조화된 개념으로 생성할 충분히 긴 학습 내용입니다.", 8, ["shortAnswer"], "자료",
+        "manual", null, 4, 5,
         [Concept("low", "veryLow"), Concept("high", "veryHigh")], true);
+
+    [Theory]
+    [InlineData("low", 0, 0)]
+    [InlineData("medium", 1, 3)]
+    [InlineData("high", 1, 7)]
+    public async Task AutomaticCoverageNeverShrinksLowImportanceAndWeightsOnlyPractice(
+        string density, int lowExtra, int highExtra)
+    {
+        var provider = new PlannedProvider();
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            Request() with { GenerationMode = "automatic", QuestionCount = null, AutomaticDensity = density },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3 + lowExtra, response.Questions.Count(q => q.PrimaryConceptId == "low"));
+        Assert.Equal(3 + highExtra, response.Questions.Count(q => q.PrimaryConceptId == "high"));
+        Assert.Equal(2, provider.Inputs.Count);
+        Assert.All(provider.Inputs, input =>
+        {
+            Assert.Null(input.PlannedQuestionCount);
+            Assert.Equal(1, input.MinimumOutputQuestions);
+            Assert.Equal(120, input.MaximumOutputQuestions);
+            Assert.Null(input.ConceptPlans!.Single().TargetDifficulties);
+            var payload = System.Text.Json.JsonDocument.Parse(QuestionGenerationPrompt.BuildUserPrompt(input));
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, payload.RootElement.GetProperty("questionCount").ValueKind);
+            Assert.Equal(120, payload.RootElement.GetProperty("maximumQuestionCount").GetInt32());
+            Assert.Contains("Cover every study-worthy sub-concept", payload.RootElement.GetProperty("instruction").GetString());
+        });
+        Assert.Equal(lowExtra, provider.Inputs[0].ConceptPlans!.Single().AdditionalPracticeQuestions);
+        Assert.Equal(highExtra, provider.Inputs[1].ConceptPlans!.Single().AdditionalPracticeQuestions);
+        Assert.All(response.Questions, q => Assert.Equal(1, q.Difficulty));
+        Assert.Empty(response.Warnings!);
+    }
+
+    [Fact]
+    public async Task AutomaticCapWarningPreservesQuestionsAndNeverReportsSuccessfulCoverage()
+    {
+        var provider = new PlannedProvider { MaximumQuestionsPerRequest = 2 };
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            Request() with { GenerationMode = "automatic", QuestionCount = null, AutomaticDensity = "low" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(4, response.Questions.Count);
+        Assert.Equal(2, response.Warnings!.Count);
+        Assert.Contains("개념 low", response.Warnings[0]);
+        Assert.Contains("일부 세부개념이 빠졌을 수", response.Warnings[0]);
+        Assert.Empty(response.Failures!);
+        Assert.Equal(2, provider.Inputs.Count);
+    }
+
+    [Fact]
+    public void AutomaticImportanceDisabledUsesSameExtraBudgetWithoutFixedCoverageCounts()
+    {
+        var plans = QuestionConceptAllocator.Allocate([Concept("low", "veryLow"), Concept("high", "veryHigh")],
+            false, true, "medium", 0, 120, perConceptRequests: true);
+        Assert.All(plans, plan => Assert.Equal(2, plan.AdditionalPracticeQuestions));
+    }
 
     [Fact]
     public async Task ManualTotalCanExceedPerCallLimitWhenSplitAcrossConcepts()
@@ -251,6 +327,7 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
         public string? Failure { get; init; }
         public string? FailedConceptId { get; init; }
         public string? BadCountConceptId { get; init; }
+        public bool ReturnEmpty { get; init; } = true;
         public List<QuestionGenerationInput> Inputs { get; } = [];
         public QuestionGenerationInput? LastInput { get; private set; }
         public Task<IReadOnlyList<GeneratedQuestionDraft>> GenerateQuestionsAsync(
@@ -260,12 +337,17 @@ public sealed class QuestionConceptImportanceTests : IAsyncLifetime
             Inputs.Add(input);
             if (FailedConceptId == "all" || input.ConceptPlans!.Single().Concept.Id == FailedConceptId)
                 throw new LlmProviderRequestException("테스트 요청 실패");
-            var questions = input.ConceptPlans!.SelectMany(p => Enumerable.Range(0, p.QuestionCount)
+            var questions = input.ConceptPlans!.SelectMany(p => Enumerable.Range(0,
+                    input.IsAutomatic ? Math.Min(input.MaximumOutputQuestions, 3 + p.AdditionalPracticeQuestions) : p.QuestionCount)
                 .Select(i => new GeneratedQuestionDraft("shortAnswer", $"{p.Concept.Title} 문제 {i}",
                     [], ["정답"], "해설", 1, [input.SourceReference], p.Concept.Id))).ToList();
             questions[0] = questions[0] with { PrimaryConceptId = Failure switch
                 { "missing" => null, "invented" => "not-input", "allocation" => "high", _ => questions[0].PrimaryConceptId } };
-            if (input.ConceptPlans!.Single().Concept.Id == BadCountConceptId) questions.Clear();
+            if (input.ConceptPlans!.Single().Concept.Id == BadCountConceptId)
+            {
+                if (ReturnEmpty) questions.Clear();
+                else questions.Add(questions[0] with { Prompt = "계획을 초과하는 추가 문항" });
+            }
             return Task.FromResult<IReadOnlyList<GeneratedQuestionDraft>>(questions);
         }
     }

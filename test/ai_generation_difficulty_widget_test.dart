@@ -79,6 +79,10 @@ void main() {
       final types = tester.widget<AppOptionSelector<QuestionType>>(
         find.byType(AppOptionSelector<QuestionType>),
       );
+      expect(types.selected, QuestionType.values.toSet());
+      expect(find.text('허용할 문제 유형'), findsOneWidget);
+      expect(find.text('추가 연습량'), findsOneWidget);
+      api.warnings = ['생성 상한에 도달했어요. 일부 세부개념이 빠졌을 수 있어요.'];
       types.onSelectionChanged!({QuestionType.ordering});
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -95,6 +99,7 @@ void main() {
         find.byKey(const Key('generate-ai-questions-button')),
       );
       expect(api.lastRequest!.questionTypes, {QuestionType.ordering});
+      expect(find.byKey(const Key('ai-coverage-limit-notice')), findsOneWidget);
       expect(find.byType(OrderingSequence), findsOneWidget);
       final sequence = tester.widget<OrderingSequence>(
         find.byType(OrderingSequence),
@@ -113,6 +118,7 @@ void main() {
         questions.single.choices.map((c) => c.id),
       );
       expect(questions.single.status.name, 'approved');
+      expect(find.byKey(const Key('ai-coverage-limit-notice')), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant({
@@ -125,10 +131,18 @@ void main() {
     testWidgets(
       '$mode 생성 목표 범위를 전달하되 최종 난이도는 AI 평가를 저장한다',
       (tester) async {
+        if (defaultTargetPlatform == TargetPlatform.android &&
+            mode == AiQuestionGenerationMode.automatic) {
+          tester.platformDispatcher.platformBrightnessTestValue =
+              Brightness.dark;
+          addTearDown(
+            tester.platformDispatcher.clearPlatformBrightnessTestValue,
+          );
+        }
         await tester.binding.setSurfaceSize(
           defaultTargetPlatform == TargetPlatform.windows
               ? const Size(1100, 1000)
-              : const Size(390, 800),
+              : const Size(360, 800),
         );
         addTearDown(() => tester.binding.setSurfaceSize(null));
         await tester.pumpWidget(
@@ -168,11 +182,8 @@ void main() {
           QuestionType.shortAnswer,
           QuestionType.essay,
         ]);
-        expect(types.selected, {
-          QuestionType.multipleChoice,
-          QuestionType.trueFalse,
-          QuestionType.shortAnswer,
-        });
+        expect(types.selected, QuestionType.values.toSet());
+        expect(find.text('허용할 문제 유형'), findsOneWidget);
         await tester.enterText(
           find.byKey(const Key('ai-source-text-field')),
           '목표 난이도와 별개로 완성된 문항의 평가를 저장하는 학습 내용',
@@ -203,6 +214,15 @@ void main() {
         slider = tester.widget<RangeSlider>(finder);
         expect(slider.values, const RangeValues(2, 4));
         expect(slider.labels, const RangeLabels('2 · 쉬움', '4 · 어려움'));
+        // Keep the existing physical thumb-drag check at the normal text scale;
+        // then exercise the new guidance, selectors and generation at 200%.
+        if (defaultTargetPlatform == TargetPlatform.android &&
+            mode == AiQuestionGenerationMode.automatic) {
+          tester.platformDispatcher.textScaleFactorTestValue = 2;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        }
         // Equal endpoints are supported, but never fix generated difficulty to that value.
         slider.onChanged!(const RangeValues(4, 4));
         await tester.pumpAndSettle();
@@ -228,6 +248,7 @@ void main() {
         );
         expect(api.lastRequest!.minimumDifficulty, 4);
         expect(api.lastRequest!.maximumDifficulty, 4);
+        expect(api.lastRequest!.questionTypes, QuestionType.values.toSet());
         expect(api.lastRequest!.generationMode, mode);
         final questions = (await tester.runAsync(
           () =>

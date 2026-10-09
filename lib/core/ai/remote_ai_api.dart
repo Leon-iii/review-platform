@@ -139,6 +139,9 @@ class HttpRemoteAiApi implements RemoteAiApi {
               error: raw['error'] as String,
             ),
         ],
+        warnings: List.unmodifiable(
+          (decoded['warnings'] as List? ?? const []).cast<String>(),
+        ),
       );
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(

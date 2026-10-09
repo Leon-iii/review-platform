@@ -31,6 +31,7 @@ void main() {
               'inputHash': List.filled(64, 'a').join(),
               'sourceLabel': null,
             },
+            'warnings': ['생성 상한에 도달했어요. 일부 세부개념이 빠졌을 수 있어요.'],
             'questions': [
               {
                 'type': 'ordering',
@@ -72,6 +73,7 @@ void main() {
     expect(result.questions.single.correctOrder, [2, 1, 4, 3]);
     expect(result.questions.single.choices.every((c) => c.isCorrect), isTrue);
     expect(result.questions.single.acceptableAnswers, isEmpty);
+    expect(result.warnings, ['생성 상한에 도달했어요. 일부 세부개념이 빠졌을 수 있어요.']);
   });
 
   for (final type in [QuestionType.shortAnswer, QuestionType.essay]) {

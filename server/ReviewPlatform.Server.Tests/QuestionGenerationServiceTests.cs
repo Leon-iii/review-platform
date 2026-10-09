@@ -37,6 +37,42 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         await ServerDatabaseInitializer.InitializeAsync(database);
     }
 
+    [Theory]
+    [InlineData("trueFalse")]
+    [InlineData("multipleChoice")]
+    [InlineData("shortAnswer")]
+    [InlineData("essay")]
+    public async Task NoSuitableAllowedType_ReportsUsefulErrorAndStoresFailure(string type)
+    {
+        var provider = new FakeLlmProvider([]);
+        var error = await Assert.ThrowsAsync<LlmOutputValidationException>(() =>
+            new QuestionGenerationService(database, provider).GenerateAsync(
+                new GenerateQuestionsRequest("주어진 유형으로 적절한 문항을 만들 수 없는 학습 내용이다.", 1, [type], null),
+                TestContext.Current.CancellationToken));
+        Assert.Contains("자료에 적합한 유형을 추가하거나 학습 내용을 확인", error.Message);
+        Assert.Equal(1, provider.CallCount);
+        var record = await database.AiGenerationRecords.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("failed", record.Status);
+        Assert.Contains(error.Message, record.Error!);
+        Assert.Null(record.OutputJson);
+    }
+
+    [Fact]
+    public async Task AllowedTypesAreNotQuotas_AllQuestionsCanUseOneSuitableType()
+    {
+        var provider = new FakeLlmProvider([
+            ShortAnswerQuestion(),
+            ShortAnswerQuestion() with { Prompt = "전기선속과 내부 전하를 연결하는 법칙의 이름은 무엇인가?" }
+        ]);
+        var response = await new QuestionGenerationService(database, provider).GenerateAsync(
+            new GenerateQuestionsRequest("가우스 법칙은 폐곡면의 전기선속과 내부 전하를 연결한다.", 2,
+                ["trueFalse", "multipleChoice", "ordering", "shortAnswer", "essay"], null),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2, response.Questions.Count);
+        Assert.All(response.Questions, question => Assert.Equal("shortAnswer", question.Type));
+        Assert.Equal(1, provider.CallCount);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await database.DisposeAsync();
@@ -275,14 +311,13 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         Assert.Equal(1, input.MinimumDifficulty);
         Assert.Equal(5, input.MaximumDifficulty);
         Assert.True(input.IsAutomatic);
-        Assert.Equal(1, input.MinimumQuestionsPerConcept);
-        Assert.Equal(2, input.MaximumQuestionsPerConcept);
         var prompt = QuestionGenerationPrompt.BuildUserPrompt(input);
-        Assert.Contains("1-2 questions for EACH identified concept", prompt);
+        Assert.Contains("cover ALL study-worthy sub-concepts in EACH identified concept at least once", prompt);
+        Assert.Contains("Additional practice budget per identified concept: 0 questions", prompt);
         Assert.Contains("there is no fixed total", prompt);
         var schema = QuestionGenerationPrompt.BuildQuestionSchema(input);
         var questionArray = schema["properties"]!["questions"]!;
-        Assert.Equal(1, questionArray["minItems"]!.GetValue<int>());
+        Assert.Equal(0, questionArray["minItems"]!.GetValue<int>());
         Assert.Equal(120,
             questionArray["maxItems"]!.GetValue<int>());
     }
@@ -563,7 +598,7 @@ public sealed class QuestionGenerationServiceTests : IAsyncLifetime
         Assert.Equal(limit, response.Questions.Count);
         var input = provider.LastInput!;
         Assert.Equal(limit, input.MaximumOutputQuestions);
-        Assert.Equal(Math.Min(30, limit), input.QuestionBudgetForTokenLimit);
+        Assert.Equal(limit, input.QuestionBudgetForTokenLimit);
         Assert.Contains($"Return at most {limit} questions in total", QuestionGenerationPrompt.BuildUserPrompt(input));
         Assert.Contains("takes precedence", QuestionGenerationPrompt.BuildUserPrompt(input));
         Assert.Equal(limit, QuestionGenerationPrompt.BuildQuestionSchema(input)["properties"]!["questions"]!["maxItems"]!.GetValue<int>());

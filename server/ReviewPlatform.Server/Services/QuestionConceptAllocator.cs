@@ -34,12 +34,15 @@ public static class QuestionConceptAllocator
         if (!perConceptRequests && concepts.Sum(c => c.Title.Length + c.Content.Length + c.Id.Length + 30) > 50_000)
             throw new QuestionGenerationRequestException("문제 생성에 사용할 개념 내용은 총 50,000자 이하여야 합니다.");
         var weights = concepts.Select(c => reflectImportance ? Weight(c.Importance) : 3).ToArray();
+        if (automatic && perConceptRequests)
+            // One marks a concept to process, not a fixed output count. Importance
+            // only weights optional practice; the model determines basic coverage.
+            return concepts.Select(concept => new QuestionConceptPlan(concept, 1,
+                AdditionalPracticeQuestions: AdditionalPractice(density,
+                    reflectImportance ? concept.Importance : "medium", limit))).ToArray();
         var baseCount = density switch { "low" => 2, "high" => 6, _ => 4 };
         var desired = weights.Select(w => Math.Max(1, (int)Math.Round(
             baseCount * w / 3.0, MidpointRounding.AwayFromZero))).ToArray();
-        if (automatic && perConceptRequests)
-            return concepts.Select((concept, i) =>
-                new QuestionConceptPlan(concept, Math.Min(limit, desired[i]))).ToArray();
         var total = automatic ? Math.Min(limit, desired.Sum()) : manualCount;
         // Coverage first when it fits. With an insufficient budget, cover the
         // highest-priority concepts first, keeping source order as the tie-break.
@@ -66,6 +69,13 @@ public static class QuestionConceptAllocator
             throw new QuestionGenerationRequestException(
                 $"개념별 문항 수가 요청 1회당 상한({limit}개)을 초과합니다. 총 문항 수를 줄이거나 상한을 높여 주세요.");
         return concepts.Select((concept, i) => new QuestionConceptPlan(concept, counts[i])).ToArray();
+    }
+
+    public static int AdditionalPractice(string? density, string importance, int limit)
+    {
+        var extra = density switch { "low" => 0, "high" => 4, _ => 2 };
+        return Math.Min(Math.Max(0, limit - 1), (int)Math.Round(
+            extra * Weight(importance) / 3.0, MidpointRounding.AwayFromZero));
     }
 
     public static int Weight(string importance) => importance switch

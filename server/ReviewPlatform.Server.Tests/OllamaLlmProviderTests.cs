@@ -74,7 +74,7 @@ public sealed class OllamaLlmProviderTests
         Assert.False(root.GetProperty("stream").GetBoolean());
         Assert.Equal("object", root.GetProperty("format")
             .GetProperty("type").GetString());
-        Assert.Equal(1, root.GetProperty("format")
+        Assert.Equal(0, root.GetProperty("format")
             .GetProperty("properties")
             .GetProperty("questions")
             .GetProperty("minItems").GetInt32());

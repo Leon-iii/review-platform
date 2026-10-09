@@ -43,7 +43,8 @@ public sealed record QuestionGenerationMetadata(
 public sealed record GenerateQuestionsResponse(
     QuestionGenerationMetadata Metadata,
     IReadOnlyList<GeneratedQuestionDraft> Questions,
-    IReadOnlyList<QuestionGenerationFailure>? Failures = null);
+    IReadOnlyList<QuestionGenerationFailure>? Failures = null,
+    IReadOnlyList<string>? Warnings = null);
 
 public sealed record QuestionGenerationFailure(string ConceptId, string Title, string Error);
 

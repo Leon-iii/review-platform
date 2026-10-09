@@ -60,11 +60,7 @@ class _AiQuestionGenerationViewState
   AiQuestionGenerationMode _generationMode = AiQuestionGenerationMode.automatic;
   AiQuestionDensity _automaticDensity = AiQuestionDensity.medium;
   RangeValues _difficultyRange = const RangeValues(1, 5);
-  Set<QuestionType> _questionTypes = {
-    QuestionType.multipleChoice,
-    QuestionType.trueFalse,
-    QuestionType.shortAnswer,
-  };
+  Set<QuestionType> _questionTypes = QuestionType.values.toSet();
   ConceptGenerationSeed? _conceptSeed;
   SourceGenerationSeed? _sourceSeed;
   StudySource? _selectedSource;
@@ -301,9 +297,11 @@ class _AiQuestionGenerationViewState
                         ),
                       const SizedBox(height: 16),
                       Text(
-                        '문제 유형',
+                        '허용할 문제 유형',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
+                      const SizedBox(height: 8),
+                      const Text('허용한 유형 중에서 AI가 학습 목표에 맞는 유형을 선택해요.'),
                       const SizedBox(height: 8),
                       AppOptionSelector<QuestionType>(
                         multiSelectionEnabled: true,
@@ -400,39 +398,26 @@ class _AiQuestionGenerationViewState
                           initialValue: _automaticDensity,
                           isExpanded: true,
                           decoration: const InputDecoration(
-                            labelText: '자동 생성량',
+                            labelText: '추가 연습량',
                           ),
                           items: [
                             DropdownMenuItem(
                               value: AiQuestionDensity.low,
-                              child: Text(
-                                _generationConcepts.isNotEmpty &&
-                                        _reflectConceptImportance
-                                    ? '적음 · 중요도별 배분'
-                                    : '적음 · 개념별 1~2개',
-                              ),
+                              child: Text('적음 · 기본 커버만'),
                             ),
                             DropdownMenuItem(
                               value: AiQuestionDensity.medium,
-                              child: Text(
-                                _generationConcepts.isNotEmpty &&
-                                        _reflectConceptImportance
-                                    ? '보통 · 중요도별 배분'
-                                    : '보통 · 개념별 3~4개',
-                              ),
+                              child: Text('보통 · 기본 커버 + 추가 연습'),
                             ),
                             DropdownMenuItem(
                               value: AiQuestionDensity.high,
-                              child: Text(
-                                _generationConcepts.isNotEmpty &&
-                                        _reflectConceptImportance
-                                    ? '많음 · 중요도별 배분'
-                                    : '많음 · 개념별 5~6개',
-                              ),
+                              child: Text('많음 · 기본 커버 + 더 많은 연습'),
                             ),
                           ],
                           onChanged: (value) {
-                            if (value != null) _automaticDensity = value;
+                            if (value != null) {
+                              setState(() => _automaticDensity = value);
+                            }
                           },
                         )
                       else
@@ -456,14 +441,24 @@ class _AiQuestionGenerationViewState
                             return null;
                           },
                         ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _generationMode == AiQuestionGenerationMode.automatic
+                            ? '모든 학습 가치 있는 세부개념을 먼저 평가하고, 추가 연습을 생성해요. 문항 수는 내용에 따라 달라지며, 허용 유형과 생성 상한에 따라 일부 내용이 빠질 수 있어요.'
+                            : '지정한 문항 수 안에서 핵심 내용을 우선 평가해요. 모든 세부개념을 커버하지 못할 수 있어요.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                       if (_generationConcepts.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         SwitchListTile(
                           key: const Key('ai-concept-importance-switch'),
                           contentPadding: EdgeInsets.zero,
                           title: const Text('개념 중요도 반영'),
-                          subtitle: const Text(
-                            '중요한 개념에 더 많은 문제를 배정합니다. 난이도에는 영향을 주지 않으며, 생성 상한은 개념별 요청에 적용합니다.',
+                          subtitle: Text(
+                            _generationMode ==
+                                    AiQuestionGenerationMode.automatic
+                                ? '기본 커버는 유지하고 중요한 개념에 추가 연습을 더 배정해요. 난이도에는 영향을 주지 않으며, 생성 상한은 개념별 요청에 적용해요.'
+                                : '지정한 총 문항 수를 중요도에 따라 배분해요. 난이도에는 영향을 주지 않으며, 생성 상한은 개념별 요청에 적용해요.',
                           ),
                           value: _reflectConceptImportance,
                           onChanged: (value) =>
@@ -800,6 +795,19 @@ class _ReviewPanelState extends ConsumerState<_ReviewPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (review.warnings.isNotEmpty) ...[
+                  Semantics(
+                    liveRegion: true,
+                    child: ListTile(
+                      key: const Key('ai-coverage-limit-notice'),
+                      leading: const Icon(Icons.warning_amber_rounded),
+                      title: const Text('세부개념 커버 확인'),
+                      subtitle: Text(review.warnings.join('\n')),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 if (review.failures.isNotEmpty) ...[
                   AppErrorNotice(
                     error:

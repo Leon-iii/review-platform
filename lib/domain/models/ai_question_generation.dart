@@ -57,11 +57,13 @@ class AiQuestionGenerationResult {
     required this.metadata,
     required this.questions,
     this.failures = const [],
+    this.warnings = const [],
   });
 
   final AiGenerationMetadata metadata;
   final List<AiGeneratedQuestion> questions;
   final List<AiConceptGenerationFailure> failures;
+  final List<String> warnings;
 }
 
 class AiConceptGenerationFailure {

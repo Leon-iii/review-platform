@@ -11,6 +11,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
   AiQuestionGenerationRequest? lastRequest;
   bool invalidConceptId = false;
   List<AiConceptGenerationFailure> failures = const [];
+  List<String> warnings = const [];
   AiGenerationProgress? progress;
   void Function(AiGenerationProgress)? _onProgress;
   void emitProgress(AiGenerationProgress progress) =>
@@ -43,6 +44,7 @@ class FakeRemoteAiApi implements RemoteAiApi {
         };
     return AiQuestionGenerationResult(
       failures: failures,
+      warnings: warnings,
       metadata: AiGenerationMetadata(
         generationId: 'generation-1',
         provider: 'fake',
@@ -120,10 +122,13 @@ class FakeRemoteAiApi implements RemoteAiApi {
       );
     }
     return AiGeneratedQuestion(
-      type: QuestionType.shortAnswer,
-      prompt: '생성된 단답형 문제 ${index + 1}',
+      type: type,
+      prompt:
+          '생성된 ${type == QuestionType.essay ? '서술형' : '단답형'} 문제 ${index + 1}',
       choices: const [],
-      acceptableAnswers: const ['정답'],
+      acceptableAnswers: type == QuestionType.essay
+          ? const ['개념의 원리와 이유를 설명한 모범답안이다.']
+          : const ['정답'],
       sourceIds: const [],
       explanation: '생성된 해설',
       difficulty: 1,

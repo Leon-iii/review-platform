@@ -189,7 +189,7 @@ public sealed partial class OpenAiLlmProvider(
             ["model"] = settings.Model,
             ["store"] = false,
             ["max_output_tokens"] = Math.Min(
-                16_000,
+                input.IsAutomatic ? OpenAiModelCapabilitiesRegistry.Get(settings.Model).MaxOutputTokens ?? 16_000 : 16_000,
                 800 + input.QuestionBudgetForTokenLimit * 700),
             ["input"] = new object[]
             {
